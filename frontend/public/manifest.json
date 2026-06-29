@@ -1,0 +1,49 @@
+{
+  "name": "DuoFuturo - Gestão Financeira",
+  "short_name": "DuoFuturo",
+  "description": "Sistema completo de gestão financeira com controle de receitas, despesas e clientes",
+  "start_url": "/gestao/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#3B82F6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/gestao/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/gestao/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "business", "productivity"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Ver visão geral financeira",
+      "url": "/gestao/",
+      "icons": [{ "src": "/gestao/logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Clientes",
+      "short_name": "Clientes",
+      "description": "Gerenciar clientes",
+      "url": "/gestao/clientes",
+      "icons": [{ "src": "/gestao/logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Receitas",
+      "short_name": "Receitas",
+      "description": "Ver receitas",
+      "url": "/gestao/receitas",
+      "icons": [{ "src": "/gestao/logo.png", "sizes": "192x192" }]
+    }
+  ]
+}

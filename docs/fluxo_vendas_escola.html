@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fluxo de Vendas — Escola Panteras</title>
+<style>
+  :root {
+    --navy:    #0f172a;
+    --gold:    #d97706;
+    --green:   #10b981;
+    --red:     #ef4444;
+    --blue:    #3b82f6;
+    --purple:  #8b5cf6;
+    --orange:  #f97316;
+    --gray:    #64748b;
+    --light:   #f8fafc;
+    --border:  #e2e8f0;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    border-bottom: 2px solid var(--gold);
+    padding: 32px 48px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  header .logo {
+    width: 56px; height: 56px;
+    background: var(--gold);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+  }
+  header h1 { font-size: 26px; font-weight: 700; color: #fff; }
+  header p  { font-size: 13px; color: #94a3b8; margin-top: 4px; }
+
+  /* ── PIPELINE OVERVIEW ── */
+  .pipeline {
+    padding: 32px 48px 0;
+    overflow-x: auto;
+  }
+  .pipeline-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 2px;
+    color: var(--gold); text-transform: uppercase; margin-bottom: 16px;
+  }
+  .pipeline-track {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    min-width: max-content;
+    padding-bottom: 8px;
+  }
+  .pipe-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 110px;
+  }
+  .pipe-box {
+    width: 100px; height: 48px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; text-align: center;
+    line-height: 1.3;
+    padding: 4px 6px;
+    border: 2px solid transparent;
+    cursor: default;
+    transition: transform .15s;
+  }
+  .pipe-box:hover { transform: translateY(-2px); }
+  .pipe-num {
+    font-size: 10px; color: #64748b; font-weight: 600;
+  }
+  .pipe-arrow {
+    font-size: 20px; color: #334155;
+    flex-shrink: 0;
+    margin: 0 -4px;
+    padding-bottom: 18px;
+  }
+  .pipe-box.c-blue   { background: rgba(59,130,246,.18); border-color: #3b82f6; color: #93c5fd; }
+  .pipe-box.c-green  { background: rgba(16,185,129,.18); border-color: #10b981; color: #6ee7b7; }
+  .pipe-box.c-purple { background: rgba(139,92,246,.18);  border-color: #8b5cf6; color: #c4b5fd; }
+  .pipe-box.c-gold   { background: rgba(217,119,6,.18);   border-color: #d97706; color: #fcd34d; }
+  .pipe-box.c-red    { background: rgba(239,68,68,.18);   border-color: #ef4444; color: #fca5a5; }
+  .pipe-box.c-orange { background: rgba(249,115,22,.18);  border-color: #f97316; color: #fdba74; }
+  .pipe-box.c-gray   { background: rgba(100,116,139,.18); border-color: #64748b; color: #cbd5e1; }
+
+  /* ── GRID ── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 24px;
+    padding: 32px 48px 48px;
+  }
+
+  /* ── CARD ── */
+  .card {
+    background: #1e293b;
+    border-radius: 16px;
+    border: 1px solid #334155;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .card-header {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid #334155;
+  }
+  .card-icon {
+    width: 38px; height: 38px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .card-title { font-size: 15px; font-weight: 700; color: #f1f5f9; }
+  .card-sub   { font-size: 11px; color: #64748b; margin-top: 2px; }
+  .card-body  { padding: 16px 20px; flex: 1; }
+  .card-footer { padding: 12px 20px; border-top: 1px solid #334155; background: #0f172a; }
+
+  /* ── SOURCE BADGES ── */
+  .sources {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px;
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 600;
+    border: 1px solid;
+  }
+  .badge.blue   { background: rgba(59,130,246,.12); border-color: #3b82f6; color: #93c5fd; }
+  .badge.green  { background: rgba(16,185,129,.12); border-color: #10b981; color: #6ee7b7; }
+  .badge.purple { background: rgba(139,92,246,.12); border-color: #8b5cf6; color: #c4b5fd; }
+  .badge.gold   { background: rgba(217,119,6,.12);  border-color: #d97706; color: #fcd34d; }
+  .badge.orange { background: rgba(249,115,22,.12); border-color: #f97316; color: #fdba74; }
+  .badge.gray   { background: rgba(100,116,139,.12); border-color: #64748b; color: #cbd5e1; }
+  .badge.red    { background: rgba(239,68,68,.12);  border-color: #ef4444; color: #fca5a5; }
+
+  /* ── TIMELINE ── */
+  .timeline { display: flex; flex-direction: column; gap: 8px; }
+  .tl-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 12px;
+    background: #0f172a;
+    border-radius: 10px;
+    border-left: 3px solid #334155;
+  }
+  .tl-item.highlight { border-left-color: var(--gold); }
+  .tl-day {
+    font-size: 10px; font-weight: 800; letter-spacing: .5px;
+    min-width: 30px; padding-top: 1px;
+    color: var(--gold);
+  }
+  .tl-content { flex: 1; }
+  .tl-title { font-size: 13px; font-weight: 600; color: #e2e8f0; }
+  .tl-desc  { font-size: 11px; color: #64748b; margin-top: 3px; line-height: 1.5; }
+  .tl-tag {
+    display: inline-block;
+    font-size: 10px; font-weight: 700;
+    padding: 2px 7px; border-radius: 4px;
+    margin-top: 4px;
+  }
+  .tl-tag.wpp    { background: rgba(16,185,129,.15); color: #34d399; }
+  .tl-tag.phone  { background: rgba(139,92,246,.15); color: #a78bfa; }
+  .tl-tag.email  { background: rgba(59,130,246,.15); color: #60a5fa; }
+  .tl-tag.auto   { background: rgba(249,115,22,.15); color: #fb923c; }
+
+  /* ── BRANCHES ── */
+  .branches { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .branch {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 12px; border-radius: 10px;
+    border: 1px solid #334155;
+    font-size: 12px;
+  }
+  .branch-icon { font-size: 16px; flex-shrink: 0; }
+  .branch-label { font-weight: 700; color: #f1f5f9; }
+  .branch-target { font-size: 11px; color: #64748b; margin-top: 2px; }
+  .branch.yes  { border-color: #10b981; background: rgba(16,185,129,.06); }
+  .branch.no   { border-color: #ef4444; background: rgba(239,68,68,.06); }
+  .branch.warn { border-color: #f97316; background: rgba(249,115,22,.06); }
+  .branch.info { border-color: #3b82f6; background: rgba(59,130,246,.06); }
+
+  /* ── COLOR STRIP ── */
+  .strip-blue   { border-top: 3px solid #3b82f6; }
+  .strip-green  { border-top: 3px solid #10b981; }
+  .strip-purple { border-top: 3px solid #8b5cf6; }
+  .strip-gold   { border-top: 3px solid #d97706; }
+  .strip-red    { border-top: 3px solid #ef4444; }
+  .strip-orange { border-top: 3px solid #f97316; }
+  .strip-gray   { border-top: 3px solid #64748b; }
+
+  /* ── ICON BACKGROUNDS ── */
+  .i-blue   { background: rgba(59,130,246,.2); }
+  .i-green  { background: rgba(16,185,129,.2); }
+  .i-purple { background: rgba(139,92,246,.2); }
+  .i-gold   { background: rgba(217,119,6,.2); }
+  .i-red    { background: rgba(239,68,68,.2); }
+  .i-orange { background: rgba(249,115,22,.2); }
+  .i-gray   { background: rgba(100,116,139,.2); }
+
+  /* ── DIVIDER ── */
+  .divider {
+    font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+    color: #475569; text-transform: uppercase;
+    padding: 4px 0 8px;
+    border-top: 1px solid #334155; margin-top: 12px;
+  }
+
+  /* ── WIDE CARD ── */
+  .card.wide { grid-column: span 2; }
+  @media (max-width: 780px) { .card.wide { grid-column: span 1; } }
+
+  /* ── NUTRIÇÃO ── */
+  .nutrição-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+  .nutri-box {
+    background: #0f172a; border-radius: 10px; padding: 12px;
+    border: 1px solid #334155; text-align: center;
+  }
+  .nutri-box .icon { font-size: 22px; }
+  .nutri-box .label { font-size: 11px; font-weight: 700; color: #e2e8f0; margin-top: 6px; }
+  .nutri-box .freq  { font-size: 10px; color: #64748b; margin-top: 3px; }
+
+  /* ── RECURSOS ── */
+  .recursos-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; }
+  .rec-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 10px;
+    background: #0f172a; border: 1px solid #334155;
+    font-size: 12px;
+  }
+  .rec-icon { font-size: 18px; }
+  .rec-title { font-weight: 700; color: #f1f5f9; }
+  .rec-desc  { font-size: 10px; color: #64748b; margin-top: 2px; }
+
+  /* ── FOOTER ── */
+  footer {
+    text-align: center; padding: 24px;
+    font-size: 11px; color: #334155;
+    border-top: 1px solid #1e293b;
+  }
+
+  /* ── SPAN CARD 3 ── */
+  .card.span3 { grid-column: span 3; }
+  @media (max-width: 1100px) { .card.span3 { grid-column: span 2; } }
+  @media (max-width: 780px)  { .card.span3 { grid-column: span 1; } }
+
+  /* ── KPI STRIP ── */
+  .kpi-strip {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    padding: 20px 48px;
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+  }
+  .kpi {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-radius: 10px;
+    background: #0f172a; border: 1px solid #334155;
+    flex: 1; min-width: 160px;
+  }
+  .kpi-icon { font-size: 22px; }
+  .kpi-val  { font-size: 20px; font-weight: 800; color: #f1f5f9; }
+  .kpi-label{ font-size: 11px; color: #64748b; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════ HEADER ══════════════ -->
+<header>
+  <div class="logo">🐆</div>
+  <div>
+    <h1>Fluxo de Vendas — Escola Panteras</h1>
+    <p>Pipeline completo · 11 estágios · Do lead à venda</p>
+  </div>
+</header>
+
+<!-- ══════════════ KPIs ══════════════ -->
+<div class="kpi-strip">
+  <div class="kpi">
+    <div class="kpi-icon">🎯</div>
+    <div>
+      <div class="kpi-val">11</div>
+      <div class="kpi-label">Estágios do funil</div>
+    </div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-icon">📅</div>
+    <div>
+      <div class="kpi-val">21</div>
+      <div class="kpi-label">Dias máx. por lead ativo</div>
+    </div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-icon">🤖</div>
+    <div>
+      <div class="kpi-val">80%</div>
+      <div class="kpi-label">Follow-ups automatizáveis</div>
+    </div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-icon">📲</div>
+    <div>
+      <div class="kpi-val">5</div>
+      <div class="kpi-label">Canais de entrada</div>
+    </div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-icon">♻️</div>
+    <div>
+      <div class="kpi-val">∞</div>
+      <div class="kpi-label">Leads em nutrição recorrente</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ PIPELINE OVERVIEW ══════════════ -->
+<div class="pipeline">
+  <div class="pipeline-title">Visão Geral do Pipeline</div>
+  <div class="pipeline-track">
+
+    <div class="pipe-step">
+      <div class="pipe-box c-blue">📥<br>Novo Lead</div>
+      <div class="pipe-num">① 5 fontes</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+
+    <div class="pipe-step">
+      <div class="pipe-box c-blue">📲<br>Tentativa Contato</div>
+      <div class="pipe-num">② D0→D7</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+
+    <div class="pipe-step">
+      <div class="pipe-box c-purple">📞<br>Qualificação</div>
+      <div class="pipe-num">③ D0→D6</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+
+    <div class="pipe-step">
+      <div class="pipe-box c-gold">📅<br>Reunião<br>Agendada</div>
+      <div class="pipe-num">④ lembretes</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+
+    <div class="pipe-step">
+      <div class="pipe-box c-gold">🤝<br>Reunião<br>Realizada</div>
+      <div class="pipe-num">⑤ 4 saídas</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+
+    <div class="pipe-step">
+      <div class="pipe-box c-orange">💬<br>Objeção</div>
+      <div class="pipe-num">⑥ D1→D7</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+
+    <div class="pipe-step">
+      <div class="pipe-box c-blue">💳<br>Fechamento</div>
+      <div class="pipe-num">⑦ D0→D3</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+
+    <div class="pipe-step">
+      <div class="pipe-box c-green">🏆<br>Ganho</div>
+      <div class="pipe-num">⑧</div>
+    </div>
+    <div class="pipe-arrow">·</div>
+    <div class="pipe-step">
+      <div class="pipe-box c-red">❌<br>Perdido</div>
+      <div class="pipe-num">⑨</div>
+    </div>
+    <div class="pipe-arrow">·</div>
+    <div class="pipe-step">
+      <div class="pipe-box c-gray">🌱<br>Nutrição</div>
+      <div class="pipe-num">⑩ recorrente</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════ GRID DE CARDS ══════════════ -->
+<div class="grid">
+
+  <!-- ══ 1. NOVO LEAD ══ -->
+  <div class="card strip-blue">
+    <div class="card-header">
+      <div class="card-icon i-blue">📥</div>
+      <div>
+        <div class="card-title">① Novo Lead</div>
+        <div class="card-sub">Todas as fontes de entrada</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="sources">
+        <span class="badge blue">📝 Formulário</span>
+        <span class="badge purple">📢 Campanhas</span>
+        <span class="badge green">👥 Grupos</span>
+        <span class="badge gold">📋 Importação</span>
+        <span class="badge gray">✍️ Manual</span>
+      </div>
+      <div class="divider">Ação imediata</div>
+      <div class="timeline">
+        <div class="tl-item highlight">
+          <div class="tl-day">D0</div>
+          <div class="tl-content">
+            <div class="tl-title">Registro automático no CRM</div>
+            <div class="tl-desc">Nome, telefone, origem e responsável vinculados. Lead entra no estágio <strong>Tentativa de Contato</strong>.</div>
+            <span class="tl-tag auto">⚡ automático</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <span class="badge gray">→ Tentativa de Contato</span>
+    </div>
+  </div>
+
+  <!-- ══ 2. TENTATIVA DE CONTATO ══ -->
+  <div class="card strip-blue">
+    <div class="card-header">
+      <div class="card-icon i-blue">📲</div>
+      <div>
+        <div class="card-title">② Tentativa de Contato</div>
+        <div class="card-sub">7 dias · 5 toques · WhatsApp</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="timeline">
+        <div class="tl-item highlight">
+          <div class="tl-day">D0</div>
+          <div class="tl-content">
+            <div class="tl-title">Mensagem inicial de boas-vindas</div>
+            <div class="tl-desc">Personalizada com [PrimeiroNome]. Tom leve, abre conversa, não vende ainda.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+            <span class="tl-tag auto">automático</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D1</div>
+          <div class="tl-content">
+            <div class="tl-title">Follow-up curto</div>
+            <div class="tl-desc">Pergunta simples: "Conseguiu ver minha mensagem?" ou gancho de curiosidade.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D3</div>
+          <div class="tl-content">
+            <div class="tl-title">Prova social / case</div>
+            <div class="tl-desc">Resultado de um aluno parecido com o perfil do lead. Gera identificação.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D5</div>
+          <div class="tl-content">
+            <div class="tl-title">Follow-up de valor</div>
+            <div class="tl-desc">Envia conteúdo útil (dica, vídeo curto) sem pressão. Mantém presença.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D7</div>
+          <div class="tl-content">
+            <div class="tl-title">Breakup message</div>
+            <div class="tl-desc">"Vou encerrar por aqui, mas se mudar de ideia…" — provoca resposta ou libera o lead.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+      </div>
+      <div class="branches">
+        <div class="branch yes">
+          <div class="branch-icon">✅</div>
+          <div>
+            <div class="branch-label">Respondeu</div>
+            <div class="branch-target">→ ③ Qualificação por Ligação</div>
+          </div>
+        </div>
+        <div class="branch no">
+          <div class="branch-icon">🔕</div>
+          <div>
+            <div class="branch-label">Não respondeu após D7</div>
+            <div class="branch-target">→ ⑩ Nutrição</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 3. QUALIFICAÇÃO ══ -->
+  <div class="card strip-purple">
+    <div class="card-header">
+      <div class="card-icon i-purple">📞</div>
+      <div>
+        <div class="card-title">③ Qualificação por Ligação</div>
+        <div class="card-sub">6 dias · 4 toques · Telefone + WhatsApp</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="divider">Perguntas-chave de qualificação</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
+        <span class="badge purple">🎯 Qual dor tem?</span>
+        <span class="badge purple">⏰ Tem tempo?</span>
+        <span class="badge purple">💰 Tem budget?</span>
+        <span class="badge purple">🔑 É o decisor?</span>
+      </div>
+      <div class="timeline">
+        <div class="tl-item highlight">
+          <div class="tl-day">D0</div>
+          <div class="tl-content">
+            <div class="tl-title">Ligação de qualificação</div>
+            <div class="tl-desc">Roteiro SPIN / BANT. Descobrir dor, urgência, orçamento e autoridade.</div>
+            <span class="tl-tag phone">Ligação</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D2</div>
+          <div class="tl-content">
+            <div class="tl-title">Follow-up pós-ligação</div>
+            <div class="tl-desc">Reforça o que foi conversado. Envia material prometido na ligação.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D4</div>
+          <div class="tl-content">
+            <div class="tl-title">CTA para reunião</div>
+            <div class="tl-desc">"Posso te mostrar na prática como funciona, quando você tem 30 min?"</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D6</div>
+          <div class="tl-content">
+            <div class="tl-title">Última tentativa</div>
+            <div class="tl-desc">Mensagem direta com link de agendamento. Tom de urgência suave.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+      </div>
+      <div class="branches">
+        <div class="branch yes">
+          <div class="branch-icon">✅</div>
+          <div>
+            <div class="branch-label">Agendou reunião</div>
+            <div class="branch-target">→ ④ Reunião Agendada</div>
+          </div>
+        </div>
+        <div class="branch no">
+          <div class="branch-icon">🔕</div>
+          <div>
+            <div class="branch-label">Não respondeu após D6</div>
+            <div class="branch-target">→ ⑩ Nutrição</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 4. REUNIÃO AGENDADA ══ -->
+  <div class="card strip-gold">
+    <div class="card-header">
+      <div class="card-icon i-gold">📅</div>
+      <div>
+        <div class="card-title">④ Reunião Agendada</div>
+        <div class="card-sub">Lembretes automáticos + gestão de no-show</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="divider">Lembretes automáticos</div>
+      <div class="timeline">
+        <div class="tl-item highlight">
+          <div class="tl-day">-24h</div>
+          <div class="tl-content">
+            <div class="tl-title">Lembrete D-1</div>
+            <div class="tl-desc">"Nossa conversa é amanhã às [horário]. Confirma sua presença?"</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+            <span class="tl-tag auto">automático</span>
+          </div>
+        </div>
+        <div class="tl-item highlight">
+          <div class="tl-day">-1h</div>
+          <div class="tl-content">
+            <div class="tl-title">Lembrete final</div>
+            <div class="tl-desc">"Daqui a 1h te aguardo! Aqui está o link: [link]"</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+            <span class="tl-tag auto">automático</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider">Se aconteceu a reunião</div>
+      <div class="branches">
+        <div class="branch yes">
+          <div class="branch-icon">🤝</div>
+          <div>
+            <div class="branch-label">Reunião realizada</div>
+            <div class="branch-target">→ ⑤ Reunião Realizada (move automaticamente)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider">Se não apareceu (No-Show)</div>
+      <div class="timeline">
+        <div class="tl-item">
+          <div class="tl-day">D0</div>
+          <div class="tl-content">
+            <div class="tl-title">Mensagem de reagendamento</div>
+            <div class="tl-desc">"Sentimos sua falta. Posso te reagendar?" — tom empático, sem pressão.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D1</div>
+          <div class="tl-content">
+            <div class="tl-title">Segunda tentativa</div>
+            <div class="tl-desc">Oferece novo horário. Manda link de agendamento.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D3</div>
+          <div class="tl-content">
+            <div class="tl-title">Última tentativa</div>
+            <div class="tl-desc">Breakup + CTA final. Se sem resposta → Nutrição.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 5. REUNIÃO REALIZADA ══ -->
+  <div class="card wide strip-gold">
+    <div class="card-header">
+      <div class="card-icon i-gold">🤝</div>
+      <div>
+        <div class="card-title">⑤ Reunião Realizada</div>
+        <div class="card-sub">4 saídas possíveis · follow-up automático de 7 dias</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+        <div>
+          <div class="divider">Saídas imediatas da reunião</div>
+          <div class="branches">
+            <div class="branch yes">
+              <div class="branch-icon">🏆</div>
+              <div>
+                <div class="branch-label">Fechou na call</div>
+                <div class="branch-target">→ ⑧ GANHO</div>
+              </div>
+            </div>
+            <div class="branch info">
+              <div class="branch-icon">💳</div>
+              <div>
+                <div class="branch-label">Pediu condição de pagamento</div>
+                <div class="branch-target">→ ⑦ Fechamento</div>
+              </div>
+            </div>
+            <div class="branch warn">
+              <div class="branch-icon">🤔</div>
+              <div>
+                <div class="branch-label">Teve objeção</div>
+                <div class="branch-target">→ ⑥ Objeção</div>
+              </div>
+            </div>
+            <div class="branch no">
+              <div class="branch-icon">👻</div>
+              <div>
+                <div class="branch-label">Sumiu após reunião</div>
+                <div class="branch-target">→ Sequência de 7 dias abaixo</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="divider">Sequência pós-reunião (sumiu)</div>
+          <div class="timeline">
+            <div class="tl-item highlight">
+              <div class="tl-day">D0<br>+1h</div>
+              <div class="tl-content">
+                <div class="tl-title">Mensagem pós-reunião</div>
+                <div class="tl-desc">Recapitula o que foi conversado. Reforça o valor. Agradece a atenção.</div>
+                <span class="tl-tag wpp">WhatsApp</span>
+              </div>
+            </div>
+            <div class="tl-item">
+              <div class="tl-day">D1</div>
+              <div class="tl-content">
+                <div class="tl-title">Follow-up leve</div>
+                <div class="tl-desc">"Ficou com alguma dúvida?" — abre espaço para objeção aparecer.</div>
+                <span class="tl-tag wpp">WhatsApp</span>
+              </div>
+            </div>
+            <div class="tl-item">
+              <div class="tl-day">D3</div>
+              <div class="tl-content">
+                <div class="tl-title">Case / prova social</div>
+                <div class="tl-desc">Resultado de aluno com perfil semelhante. Reforça decisão.</div>
+                <span class="tl-tag wpp">WhatsApp</span>
+              </div>
+            </div>
+            <div class="tl-item">
+              <div class="tl-day">D5</div>
+              <div class="tl-content">
+                <div class="tl-title">Quebra de objeção indireta</div>
+                <div class="tl-desc">Aborda as principais objeções sem perguntar diretamente.</div>
+                <span class="tl-tag wpp">WhatsApp</span>
+              </div>
+            </div>
+            <div class="tl-item">
+              <div class="tl-day">D7</div>
+              <div class="tl-content">
+                <div class="tl-title">Breakup message</div>
+                <div class="tl-desc">Encerra ciclo. Abre porta para retorno futuro → Nutrição.</div>
+                <span class="tl-tag wpp">WhatsApp</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 6. OBJEÇÃO ══ -->
+  <div class="card strip-orange">
+    <div class="card-header">
+      <div class="card-icon i-orange">💬</div>
+      <div>
+        <div class="card-title">⑥ Objeção</div>
+        <div class="card-sub">7 dias · tratamento estruturado</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="divider">Objeções mais comuns</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
+        <span class="badge orange">💸 Preço</span>
+        <span class="badge orange">⏰ Tempo</span>
+        <span class="badge orange">🤔 "Vou pensar"</span>
+        <span class="badge orange">👥 "Vou falar com…"</span>
+      </div>
+      <div class="timeline">
+        <div class="tl-item highlight">
+          <div class="tl-day">D1</div>
+          <div class="tl-content">
+            <div class="tl-title">Tratamento direto da objeção</div>
+            <div class="tl-desc">Aborda a objeção de frente com argumento específico e empatia.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D3</div>
+          <div class="tl-content">
+            <div class="tl-title">Case relacionado à objeção</div>
+            <div class="tl-desc">Aluno que tinha a mesma objeção e superou. Mostra o outro lado.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D5</div>
+          <div class="tl-content">
+            <div class="tl-title">Urgência / escassez</div>
+            <div class="tl-desc">Prazo, vagas limitadas ou bônus com validade. Deve ser real.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D7</div>
+          <div class="tl-content">
+            <div class="tl-title">Breakup final</div>
+            <div class="tl-desc">Encerra sem pressão. Porta aberta para retorno.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+      </div>
+      <div class="branches">
+        <div class="branch yes">
+          <div class="branch-icon">✅</div>
+          <div>
+            <div class="branch-label">Respondeu positivamente</div>
+            <div class="branch-target">→ ⑦ Fechamento</div>
+          </div>
+        </div>
+        <div class="branch no">
+          <div class="branch-icon">🔕</div>
+          <div>
+            <div class="branch-label">Não respondeu</div>
+            <div class="branch-target">→ ⑩ Nutrição</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 7. FECHAMENTO ══ -->
+  <div class="card strip-blue">
+    <div class="card-header">
+      <div class="card-icon i-blue">💳</div>
+      <div>
+        <div class="card-title">⑦ Fechamento</div>
+        <div class="card-sub">3 dias · suporte ativo ao pagamento</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="timeline">
+        <div class="tl-item highlight">
+          <div class="tl-day">+1h</div>
+          <div class="tl-content">
+            <div class="tl-title">Confirmação de envio do link/boleto</div>
+            <div class="tl-desc">Envia link de pagamento + instrução clara de como concluir.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+            <span class="tl-tag auto">automático</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D1</div>
+          <div class="tl-content">
+            <div class="tl-title">Lembrete de pagamento</div>
+            <div class="tl-desc">"Vi que ainda não concluiu — precisa de ajuda ou surgiu alguma dúvida?"</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D2</div>
+          <div class="tl-content">
+            <div class="tl-title">Suporte ao fechamento</div>
+            <div class="tl-desc">Oferece ajuda ativa: parcelamento, outra forma de pagamento, tira dúvidas.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D3</div>
+          <div class="tl-content">
+            <div class="tl-title">Urgência — encerramento da oferta</div>
+            <div class="tl-desc">"As condições se encerram hoje. Posso garantir sua vaga?" — deve ser real.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+      </div>
+      <div class="branches">
+        <div class="branch yes">
+          <div class="branch-icon">🏆</div>
+          <div>
+            <div class="branch-label">Pagamento confirmado</div>
+            <div class="branch-target">→ ⑧ GANHO</div>
+          </div>
+        </div>
+        <div class="branch no">
+          <div class="branch-icon">🔕</div>
+          <div>
+            <div class="branch-label">Sem resposta após D3</div>
+            <div class="branch-target">→ ⑨ Perdido (registrar motivo)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 8. GANHO ══ -->
+  <div class="card strip-green">
+    <div class="card-header">
+      <div class="card-icon i-green">🏆</div>
+      <div>
+        <div class="card-title">⑧ Ganho</div>
+        <div class="card-sub">Venda confirmada · onboarding</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="timeline">
+        <div class="tl-item highlight">
+          <div class="tl-day">D0</div>
+          <div class="tl-content">
+            <div class="tl-title">Mensagem de boas-vindas</div>
+            <div class="tl-desc">Celebra a decisão. Envia próximos passos de acesso à Escola.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D1</div>
+          <div class="tl-content">
+            <div class="tl-title">Onboarding / acesso</div>
+            <div class="tl-desc">Garante que o aluno está dentro da plataforma e sabe por onde começar.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-day">D7</div>
+          <div class="tl-content">
+            <div class="tl-title">Check-in de engajamento</div>
+            <div class="tl-desc">"Como está sendo a experiência?" — identifica atrito antes do churn.</div>
+            <span class="tl-tag wpp">WhatsApp</span>
+          </div>
+        </div>
+      </div>
+      <div class="divider">Ações pós-venda</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        <span class="badge green">📊 Move para CRM CX</span>
+        <span class="badge green">⭐ Solicita indicação</span>
+        <span class="badge green">📸 Solicita depoimento</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 9. PERDIDO ══ -->
+  <div class="card strip-red">
+    <div class="card-header">
+      <div class="card-icon i-red">❌</div>
+      <div>
+        <div class="card-title">⑨ Perdido</div>
+        <div class="card-sub">Registrar motivo · aprender com a perda</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="divider">Motivos de perda (obrigatório registrar)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
+        <span class="badge red">💸 Preço</span>
+        <span class="badge red">⏰ Sem tempo</span>
+        <span class="badge red">🏆 Comprou concorrente</span>
+        <span class="badge red">❓ Sem necessidade</span>
+        <span class="badge red">👻 Sem resposta</span>
+        <span class="badge red">🔄 Adiou decisão</span>
+      </div>
+      <div class="branches">
+        <div class="branch warn">
+          <div class="branch-icon">🌱</div>
+          <div>
+            <div class="branch-label">Perdido por timing / preço</div>
+            <div class="branch-target">→ ⑩ Nutrição (pode voltar futuramente)</div>
+          </div>
+        </div>
+        <div class="branch no">
+          <div class="branch-icon">🚫</div>
+          <div>
+            <div class="branch-label">Sem fit real</div>
+            <div class="branch-target">→ Arquivar (não vai para nutrição)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 10. NUTRIÇÃO ══ -->
+  <div class="card wide strip-gray">
+    <div class="card-header">
+      <div class="card-icon i-gray">🌱</div>
+      <div>
+        <div class="card-title">⑩ Nutrição</div>
+        <div class="card-sub">Ciclo contínuo · reaquece leads frios · gera reentrada no funil</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="nutrição-grid">
+        <div class="nutri-box">
+          <div class="icon">📚</div>
+          <div class="label">Conteúdo de valor</div>
+          <div class="freq">Toda semana</div>
+        </div>
+        <div class="nutri-box">
+          <div class="icon">🌟</div>
+          <div class="label">Case / prova social</div>
+          <div class="freq">Quinzenal</div>
+        </div>
+        <div class="nutri-box">
+          <div class="icon">🔥</div>
+          <div class="label">Mensagem de reativação</div>
+          <div class="freq">Mensal</div>
+        </div>
+      </div>
+      <div class="divider">Gatilho de reentrada no funil</div>
+      <div class="branches">
+        <div class="branch yes">
+          <div class="branch-icon">💬</div>
+          <div>
+            <div class="branch-label">Lead respondeu qualquer mensagem de nutrição</div>
+            <div class="branch-target">→ Volta para ② Tentativa de Contato (novo ciclo)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ RECURSOS NECESSÁRIOS ══ -->
+  <div class="card span3 strip-gold">
+    <div class="card-header">
+      <div class="card-icon i-gold">🛠️</div>
+      <div>
+        <div class="card-title">Recursos necessários para operacionalizar</div>
+        <div class="card-sub">Stack recomendado para rodar o fluxo completo</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="recursos-grid">
+        <div class="rec-item">
+          <div class="rec-icon">📊</div>
+          <div>
+            <div class="rec-title">CRM com funil kanban</div>
+            <div class="rec-desc">Gestão de estágios, responsável por lead, histórico de atividades. Já existe no sistema atual.</div>
+          </div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-icon">🤖</div>
+          <div>
+            <div class="rec-title">Automações de follow-up</div>
+            <div class="rec-desc">Disparos programados por D+X após entrada no estágio. Templates com [PrimeiroNome], [Empresa].</div>
+          </div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-icon">📲</div>
+          <div>
+            <div class="rec-title">WhatsApp conectado por usuário</div>
+            <div class="rec-desc">Cada vendedor envia do próprio número. Já configurado nas portas 3011–3018.</div>
+          </div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-icon">📅</div>
+          <div>
+            <div class="rec-title">Agenda / link de agendamento</div>
+            <div class="rec-desc">Calendly ou Google Agenda para reuniões. Lembretes automáticos 24h e 1h antes.</div>
+          </div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-icon">📝</div>
+          <div>
+            <div class="rec-title">Biblioteca de templates</div>
+            <div class="rec-desc">1 template por toque de cada estágio. Mínimo: 24 mensagens (breakups, provas, FUPs, pós-call).</div>
+          </div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-icon">📈</div>
+          <div>
+            <div class="rec-title">Dashboard de conversão</div>
+            <div class="rec-desc">Taxa de resposta por estágio, tempo médio em cada fase, motivos de perda. Identifica gargalo real.</div>
+          </div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-icon">🎭</div>
+          <div>
+            <div class="rec-title">Roteiro de qualificação (SPIN)</div>
+            <div class="rec-desc">Perguntas de Situação, Problema, Implicação e Necessidade. Guia o vendedor na ligação.</div>
+          </div>
+        </div>
+        <div class="rec-item">
+          <div class="rec-icon">🗂️</div>
+          <div>
+            <div class="rec-title">Banco de provas sociais</div>
+            <div class="rec-desc">Pelo menos 5–10 cases de alunos categorizados por perfil. Usado nos toques D3 de cada estágio.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /grid -->
+
+<footer>
+  Fluxo de Vendas · Escola Panteras · gerado em maio/2026 · Gestão Financeira CRM
+</footer>
+
+</body>
+</html>

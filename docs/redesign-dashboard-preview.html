@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Preview — Dashboard DuoFuturo (Redesign)</title>
+
+<!-- Tailwind Play CDN (apenas para o mockup) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Chart.js para os gráficos -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<!-- Fontes da marca -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          navy:   '#13264C',
+          navyD:  '#0d1a36',
+          navyL:  '#243a65',
+          gold:   '#D2B773',
+          goldL:  '#e8c98a',
+          goldD:  '#b8944f',
+          cream:  '#E5DDD1',
+          creamD: '#d8cfc2',
+          emerald2: '#10b981',
+        },
+        fontFamily: {
+          display: ['"Cormorant Garamond"', 'Georgia', 'serif'],
+          sans:    ['Poppins', 'system-ui', 'sans-serif'],
+        },
+        backgroundImage: {
+          'navy-gradient': 'linear-gradient(135deg, #243a65, #13264C 55%, #0d1a36)',
+          'gold-gradient': 'linear-gradient(135deg, #D2B773, #e8c98a, #b8944f)',
+        },
+      },
+    },
+  };
+</script>
+
+<style>
+  body { font-family: 'Poppins', system-ui, sans-serif; background: #f4f1ec; }
+  .reveal { opacity: 0; }                 /* estado inicial antes do Motion */
+  .card-hover { transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease; }
+  .card-hover:hover { transform: translateY(-4px); box-shadow: 0 18px 40px -18px rgba(19,38,76,.35); border-color: #D2B773; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1 !important; transform: none !important; }
+    .card-hover { transition: none; }
+  }
+</style>
+</head>
+
+<body class="text-navy">
+
+<!-- ===== Topbar simulada ===== -->
+<header class="bg-navy-gradient text-cream px-6 py-4 flex items-center justify-between sticky top-0 z-20 shadow-lg">
+  <div class="flex items-center gap-3">
+    <!-- símbolo quebra-cabeça simplificado -->
+    <svg width="34" height="34" viewBox="0 0 100 100" class="shrink-0">
+      <rect x="6" y="6" width="40" height="40" rx="10" fill="#D2B773"/>
+      <rect x="54" y="6" width="40" height="40" rx="10" fill="#E5DDD1"/>
+      <rect x="6" y="54" width="40" height="40" rx="10" fill="#E5DDD1"/>
+      <rect x="54" y="54" width="40" height="40" rx="10" fill="#D2B773"/>
+      <circle cx="50" cy="50" r="13" fill="#13264C" stroke="#fff" stroke-width="4"/>
+    </svg>
+    <div>
+      <h1 class="font-display text-2xl leading-none font-bold">Dashboard Financeiro</h1>
+      <p class="text-xs text-cream/70">Visão geral completa do seu negócio</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-3">
+    <span class="hidden sm:block text-xs text-cream/60">Período: Mar–Jun 2026</span>
+    <div class="w-9 h-9 rounded-full bg-gold text-navy font-semibold grid place-items-center">DB</div>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+
+  <!-- ===== HERO: Lucro ===== -->
+  <section id="hero" class="reveal relative overflow-hidden rounded-2xl bg-navy-gradient text-cream p-7 sm:p-9 border-l-[6px] border-gold shadow-xl">
+    <div class="absolute -right-10 -top-10 opacity-10">
+      <svg width="220" height="220" viewBox="0 0 100 100"><rect x="6" y="6" width="40" height="40" rx="10" fill="#D2B773"/><rect x="54" y="54" width="40" height="40" rx="10" fill="#D2B773"/><circle cx="50" cy="50" r="13" fill="#fff"/></svg>
+    </div>
+    <div class="relative">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="text-sm uppercase tracking-widest text-gold font-medium">Lucro do Período</span>
+        <span class="inline-flex items-center gap-1 text-xs bg-emerald2/20 text-emerald-200 px-2 py-0.5 rounded-full">↑ Margem 32,2%</span>
+      </div>
+      <p class="font-display font-bold text-5xl sm:text-6xl tracking-tight">
+        <span data-count="48250" data-prefix="R$ ">R$ 0,00</span>
+      </p>
+      <div class="mt-4 flex flex-wrap gap-x-8 gap-y-1 text-sm text-cream/80">
+        <span>Faturamento: <strong class="text-cream" data-count="150000" data-prefix="R$ ">R$ 0</strong></span>
+        <span>Despesas: <strong class="text-cream" data-count="101750" data-prefix="R$ ">R$ 0</strong></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== KPIs primários ===== -->
+  <section>
+    <div id="kpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+      <!-- card -->
+      <div class="reveal card-hover bg-white rounded-xl border border-creamD p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-sm text-navy/60">Faturamento</p>
+            <p class="text-2xl font-bold text-navy mt-1"><span data-count="150000" data-prefix="R$ ">R$ 0</span></p>
+            <p class="text-xs text-emerald-600 mt-1">↑ 12% vs. trimestre anterior</p>
+          </div>
+          <div class="w-11 h-11 rounded-xl bg-emerald2/10 grid place-items-center text-emerald-600 text-xl">↗</div>
+        </div>
+      </div>
+
+      <div class="reveal card-hover bg-white rounded-xl border border-creamD p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-sm text-navy/60">Despesas</p>
+            <p class="text-2xl font-bold text-navy mt-1"><span data-count="101750" data-prefix="R$ ">R$ 0</span></p>
+            <p class="text-xs text-red-500 mt-1">↑ 4% vs. trimestre anterior</p>
+          </div>
+          <div class="w-11 h-11 rounded-xl bg-red-500/10 grid place-items-center text-red-500 text-xl">↘</div>
+        </div>
+      </div>
+
+      <div class="reveal card-hover bg-white rounded-xl border border-creamD p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-sm text-navy/60">Clientes Ativos</p>
+            <p class="text-2xl font-bold text-navy mt-1"><span data-count="47">0</span></p>
+            <p class="text-xs text-navy/40 mt-1">Total cadastrados</p>
+          </div>
+          <div class="w-11 h-11 rounded-xl bg-navy/5 grid place-items-center text-navy text-xl">👥</div>
+        </div>
+      </div>
+
+      <div class="reveal card-hover bg-white rounded-xl border border-creamD p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-sm text-navy/60">Ticket Médio</p>
+            <p class="text-2xl font-bold text-navy mt-1"><span data-count="3191" data-prefix="R$ ">R$ 0</span></p>
+            <p class="text-xs text-navy/40 mt-1">Baseado em parcelas pagas</p>
+          </div>
+          <div class="w-11 h-11 rounded-xl bg-gold/15 grid place-items-center text-goldD text-xl">◆</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Chips secundários ===== -->
+  <section id="chips" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <div class="reveal card-hover bg-white rounded-xl border border-creamD px-5 py-4 flex items-center justify-between">
+      <div><p class="text-xs text-navy/60">Taxa de Inadimplência</p><p class="text-xl font-bold text-emerald-600 mt-0.5">6,4%</p></div>
+      <span class="text-xs text-navy/40">3 de 47 parcelas</span>
+    </div>
+    <div class="reveal card-hover bg-white rounded-xl border border-creamD px-5 py-4 flex items-center justify-between">
+      <div><p class="text-xs text-navy/60">A Receber</p><p class="text-xl font-bold text-navy mt-0.5"><span data-count="38400" data-prefix="R$ ">R$ 0</span></p></div>
+      <span class="text-xs text-navy/40">previsto</span>
+    </div>
+    <div class="reveal card-hover bg-white rounded-xl border border-creamD px-5 py-4 flex items-center justify-between">
+      <div><p class="text-xs text-navy/60">A Pagar</p><p class="text-xl font-bold text-navy mt-0.5"><span data-count="22100" data-prefix="R$ ">R$ 0</span></p></div>
+      <span class="text-xs text-navy/40">previsto</span>
+    </div>
+  </section>
+
+  <!-- ===== Filtro (visual) ===== -->
+  <section class="reveal bg-white rounded-xl border border-creamD p-4 flex flex-wrap items-center gap-2">
+    <span class="text-sm font-medium text-navy mr-2">Filtrar Período:</span>
+    <button class="px-3 py-1.5 rounded-lg text-sm bg-navy text-cream">Últimos 3 meses</button>
+    <button class="px-3 py-1.5 rounded-lg text-sm bg-cream text-navy hover:bg-creamD">Este mês</button>
+    <button class="px-3 py-1.5 rounded-lg text-sm bg-cream text-navy hover:bg-creamD">Este ano</button>
+    <button class="px-3 py-1.5 rounded-lg text-sm bg-cream text-navy hover:bg-creamD">Personalizado</button>
+  </section>
+
+  <!-- ===== Gráficos ===== -->
+  <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="reveal card-hover bg-white rounded-xl border border-creamD p-6">
+      <h3 class="font-display text-xl font-bold text-navy mb-1">Evolução Mensal</h3>
+      <p class="text-xs text-navy/40 mb-4">Receitas, despesas e lucro por mês</p>
+      <canvas id="chartEvolucao" height="240"></canvas>
+    </div>
+    <div class="reveal card-hover bg-white rounded-xl border border-creamD p-6">
+      <h3 class="font-display text-xl font-bold text-navy mb-1">Status das Parcelas</h3>
+      <p class="text-xs text-navy/40 mb-4">Distribuição por situação</p>
+      <canvas id="chartStatus" height="240"></canvas>
+    </div>
+  </section>
+
+  <p class="text-center text-xs text-navy/40 pt-4">
+    Mockup estático para aprovação · dados fictícios · cores oficiais DuoFuturo (navy #13264C · dourado #D2B773 · creme #E5DDD1)
+  </p>
+</main>
+
+<!-- ===== Animação: Motion + count-up ===== -->
+<script type="module">
+  import { animate, inView, stagger } from "https://cdn.jsdelivr.net/npm/motion@11.11.13/+esm";
+
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // formata número como moeda BRL simples
+  const fmt = (v, prefix) => prefix
+    ? prefix + Math.round(v).toLocaleString('pt-BR')
+    : Math.round(v).toLocaleString('pt-BR');
+
+  function countUp(el) {
+    const target = +el.dataset.count;
+    const prefix = el.dataset.prefix || '';
+    if (reduce) { el.textContent = fmt(target, prefix); return; }
+    animate(0, target, {
+      duration: 1.4,
+      ease: [0.16, 1, 0.3, 1],
+      onUpdate: v => { el.textContent = fmt(v, prefix); }
+    });
+  }
+
+  // 1) Hero: entra de cima, "assentando"
+  animate('#hero', { opacity: [0,1], y: [-28, 0], scale: [0.97, 1] },
+          { duration: .7, ease: [0.16,1,0.3,1] })
+    .finished.then(() => document.querySelectorAll('#hero [data-count]').forEach(countUp));
+
+  // 2) KPIs: peças encaixando — entram de direções alternadas com stagger
+  const kpis = document.querySelectorAll('#kpis > div');
+  kpis.forEach((el, i) => {
+    const fromX = i % 2 === 0 ? -40 : 40;
+    animate(el, { opacity: [0,1], x: [fromX, 0], y: [24, 0], rotate: [i%2? 2:-2, 0] },
+            { duration: .6, delay: .25 + i * 0.1, ease: [0.16,1,0.3,1] })
+      .finished.then(() => el.querySelectorAll('[data-count]').forEach(countUp));
+  });
+
+  // 3) Chips: stagger simples
+  animate('#chips > div', { opacity: [0,1], y: [18,0] },
+          { delay: stagger(0.08, { startDelay: .7 }), duration: .5 });
+  document.querySelectorAll('#chips [data-count]').forEach(el => setTimeout(()=>countUp(el), 900));
+
+  // 4) Filtro + gráficos: reveal ao entrar na viewport
+  document.querySelectorAll('section .reveal, .reveal').forEach(el => {
+    if (el.id === 'hero' || el.closest('#kpis') || el.closest('#chips')) return;
+    inView(el, () => {
+      animate(el, { opacity: [0,1], y: [30,0], scale: [0.98,1] }, { duration: .6, ease: [0.16,1,0.3,1] });
+    }, { amount: 0.2 });
+  });
+
+  // ===== Charts =====
+  const navy = '#13264C', gold = '#D2B773', emerald = '#10b981', red = '#dc2626';
+  Chart.defaults.font.family = 'Poppins';
+  Chart.defaults.color = '#13264C99';
+
+  new Chart(document.getElementById('chartEvolucao'), {
+    type: 'line',
+    data: {
+      labels: ['Mar/26','Abr/26','Mai/26','Jun/26'],
+      datasets: [
+        { label:'Receitas', data:[32000,41000,38000,39000], borderColor:emerald, backgroundColor:'rgba(16,185,129,.12)', fill:true, tension:.4, borderWidth:2 },
+        { label:'Despesas', data:[24000,27000,25500,25250], borderColor:red, backgroundColor:'rgba(220,38,38,.08)', fill:true, tension:.4, borderWidth:2 },
+        { label:'Lucro',    data:[8000,14000,12500,13750],  borderColor:gold, backgroundColor:'transparent', tension:.4, borderWidth:2.5, borderDash:[5,4] },
+      ]
+    },
+    options: { responsive:true, plugins:{ legend:{ position:'bottom' } }, scales:{ y:{ grid:{ color:'#0000000d' } }, x:{ grid:{ display:false } } } }
+  });
+
+  new Chart(document.getElementById('chartStatus'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Pagas','Pendentes','Atrasadas'],
+      datasets: [{ data:[28,16,3], backgroundColor:[emerald, gold, red], borderWidth:4, borderColor:'#fff' }]
+    },
+    options: { responsive:true, cutout:'62%', plugins:{ legend:{ position:'bottom' } } }
+  });
+</script>
+</body>
+</html>

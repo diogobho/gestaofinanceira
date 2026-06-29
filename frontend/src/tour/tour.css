@@ -1,0 +1,134 @@
+/* Tema do tour guiado (driver.js) — identidade DuoFuturo: navy + esmeralda.
+   Escopado em .duofuturo-tour (popoverClass) e com suporte a dark mode
+   via a classe `dark` no <html> (ver ThemeContext.tsx). */
+
+.driver-popover.duofuturo-tour {
+  background-color: #ffffff;
+  color: #1f2937; /* gray-800 */
+  border-radius: 14px;
+  box-shadow:
+    0 10px 25px -5px rgba(16, 24, 40, 0.25),
+    0 8px 10px -6px rgba(16, 24, 40, 0.18);
+  max-width: 340px;
+  padding: 18px 18px 14px;
+}
+
+.driver-popover.duofuturo-tour .driver-popover-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: #13264c; /* navy DuoFuturo */
+  margin-bottom: 6px;
+}
+
+.driver-popover.duofuturo-tour .driver-popover-description {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: #4b5563; /* gray-600 */
+}
+
+.driver-popover.duofuturo-tour .driver-popover-description b {
+  color: #059669; /* emerald-600 */
+  font-weight: 600;
+}
+
+.driver-popover.duofuturo-tour .driver-popover-progress-text {
+  font-size: 0.72rem;
+  color: #9ca3af; /* gray-400 */
+  font-weight: 500;
+}
+
+.driver-popover.duofuturo-tour .driver-popover-navigation-btns {
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.driver-popover.duofuturo-tour .driver-popover-navigation-btns button {
+  all: unset;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 8px;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  text-align: center;
+}
+
+/* Botão "Anterior" — secundário */
+.driver-popover.duofuturo-tour .driver-popover-prev-btn {
+  color: #6b7280; /* gray-500 */
+  background-color: #f3f4f6; /* gray-100 */
+}
+.driver-popover.duofuturo-tour .driver-popover-prev-btn:hover {
+  background-color: #e5e7eb; /* gray-200 */
+}
+
+/* Botão "Próximo/Concluir" — destaque esmeralda */
+.driver-popover.duofuturo-tour .driver-popover-next-btn {
+  color: #ffffff;
+  background-color: #10b981; /* emerald-500 */
+}
+.driver-popover.duofuturo-tour .driver-popover-next-btn:hover {
+  background-color: #059669; /* emerald-600 */
+}
+
+.driver-popover.duofuturo-tour .driver-popover-close-btn {
+  color: #9ca3af;
+  transition: color 0.15s ease;
+}
+.driver-popover.duofuturo-tour .driver-popover-close-btn:hover {
+  color: #4b5563;
+}
+
+/* Seta do balão acompanha o fundo */
+.driver-popover.duofuturo-tour .driver-popover-arrow-side-left.driver-popover-arrow {
+  border-left-color: #ffffff;
+}
+.driver-popover.duofuturo-tour .driver-popover-arrow-side-right.driver-popover-arrow {
+  border-right-color: #ffffff;
+}
+.driver-popover.duofuturo-tour .driver-popover-arrow-side-top.driver-popover-arrow {
+  border-top-color: #ffffff;
+}
+.driver-popover.duofuturo-tour .driver-popover-arrow-side-bottom.driver-popover-arrow {
+  border-bottom-color: #ffffff;
+}
+
+/* ============== Dark mode ============== */
+.dark .driver-popover.duofuturo-tour {
+  background-color: #1f2937; /* gray-800 */
+  color: #e5e7eb;
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-title {
+  color: #ffffff;
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-description {
+  color: #d1d5db; /* gray-300 */
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-description b {
+  color: #34d399; /* emerald-400 */
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-prev-btn {
+  color: #d1d5db;
+  background-color: #374151; /* gray-700 */
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-prev-btn:hover {
+  background-color: #4b5563;
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-close-btn {
+  color: #9ca3af;
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-close-btn:hover {
+  color: #e5e7eb;
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-arrow-side-left.driver-popover-arrow {
+  border-left-color: #1f2937;
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-arrow-side-right.driver-popover-arrow {
+  border-right-color: #1f2937;
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-arrow-side-top.driver-popover-arrow {
+  border-top-color: #1f2937;
+}
+.dark .driver-popover.duofuturo-tour .driver-popover-arrow-side-bottom.driver-popover-arrow {
+  border-bottom-color: #1f2937;
+}
