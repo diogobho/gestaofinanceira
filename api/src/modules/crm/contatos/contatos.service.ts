@@ -528,6 +528,67 @@ export const contatosService = {
     return { success: true, messageId: response.data.messageId };
   },
 
+  // Garante um contato_whatsapp para o lead a partir do TELEFONE quando ele ainda não
+  // tem contato vinculado (ex.: lead novo da Hotmart que nunca conversou). Reaproveita
+  // um contato existente do mesmo número (com/sem DDI 55 e com/sem o 9º dígito) ou cria
+  // um novo, e vincula ao lead. Retorna o contatoId, ou null se o telefone for inválido.
+  async resolverContatoParaLead(
+    leadId: number,
+    usuarioId: number,
+    empresaId: number
+  ): Promise<number | null> {
+    const leadRes = await query(`SELECT telefone FROM leads WHERE id = $1 AND empresa_id = $2`, [leadId, empresaId]);
+    const digits = String(leadRes.rows[0]?.telefone || '').replace(/\D/g, '');
+    if (!digits) return null;
+
+    // Normaliza para o formato BR com DDI (55 + DDD + número). Rejeita lixo (ex.: número de teste).
+    let norm = digits;
+    if (norm.length === 10 || norm.length === 11) norm = `55${norm}`;
+    if (!norm.startsWith('55') || norm.length < 12 || norm.length > 13) return null;
+
+    // Variantes para casar com um contato já existente (com/sem 55, com/sem 9º dígito).
+    const semDDI = norm.slice(2);
+    const variants = new Set<string>([norm, semDDI]);
+    if (semDDI.length === 11 && semDDI[2] === '9') {
+      const sem9 = semDDI.slice(0, 2) + semDDI.slice(3);
+      variants.add(sem9); variants.add(`55${sem9}`);
+    } else if (semDDI.length === 10) {
+      const com9 = semDDI.slice(0, 2) + '9' + semDDI.slice(2);
+      variants.add(com9); variants.add(`55${com9}`);
+    }
+
+    // 1) Tenta reusar um contato individual já existente deste usuário com o mesmo número.
+    const existente = await query(
+      `SELECT id FROM contatos_whatsapp
+       WHERE usuario_id = $1 AND is_grupo = false
+         AND REGEXP_REPLACE(COALESCE(numero, ''), '[^0-9]', '', 'g') = ANY($2::text[])
+       ORDER BY id LIMIT 1`,
+      [usuarioId, [...variants]]
+    );
+
+    let contatoId: number;
+    if (existente.rows[0]) {
+      contatoId = existente.rows[0].id;
+    } else {
+      // 2) Cria o contato (whatsapp_id no formato JID a partir do número normalizado).
+      const novo = await query(
+        `INSERT INTO contatos_whatsapp (usuario_id, empresa_id, whatsapp_id, numero, is_grupo, sincronizado_at)
+         VALUES ($1, $2, $3, $4, false, CURRENT_TIMESTAMP)
+         ON CONFLICT (usuario_id, whatsapp_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+         RETURNING id`,
+        [usuarioId, empresaId, `${norm}@c.us`, norm]
+      );
+      contatoId = novo.rows[0].id;
+    }
+
+    // Vincula o lead ao contato (só se ainda estiver sem vínculo).
+    await query(
+      `UPDATE leads SET contato_whatsapp_id = $1 WHERE id = $2 AND contato_whatsapp_id IS NULL`,
+      [contatoId, leadId]
+    );
+    return contatoId;
+  },
+
   async marcarLido(contatoId: number, empresaId: number, leadId?: number): Promise<void> {
     // Marcar mensagens de entrada como lidas (filtrar por empresa)
     await query(
