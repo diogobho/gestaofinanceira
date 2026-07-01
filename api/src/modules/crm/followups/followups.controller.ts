@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import fs from 'fs';
 import { followupsService } from './followups.service';
 
 export const followupsController = {
@@ -7,27 +8,59 @@ export const followupsController = {
       const empresaId = (req as any).user?.empresa_id;
       const usuarioId = (req as any).user?.id;
       const leadId = parseInt(req.params.leadId);
-      const { agendado_para, tipo, mensagem, instrucao_ia, hora_inicio, hora_fim, dias_semana } = req.body;
+      const {
+        agendado_para, tipo, mensagem, instrucao_ia,
+        media_url, media_mimetype, media_filename,
+        modo, atraso_dias, data_fixa, hora_envio, dias_semana,
+      } = req.body;
 
-      if (!agendado_para || !tipo) {
-        return res.status(400).json({ error: 'agendado_para e tipo são obrigatórios' });
-      }
-      if (tipo === 'manual' && !mensagem) {
-        return res.status(400).json({ error: 'mensagem é obrigatória para tipo manual' });
-      }
-      if (!['manual', 'agente_ia'].includes(tipo)) {
+      if (!tipo || !['manual', 'agente_ia'].includes(tipo)) {
         return res.status(400).json({ error: 'tipo deve ser manual ou agente_ia' });
       }
+      // Manual precisa de mensagem OU mídia (mídia sem legenda é válida).
+      if (tipo === 'manual' && !mensagem && !media_url) {
+        return res.status(400).json({ error: 'informe uma mensagem ou anexe uma mídia para o tipo manual' });
+      }
+      // Precisa de um instante (agendado_para direto) OU dos parâmetros do padrão.
+      if (!agendado_para && modo === 'data' && !data_fixa) {
+        return res.status(400).json({ error: 'data_fixa é obrigatória no modo data' });
+      }
 
-      const followup = await followupsService.criar(
-        leadId, usuarioId, empresaId, agendado_para, tipo,
-        mensagem, instrucao_ia, 'lead',
-        hora_inicio, hora_fim, dias_semana
-      );
+      const followup = await followupsService.criar({
+        leadId, usuarioId, empresaId, tipo,
+        mensagem, instrucaoIa: instrucao_ia,
+        mediaUrl: media_url, mediaMimetype: media_mimetype, mediaFilename: media_filename,
+        origem: 'lead',
+        modo: modo || 'dias', atrasoDias: atraso_dias, dataFixa: data_fixa,
+        horaEnvio: hora_envio, diasSemana: dias_semana,
+        agendadoPara: agendado_para,
+      });
       return res.status(201).json(followup);
     } catch (err: any) {
       console.error('Erro ao criar follow-up:', err);
       return res.status(500).json({ error: 'Erro ao criar follow-up' });
+    }
+  },
+
+  // Recebe o arquivo (multipart, campo "file"), armazena e devolve a referência de mídia
+  // para ser salva na config do agendamento / no follow-up.
+  async uploadMedia(req: Request, res: Response) {
+    const file = (req as any).file;
+    try {
+      const empresaId = (req as any).user?.empresa_id;
+      if (!file) {
+        return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+      }
+      const media = await followupsService.salvarMidiaUpload(
+        empresaId, file.path, file.originalname, file.mimetype
+      );
+      return res.status(201).json(media);
+    } catch (err: any) {
+      console.error('Erro no upload de mídia do follow-up:', err);
+      return res.status(500).json({ error: err.message || 'Erro ao subir mídia' });
+    } finally {
+      // Limpa o arquivo temporário do multer (já foi copiado para a pasta da empresa).
+      if (file?.path) fs.promises.unlink(file.path).catch(() => {});
     }
   },
 

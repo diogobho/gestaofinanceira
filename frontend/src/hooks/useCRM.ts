@@ -88,7 +88,7 @@ export const useUpdateEstagio = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; agente_ia_ativo?: boolean; instrucoes_agente_ia?: string; estagio_apos_resposta_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null }> }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; estagio_apos_resposta_id?: number | null; estagio_apos_envio_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null }> }) =>
       estagiosApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'estagios'] })
@@ -926,19 +926,6 @@ export const useAgenteIAUpdateConfig = () => {
   })
 }
 
-export const useAgenteIAToggleEstagio = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ estagioId, ativo }: { estagioId: number; ativo: boolean }) =>
-      agenteIaApi.toggleEstagio(estagioId, ativo),
-    onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['crm', 'estagios'] })
-      toast.success(vars.ativo ? 'Agente IA ativado para este estágio' : 'Agente IA desativado para este estágio')
-    },
-    onError: () => toast.error('Erro ao alterar agente IA'),
-  })
-}
-
 export const useAgenteIAToggleLead = () => {
   const queryClient = useQueryClient()
   return useMutation({
@@ -984,7 +971,12 @@ export const useCreateFollowup = () => {
   return useMutation({
     mutationFn: ({ leadId, data }: {
       leadId: number
-      data: { agendado_para: string; tipo: 'manual' | 'agente_ia'; mensagem?: string; instrucao_ia?: string; hora_inicio?: string; hora_fim?: string; dias_semana?: number[] }
+      data: {
+        tipo: 'manual' | 'agente_ia'; mensagem?: string; instrucao_ia?: string
+        media_url?: string | null; media_mimetype?: string | null; media_filename?: string | null
+        modo?: 'dias' | 'data'; atraso_dias?: number | null; data_fixa?: string | null
+        hora_envio?: string | null; dias_semana?: number[] | null; agendado_para?: string
+      }
     }) => followupsApi.criar(leadId, data),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'followups', vars.leadId] })

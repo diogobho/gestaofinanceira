@@ -71,19 +71,6 @@ export const agenteIaController = {
     }
   },
 
-  async toggleEstagio(req: Request, res: Response, next: NextFunction) {
-    try {
-      const empresaId = (req as any).user.empresa_id;
-      const estagioId = parseInt(req.params.estagioId);
-      const { ativo } = req.body;
-
-      await agenteIaService.toggleEstagio(estagioId, empresaId, ativo);
-      res.json({ success: true, ativo });
-    } catch (err) {
-      next(err);
-    }
-  },
-
   async toggleLead(req: Request, res: Response, next: NextFunction) {
     try {
       const empresaId = (req as any).user.empresa_id;

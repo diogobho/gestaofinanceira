@@ -20,10 +20,16 @@ export interface EstagioFollowupConfig {
   tipo: 'manual' | 'agente_ia';
   mensagem?: string;
   instrucao_ia?: string;
-  data?: string;          // 'YYYY-MM-DD' — apenas para manual: data de envio
-  hora_inicio?: string;   // 'HH:MM' — manual: hora de envio; agente_ia: início da janela
-  hora_fim?: string;      // 'HH:MM' — agente_ia: fim da janela
-  dias_semana?: number[]; // 0=Dom..6=Sáb, undefined = todos os dias
+  // Mídia opcional (só tipo manual)
+  media_url?: string | null;
+  media_mimetype?: string | null;
+  media_filename?: string | null;
+  // Padrão único de agendamento
+  modo?: 'dias' | 'data';        // 'dias' = após X dias da entrada | 'data' = data fixa
+  atraso_dias?: number | null;
+  data_fixa?: string | null;     // 'YYYY-MM-DD'
+  hora_envio?: string | null;    // 'HH:MM'
+  dias_semana?: number[] | null; // 0=Dom..6=Sáb, null = todos os dias
 }
 
 export interface FollowupAgendado {
@@ -35,13 +41,18 @@ export interface FollowupAgendado {
   tipo: 'manual' | 'agente_ia';
   mensagem?: string;
   instrucao_ia?: string;
+  media_url?: string | null;
+  media_mimetype?: string | null;
+  media_filename?: string | null;
   status: 'pendente' | 'enviado' | 'falhou' | 'cancelado';
   erro?: string;
   enviado_at?: string;
   origem: 'lead' | 'estagio';
-  hora_inicio?: string;
-  hora_fim?: string;
-  dias_semana?: number[];
+  modo?: 'dias' | 'data';
+  atraso_dias?: number | null;
+  data_fixa?: string | null;
+  hora_envio?: string | null;
+  dias_semana?: number[] | null;
   created_at: string;
   updated_at: string;
   // Campos de joins
@@ -71,9 +82,8 @@ export interface EstagioFunil {
   is_entrada: boolean;
   is_ganho: boolean;
   is_perdido: boolean;
-  agente_ia_ativo?: boolean;
-  instrucoes_agente_ia?: string;
   estagio_apos_resposta_id?: number | null;
+  estagio_apos_envio_id?: number | null;
   followup_config?: EstagioFollowupConfig | null;
   created_at: string;
   updated_at: string;

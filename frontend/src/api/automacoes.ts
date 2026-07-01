@@ -3,7 +3,6 @@ import api from './client'
 export type TipoAcao =
   | 'envio_mensagem_grupo'
   | 'followup'
-  | 'ativar_agente_estagio'
   | 'ativar_agente_lead'
   | 'disparo_lote'
 
@@ -147,7 +146,6 @@ export const automacoesApi = {
 export const TIPO_ACAO_LABEL: Record<TipoAcao, string> = {
   envio_mensagem_grupo:    'Mensagem em grupo WhatsApp',
   followup:                'Follow-up automático',
-  ativar_agente_estagio:   'Agente IA por estágio',
   ativar_agente_lead:      'Agente IA por lead',
   disparo_lote:            'Disparo em massa'
 }

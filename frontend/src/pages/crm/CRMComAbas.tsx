@@ -44,7 +44,7 @@ export default function CRMComAbas({ variante }: CRMComAbasProps) {
           <AutomacoesPanel
             filtros={{ funil_tipo: variante }}
             titulo={t.subtitulo}
-            emptyMessage={`Nenhuma automação configurada nos ${variante === 'aquisicao' ? 'funis de aquisição' : 'funis de CX'} ainda. Ative o agente IA num estágio, configure follow-ups ou crie automações por lead para vê-las aqui.`}
+            emptyMessage={`Nenhuma automação configurada nos ${variante === 'aquisicao' ? 'funis de aquisição' : 'funis de CX'} ainda. Configure follow-ups ou crie automações por lead para vê-las aqui.`}
           />
         </div>
       )}

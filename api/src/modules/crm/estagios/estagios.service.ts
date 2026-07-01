@@ -1,11 +1,17 @@
 import { query } from '../../../config/database';
+import { calcularAgendadoPara } from '../_shared/agendamento';
 
 export interface EstagioFollowupConfig {
   ativo: boolean;
   tipo: 'manual' | 'agente_ia';
   mensagem?: string;
   instrucao_ia?: string;
-  intervalo_horas: number;
+  // Padrão único de agendamento
+  modo?: 'dias' | 'data';        // 'dias' = após X dias da entrada | 'data' = data fixa
+  atraso_dias?: number | null;
+  data_fixa?: string | null;     // 'YYYY-MM-DD'
+  hora_envio?: string | null;    // 'HH:MM'
+  dias_semana?: number[] | null; // 0=Dom..6=Sáb
 }
 
 export interface EstagioFunil {
@@ -19,9 +25,8 @@ export interface EstagioFunil {
   is_entrada: boolean;
   is_ganho: boolean;
   is_perdido: boolean;
-  agente_ia_ativo?: boolean;
-  instrucoes_agente_ia?: string;
   estagio_apos_resposta_id?: number | null;
+  estagio_apos_envio_id?: number | null;
   followup_config?: EstagioFollowupConfig | null;
   created_at: Date;
   updated_at: Date;
@@ -45,9 +50,8 @@ export interface UpdateEstagioDto {
   is_entrada?: boolean;
   is_ganho?: boolean;
   is_perdido?: boolean;
-  agente_ia_ativo?: boolean;
-  instrucoes_agente_ia?: string;
   estagio_apos_resposta_id?: number | null;
+  estagio_apos_envio_id?: number | null;
   followup_config?: EstagioFollowupConfig | null;
 }
 
@@ -174,17 +178,13 @@ export const estagiosService = {
       fields.push(`is_perdido = $${paramCount++}`);
       values.push(data.is_perdido);
     }
-    if (data.agente_ia_ativo !== undefined) {
-      fields.push(`agente_ia_ativo = $${paramCount++}`);
-      values.push(data.agente_ia_ativo);
-    }
-    if (data.instrucoes_agente_ia !== undefined) {
-      fields.push(`instrucoes_agente_ia = $${paramCount++}`);
-      values.push(data.instrucoes_agente_ia || null);
-    }
     if (data.estagio_apos_resposta_id !== undefined) {
       fields.push(`estagio_apos_resposta_id = $${paramCount++}`);
       values.push(data.estagio_apos_resposta_id || null);
+    }
+    if (data.estagio_apos_envio_id !== undefined) {
+      fields.push(`estagio_apos_envio_id = $${paramCount++}`);
+      values.push(data.estagio_apos_envio_id || null);
     }
     if (data.followup_config !== undefined) {
       fields.push(`followup_config = $${paramCount++}`);
@@ -202,9 +202,6 @@ export const estagiosService = {
       values
     );
 
-    if (data.agente_ia_ativo !== undefined || data.instrucoes_agente_ia !== undefined) {
-      await sincronizarAutomacaoAgenteEstagio(id, empresaId);
-    }
     if (data.followup_config !== undefined) {
       await sincronizarAutomacaoFollowupEstagio(id, empresaId, data.followup_config ?? null);
     }
@@ -253,47 +250,6 @@ export const estagiosService = {
   }
 };
 
-// ============================================================================
-// Sincronização com tabela unificada `automacoes`
-// ============================================================================
-async function sincronizarAutomacaoAgenteEstagio(estagioId: number, empresaId: number): Promise<void> {
-  const ctx = await query(
-    `SELECT ef.nome, ef.agente_ia_ativo, ef.instrucoes_agente_ia, ef.estagio_apos_resposta_id, f.usuario_id
-     FROM estagios_funil ef
-     JOIN funis f ON f.id = ef.funil_id
-     WHERE ef.id = $1 AND f.empresa_id = $2`,
-    [estagioId, empresaId]
-  );
-  if (!ctx.rows[0]) return;
-
-  const { nome, agente_ia_ativo, instrucoes_agente_ia, estagio_apos_resposta_id, usuario_id } = ctx.rows[0];
-
-  const existente = await query(
-    `SELECT id FROM automacoes
-     WHERE estagio_id = $1 AND tipo_acao = 'ativar_agente_estagio' AND empresa_id = $2`,
-    [estagioId, empresaId]
-  );
-
-  const config = JSON.stringify({
-    instrucoes: instrucoes_agente_ia ?? '',
-    estagio_apos_resposta_id
-  });
-
-  if (existente.rows[0]) {
-    await query(
-      `UPDATE automacoes SET ativa = $1, config = $2 WHERE id = $3`,
-      [!!agente_ia_ativo, config, existente.rows[0].id]
-    );
-  } else if (agente_ia_ativo) {
-    await query(
-      `INSERT INTO automacoes (
-         empresa_id, usuario_id, nome, descricao, tipo_acao,
-         estagio_id, ativa, config
-       ) VALUES ($1, $2, $3, $4, 'ativar_agente_estagio', $5, true, $6)`,
-      [empresaId, usuario_id, `Agente IA — ${nome}`, 'Agente IA ativo para leads neste estágio', estagioId, config]
-    );
-  }
-}
 
 async function sincronizarAutomacaoFollowupEstagio(
   estagioId: number,
@@ -348,15 +304,25 @@ async function sincronizarAutomacaoFollowupEstagio(
     );
   }
 
-  // Criar follow-up retroativo para leads já no estágio sem follow-up de estágio pendente
+  // Criar follow-up retroativo para leads já no estágio sem follow-up de estágio pendente.
+  // O instante é calculado uma vez (base = agora) pelo padrão único e aplicado a todos.
   if (ativa) {
+    const agendadoPara = calcularAgendadoPara({
+      modo: followupConfig.modo || 'dias',
+      atrasoDias: followupConfig.atraso_dias,
+      dataFixa: followupConfig.data_fixa,
+      horaEnvio: followupConfig.hora_envio,
+      diasSemana: followupConfig.dias_semana,
+    });
+    const ehManual = (followupConfig.tipo || 'agente_ia') === 'manual';
     await query(
       `INSERT INTO followups_agendados
          (lead_id, usuario_id, empresa_id, agendado_para, tipo, mensagem, instrucao_ia,
-          origem, hora_inicio, hora_fim, dias_semana)
-       SELECT l.id, l.usuario_id, $1, NOW(), $2, $3, $4, 'estagio', $5, $6, $7
+          media_url, media_mimetype, media_filename,
+          origem, modo, atraso_dias, data_fixa, hora_envio, dias_semana)
+       SELECT l.id, l.usuario_id, $1, $2, $3, $4, $5, $6, $7, $8, 'estagio', $9, $10, $11, $12, $13
        FROM leads l
-       WHERE l.estagio_id = $8
+       WHERE l.estagio_id = $14
          AND l.empresa_id = $1
          AND l.arquivado = false
          AND NOT EXISTS (
@@ -365,13 +331,19 @@ async function sincronizarAutomacaoFollowupEstagio(
          )`,
       [
         empresaId,
+        agendadoPara,
         followupConfig.tipo || 'agente_ia',
-        followupConfig.tipo === 'manual' ? (followupConfig.mensagem || null) : null,
-        followupConfig.tipo === 'agente_ia' ? (followupConfig.instrucao_ia || null) : null,
-        followupConfig.hora_inicio || null,
-        followupConfig.tipo === 'agente_ia' ? (followupConfig.hora_fim || null) : null,
+        ehManual ? (followupConfig.mensagem || null) : null,
+        !ehManual ? (followupConfig.instrucao_ia || null) : null,
+        ehManual ? (followupConfig.media_url || null) : null,
+        ehManual ? (followupConfig.media_mimetype || null) : null,
+        ehManual ? (followupConfig.media_filename || null) : null,
+        followupConfig.modo || 'dias',
+        followupConfig.atraso_dias ?? null,
+        followupConfig.data_fixa || null,
+        followupConfig.hora_envio || null,
         followupConfig.dias_semana?.length ? followupConfig.dias_semana : null,
-        estagioId
+        estagioId,
       ]
     );
   }

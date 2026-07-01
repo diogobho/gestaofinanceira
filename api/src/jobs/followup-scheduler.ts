@@ -1,52 +1,52 @@
 /**
  * Job: Follow-up Scheduler
  *
- * Roda a cada minuto, busca follow-ups pendentes cujo horário já passou
- * e os processa: envia mensagem manual ou aciona o agente IA.
+ * Roda a cada minuto, busca follow-ups pendentes cujo horário (agendado_para) já passou
+ * e os processa: envia mensagem manual/personalizada ou aciona o agente IA.
  *
- * Respeita janela de horário (hora_inicio/hora_fim) e dias da semana
- * configurados no follow-up. Se fora da janela, o registro permanece
- * pendente e será tentado novamente no próximo minuto dentro da janela.
+ * O instante de disparo já vem calculado no padrão único (após X dias OU data fixa,
+ * em horário exato, rolado para o próximo dia da semana válido). O scheduler ainda
+ * re-checa dias_semana como segurança: se um follow-up estiver atrasado e o dia atual
+ * não for permitido, ele aguarda o próximo dia válido.
+ *
+ * Após o envio, se a origem for 'estagio' e o estágio tiver estagio_apos_envio_id,
+ * o lead é movido automaticamente para esse estágio.
  */
 
 import cron from 'node-cron';
 import { followupsService } from '../modules/crm/followups/followups.service';
 import { agenteIaService } from '../modules/agente-ia/agente-ia.service';
 import { contatosService } from '../modules/crm/contatos/contatos.service';
+import { query } from '../config/database';
+import { aplicarVariaveisLead, diaSemanaPermitido } from '../modules/crm/_shared/agendamento';
 
-/** Retorna true se o horário atual (fuso São Paulo) está dentro da janela */
-function dentroJanelaHorario(
-  horaInicio: string | null,
-  horaFim: string | null,
-  diasSemana: number[] | null
-): boolean {
-  const agora = new Date(
-    new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })
+/**
+ * Após enviar um follow-up de origem 'estagio', move o lead para o estágio
+ * configurado em estagios_funil.estagio_apos_envio_id (se houver e for diferente do atual).
+ */
+async function moverLeadAposEnvio(followup: any): Promise<void> {
+  if (followup.origem !== 'estagio') return;
+  const r = await query(
+    `SELECT ef.estagio_apos_envio_id, ef2.nome AS destino_nome
+     FROM estagios_funil ef
+     LEFT JOIN estagios_funil ef2 ON ef2.id = ef.estagio_apos_envio_id
+     WHERE ef.id = $1`,
+    [followup.estagio_id]
   );
-  const diaSemanaAtual = agora.getDay(); // 0=Dom..6=Sáb
-  const horaAtual = agora.getHours();
-  const minutoAtual = agora.getMinutes();
+  const info = r.rows[0];
+  if (!info?.estagio_apos_envio_id || info.estagio_apos_envio_id === followup.estagio_id) return;
 
-  // Verificar dia da semana
-  if (diasSemana && diasSemana.length > 0) {
-    if (!diasSemana.includes(diaSemanaAtual)) return false;
-  }
-
-  // Verificar janela de hora
-  if (horaInicio || horaFim) {
-    const minutosAgora = horaAtual * 60 + minutoAtual;
-
-    if (horaInicio) {
-      const [hI, mI] = horaInicio.split(':').map(Number);
-      if (minutosAgora < hI * 60 + mI) return false;
-    }
-    if (horaFim) {
-      const [hF, mF] = horaFim.split(':').map(Number);
-      if (minutosAgora >= hF * 60 + mF) return false;
-    }
-  }
-
-  return true;
+  await query(`UPDATE leads SET estagio_id = $1 WHERE id = $2`, [info.estagio_apos_envio_id, followup.lead_id]);
+  await query(
+    `INSERT INTO atividades_lead (lead_id, usuario_id, empresa_id, tipo, descricao, dados)
+     VALUES ($1, $2, $3, 'mudanca_estagio', $4, $5::jsonb)`,
+    [
+      followup.lead_id, followup.usuario_id, followup.empresa_id,
+      `Movido automaticamente para "${info.destino_nome || '?'}" após envio da mensagem agendada`,
+      JSON.stringify({ automatico: true, trigger: 'apos_envio', novo_estagio_id: info.estagio_apos_envio_id }),
+    ]
+  );
+  console.log(`[FollowUp Scheduler] Lead #${followup.lead_id} movido para estágio #${info.estagio_apos_envio_id} após envio`);
 }
 
 // Em cluster PM2 cada instância recebe NODE_APP_INSTANCE (0, 1, 2...).
@@ -63,9 +63,9 @@ if (isMainInstance) {
 
       for (const followup of pendentes) {
         try {
-          // Verificar janela de horário configurada no follow-up
-          if (!dentroJanelaHorario(followup.hora_inicio, followup.hora_fim, followup.dias_semana)) {
-            console.log(`[FollowUp Scheduler] #${followup.id} fora da janela de horário — aguardando`);
+          // Segurança: se atrasado e o dia atual não é permitido, aguarda o próximo dia válido.
+          if (!diaSemanaPermitido(followup.dias_semana)) {
+            console.log(`[FollowUp Scheduler] #${followup.id} fora dos dias permitidos — aguardando próximo dia válido`);
             continue;
           }
 
@@ -74,15 +74,33 @@ if (isMainInstance) {
               await followupsService.marcarFalhou(followup.id, 'Lead sem contato WhatsApp vinculado');
               continue;
             }
-            await contatosService.enviarMensagem(
-              followup.usuario_id,
-              followup.empresa_id,
-              followup.contato_whatsapp_id,
-              followup.mensagem,
-              followup.lead_id
-            );
+            // Personalização: substitui [Nome], [Telefone] e demais atributos do lead.
+            const leadRow = (await query(`SELECT * FROM leads WHERE id = $1`, [followup.lead_id])).rows[0];
+            const texto = aplicarVariaveisLead(followup.mensagem || '', leadRow);
+            if (followup.media_url) {
+              // Anexo: envia a mídia via /send-media; o texto (com variáveis) vira a legenda.
+              await contatosService.enviarMediaArmazenada(
+                followup.usuario_id,
+                followup.empresa_id,
+                followup.contato_whatsapp_id,
+                followup.media_url,
+                followup.media_mimetype || 'application/octet-stream',
+                followup.media_filename || 'arquivo',
+                texto || undefined,
+                followup.lead_id
+              );
+            } else {
+              await contatosService.enviarMensagem(
+                followup.usuario_id,
+                followup.empresa_id,
+                followup.contato_whatsapp_id,
+                texto,
+                followup.lead_id
+              );
+            }
             await followupsService.marcarEnviado(followup.id);
-            console.log(`[FollowUp Scheduler] Manual enviado: follow-up #${followup.id} → lead #${followup.lead_id}`);
+            await moverLeadAposEnvio(followup);
+            console.log(`[FollowUp Scheduler] Manual enviado: follow-up #${followup.id} → lead #${followup.lead_id}${followup.media_url ? ' (com mídia)' : ''}`);
           } else {
             // agente_ia
             if (!followup.contato_whatsapp_id) {
@@ -92,6 +110,7 @@ if (isMainInstance) {
             const resultado = await agenteIaService.processarFollowUpIA(followup);
             if (resultado === 'enviado') {
               await followupsService.marcarEnviado(followup.id);
+              await moverLeadAposEnvio(followup);
               console.log(`[FollowUp Scheduler] IA enviado: follow-up #${followup.id} → lead #${followup.lead_id}`);
             } else if (resultado === 'cancelado') {
               await followupsService.cancelar(followup.id, followup.empresa_id);

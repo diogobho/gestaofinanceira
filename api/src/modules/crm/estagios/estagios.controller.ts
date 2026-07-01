@@ -63,7 +63,7 @@ export const estagiosController = {
     try {
       const empresaId = (req as any).user.empresa_id;
       const { id } = req.params;
-      const { nome, descricao, cor, icone, is_entrada, is_ganho, is_perdido, agente_ia_ativo, instrucoes_agente_ia, estagio_apos_resposta_id, followup_config } = req.body;
+      const { nome, descricao, cor, icone, is_entrada, is_ganho, is_perdido, estagio_apos_resposta_id, estagio_apos_envio_id, followup_config } = req.body;
 
       const estagio = await estagiosService.update(parseInt(id), empresaId, {
         nome,
@@ -73,9 +73,8 @@ export const estagiosController = {
         is_entrada,
         is_ganho,
         is_perdido,
-        agente_ia_ativo,
-        instrucoes_agente_ia,
         estagio_apos_resposta_id,
+        estagio_apos_envio_id,
         followup_config
       });
 

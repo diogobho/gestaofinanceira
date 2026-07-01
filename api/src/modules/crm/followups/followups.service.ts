@@ -1,33 +1,86 @@
+import fs from 'fs';
+import path from 'path';
 import { query } from '../../../config/database';
+import { calcularAgendadoPara, ModoAgendamento } from '../_shared/agendamento';
+
+const UPLOADS_DIR = '/var/www/apps/gestao_financeira/uploads/whatsapp';
+
+export interface CriarFollowupInput {
+  leadId: number;
+  usuarioId: number;
+  empresaId: number;
+  tipo: 'manual' | 'agente_ia';
+  mensagem?: string;
+  instrucaoIa?: string;
+  // Mídia opcional (só tipo 'manual'): arquivo já armazenado em /uploads/whatsapp/{empresa}/.
+  // No envio vai por /send-media e `mensagem` vira a legenda.
+  mediaUrl?: string | null;
+  mediaMimetype?: string | null;
+  mediaFilename?: string | null;
+  origem?: 'lead' | 'estagio';
+  // Padrão único de agendamento
+  modo?: ModoAgendamento;        // 'dias' (após X dias) | 'data' (data fixa)
+  atrasoDias?: number | null;
+  dataFixa?: string | null;      // 'YYYY-MM-DD'
+  horaEnvio?: string | null;     // 'HH:MM'
+  diasSemana?: number[] | null;  // 0=Dom..6=Sáb
+  base?: Date;                   // base do cálculo (entrada no estágio); default now
+  agendadoPara?: string;         // override: instante já calculado
+}
 
 export const followupsService = {
-  async criar(
-    leadId: number,
-    usuarioId: number,
-    empresaId: number,
-    agendadoPara: string,
-    tipo: 'manual' | 'agente_ia',
-    mensagem?: string,
-    instrucaoIa?: string,
-    origem: 'lead' | 'estagio' = 'lead',
-    horaInicio?: string,
-    horaFim?: string,
-    diasSemana?: number[]
-  ) {
+  async criar(input: CriarFollowupInput) {
+    const {
+      leadId, usuarioId, empresaId, tipo, mensagem, instrucaoIa,
+      mediaUrl, mediaMimetype, mediaFilename,
+      origem = 'lead', modo = 'dias', atrasoDias, dataFixa, horaEnvio,
+      diasSemana, base, agendadoPara,
+    } = input;
+
+    const quando = agendadoPara || calcularAgendadoPara(
+      { modo, atrasoDias, dataFixa, horaEnvio, diasSemana },
+      base || new Date()
+    );
+
     const result = await query(
       `INSERT INTO followups_agendados
          (lead_id, usuario_id, empresa_id, agendado_para, tipo, mensagem, instrucao_ia,
-          origem, hora_inicio, hora_fim, dias_semana)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          media_url, media_mimetype, media_filename,
+          origem, modo, atraso_dias, data_fixa, hora_envio, dias_semana)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING *`,
       [
-        leadId, usuarioId, empresaId, agendadoPara, tipo,
-        mensagem || null, instrucaoIa || null, origem,
-        horaInicio || null, horaFim || null,
+        leadId, usuarioId, empresaId, quando, tipo,
+        mensagem || null, instrucaoIa || null,
+        mediaUrl || null, mediaMimetype || null, mediaFilename || null,
+        origem, modo, atrasoDias ?? null, dataFixa || null, horaEnvio || null,
         diasSemana?.length ? diasSemana : null,
       ]
     );
     return result.rows[0];
+  },
+
+  // Move o arquivo temporário (multer) para /uploads/whatsapp/{empresa}/ e devolve a
+  // referência que fica salva na config/no follow-up. Não guarda binário no banco.
+  async salvarMidiaUpload(
+    empresaId: number,
+    filePath: string,
+    originalFilename: string,
+    mimetype: string
+  ): Promise<{ media_url: string; media_mimetype: string; media_filename: string }> {
+    const empresaDir = path.join(UPLOADS_DIR, String(empresaId));
+    if (!fs.existsSync(empresaDir)) {
+      fs.mkdirSync(empresaDir, { recursive: true });
+    }
+    const ext = path.extname(originalFilename) || '';
+    const safeFilename = `followup_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
+    const destPath = path.join(empresaDir, safeFilename);
+    fs.copyFileSync(filePath, destPath);
+    return {
+      media_url: `/uploads/whatsapp/${empresaId}/${safeFilename}`,
+      media_mimetype: mimetype,
+      media_filename: originalFilename,
+    };
   },
 
   async listarPorLead(leadId: number, empresaId: number) {
@@ -130,7 +183,7 @@ export const followupsService = {
               l.temperatura as lead_temperatura, l.empresa_id,
               l.contato_whatsapp_id, l.funil_id, l.estagio_id, l.cargo,
               l.empresa as lead_empresa,
-              ef.nome as estagio_nome, ef.instrucoes_agente_ia as estagio_instrucoes
+              ef.nome as estagio_nome
        FROM followups_agendados f
        JOIN leads l ON l.id = f.lead_id
        LEFT JOIN estagios_funil ef ON ef.id = l.estagio_id

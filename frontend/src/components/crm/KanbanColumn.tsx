@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Droppable } from '@hello-pangea/dnd'
-import { Plus, MoreVertical, Settings, Bot, GripVertical, ChevronDown, Loader2, Bell } from 'lucide-react'
+import { Plus, MoreVertical, Settings, GripVertical, ChevronDown, Loader2, Bell } from 'lucide-react'
 import type { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd'
 import KanbanCard from './KanbanCard'
-import { useAgenteIAToggleEstagio } from '@/hooks/useCRM'
 import type { EstagioFunil, Lead } from '@/types/crm'
 
 interface KanbanColumnProps {
@@ -31,7 +30,6 @@ export default function KanbanColumn({
 }: KanbanColumnProps) {
   const [showMenu, setShowMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
-  const toggleEstagio = useAgenteIAToggleEstagio()
   const valorTotal = estagio.leads.reduce((acc, lead) => acc + (lead.valor_potencial || 0), 0)
 
   // Fechar menu ao clicar fora
@@ -80,12 +78,6 @@ export default function KanbanColumn({
                 <Bell size={13} className="text-orange-500" />
               </span>
             )}
-            {/* Badge do Agente IA por coluna */}
-            {estagio.agente_ia_ativo && (
-              <span title="Agente IA ativo para este estágio" className="flex items-center">
-                <Bot size={14} className="text-primary-500" />
-              </span>
-            )}
             <div className="relative" ref={menuRef}>
               <button
                 onClick={() => setShowMenu(!showMenu)}
@@ -104,18 +96,6 @@ export default function KanbanColumn({
                   >
                     <Settings size={14} />
                     Configurar estágio
-                  </button>
-                  <button
-                    onClick={() => {
-                      toggleEstagio.mutate({ estagioId: estagio.id, ativo: !estagio.agente_ia_ativo })
-                      setShowMenu(false)
-                    }}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
-                  >
-                    <Bot size={14} className={estagio.agente_ia_ativo ? 'text-primary-600' : 'text-gray-400'} />
-                    <span className={estagio.agente_ia_ativo ? 'text-primary-700' : 'text-gray-700'}>
-                      {estagio.agente_ia_ativo ? 'Desativar IA neste estágio' : 'Ativar IA neste estágio'}
-                    </span>
                   </button>
                 </div>
               )}

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { query } from '../../../config/database';
 import { leadsService } from '../leads/leads.service';
+import { aplicarVariaveisLead } from '../_shared/agendamento';
 
 // Normaliza números brasileiros para o formato padrão do WhatsApp (13 dígitos: 55+DDD+9 dígitos).
 // Números com 12 dígitos (55+DDD+8 dígitos — formato antigo) recebem o 9º dígito após o DDD.
@@ -42,14 +43,9 @@ export interface IniciarDisparoDto {
   origem?: string;
 }
 
+// Usa o padrão único de substituição (todos os atributos do lead).
 function aplicarVariaveis(template: string, lead: DisparoLead): string {
-  const primeiroNome = lead.nome?.split(' ')[0] || lead.nome;
-  return template
-    .replace(/\[Nome\]/gi, lead.nome || '')
-    .replace(/\[PrimeiroNome\]/gi, primeiroNome || '')
-    .replace(/\[Empresa\]/gi, lead.empresa || '')
-    .replace(/\[Origem\]/gi, lead.origem || '')
-    .replace(/\[Telefone\]/gi, lead.telefone || '');
+  return aplicarVariaveisLead(template, lead as Record<string, any>);
 }
 
 // Anti-ban: intervalo aleatório 45–90s entre mensagens (diferente por lead)

@@ -4,7 +4,6 @@ import { automacoesGrupoService, LIMITE_AUTOMACOES_POR_GRUPO } from './automacoe
 export type TipoAcao =
   | 'envio_mensagem_grupo'
   | 'followup'
-  | 'ativar_agente_estagio'
   | 'ativar_agente_lead'
   | 'disparo_lote';
 
@@ -69,7 +68,6 @@ export interface UpdateAutomacaoInput {
 const TIPOS_VALIDOS: TipoAcao[] = [
   'envio_mensagem_grupo',
   'followup',
-  'ativar_agente_estagio',
   'ativar_agente_lead',
   'disparo_lote'
 ];
@@ -267,12 +265,6 @@ export const automacoesService = {
     }
 
     // Reverte efeitos: desativa flags se removerem automação de toggle
-    if (atual.tipo_acao === 'ativar_agente_estagio' && atual.estagio_id) {
-      await query(
-        `UPDATE estagios_funil SET agente_ia_ativo = false WHERE id = $1`,
-        [atual.estagio_id]
-      );
-    }
     if (atual.tipo_acao === 'ativar_agente_lead' && atual.lead_id) {
       await query(
         `UPDATE leads SET agente_ia_ativo = NULL WHERE id = $1 AND empresa_id = $2`,
@@ -366,15 +358,6 @@ export const automacoesService = {
 async function aplicarEfeitoToggle(input: CreateAutomacaoInput, empresaId: number): Promise<void> {
   const ativa = input.ativa !== false;
 
-  if (input.tipo_acao === 'ativar_agente_estagio' && input.estagio_id) {
-    await query(
-      `UPDATE estagios_funil
-       SET agente_ia_ativo = $1,
-           instrucoes_agente_ia = COALESCE($2, instrucoes_agente_ia)
-       WHERE id = $3`,
-      [ativa, (input.config as any)?.instrucoes ?? null, input.estagio_id]
-    );
-  }
   if (input.tipo_acao === 'ativar_agente_lead' && input.lead_id) {
     await query(
       `UPDATE leads SET agente_ia_ativo = $1 WHERE id = $2 AND empresa_id = $3`,
@@ -390,12 +373,6 @@ async function aplicarEfeitoToggle(input: CreateAutomacaoInput, empresaId: numbe
 }
 
 async function sincronizarToggle(atual: Automacao, ativa: boolean): Promise<void> {
-  if (atual.tipo_acao === 'ativar_agente_estagio' && atual.estagio_id) {
-    await query(
-      `UPDATE estagios_funil SET agente_ia_ativo = $1 WHERE id = $2`,
-      [ativa, atual.estagio_id]
-    );
-  }
   if (atual.tipo_acao === 'ativar_agente_lead' && atual.lead_id) {
     await query(
       `UPDATE leads SET agente_ia_ativo = $1 WHERE id = $2 AND empresa_id = $3`,

@@ -371,9 +371,6 @@ export const agenteIaApi = {
   updateConfig: (data: Partial<AgenteIAConfig>) =>
     api.put<AgenteIAConfig>('/crm/agente-ia/config', data).then(r => r.data),
 
-  toggleEstagio: (estagioId: number, ativo: boolean) =>
-    api.put(`/crm/agente-ia/estagios/${estagioId}`, { ativo }).then(r => r.data),
-
   toggleLead: (leadId: number, ativo: boolean | null) =>
     api.put(`/crm/agente-ia/leads/${leadId}`, { ativo }).then(r => r.data),
 
@@ -394,12 +391,17 @@ export interface Followup {
   tipo: 'manual' | 'agente_ia'
   mensagem: string | null
   instrucao_ia: string | null
+  media_url: string | null
+  media_mimetype: string | null
+  media_filename: string | null
   status: 'pendente' | 'enviado' | 'falhou' | 'cancelado'
   origem: 'lead' | 'estagio'
   erro: string | null
   enviado_at: string | null
-  hora_inicio: string | null
-  hora_fim: string | null
+  modo?: 'dias' | 'data' | null
+  atraso_dias?: number | null
+  data_fixa?: string | null
+  hora_envio?: string | null
   dias_semana: number[] | null
   created_at: string
   usuario_nome?: string
@@ -422,14 +424,32 @@ export const followupsApi = {
     api.get<Followup[]>(`/crm/leads/${leadId}/followups`).then(r => r.data),
 
   criar: (leadId: number, data: {
-    agendado_para: string
     tipo: 'manual' | 'agente_ia'
     mensagem?: string
     instrucao_ia?: string
-    hora_inicio?: string
-    hora_fim?: string
-    dias_semana?: number[]
+    // Mídia opcional (só tipo manual)
+    media_url?: string | null
+    media_mimetype?: string | null
+    media_filename?: string | null
+    // Padrão único de agendamento
+    modo?: 'dias' | 'data'
+    atraso_dias?: number | null
+    data_fixa?: string | null
+    hora_envio?: string | null
+    dias_semana?: number[] | null
+    // Override opcional: instante já calculado
+    agendado_para?: string
   }) => api.post<Followup>(`/crm/leads/${leadId}/followups`, data).then(r => r.data),
+
+  // Sobe um arquivo e devolve a referência de mídia para anexar num follow-up.
+  uploadMedia: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<{ media_url: string; media_mimetype: string; media_filename: string }>(
+      '/crm/followups/upload-media', formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    ).then(r => r.data)
+  },
 
   listarTodos: (filtro?: 'hoje' | 'semana' | 'atrasados' | 'todos', status?: string, funilTipo?: 'aquisicao' | 'cx') =>
     api.get<Followup[]>('/crm/followups', { params: { filtro, status, funil_tipo: funilTipo } }).then(r => r.data),

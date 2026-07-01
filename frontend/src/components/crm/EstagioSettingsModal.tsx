@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { X, Trash2, Bot, MessageSquare, Bell } from 'lucide-react'
+import { X, Trash2, MessageSquare, Send } from 'lucide-react'
 import { useUpdateEstagio, useDeleteEstagio, useCreateEstagio } from '@/hooks/useCRM'
 import { estagiosApi } from '@/api/crm'
 import type { EstagioFunil } from '@/types/crm'
+import AgendamentoConfig, { AgendamentoValue, agendamentoPadrao } from './AgendamentoConfig'
 
 interface EstagioSettingsModalProps {
   isOpen: boolean
@@ -37,19 +38,11 @@ export default function EstagioSettingsModal({
   const [isGanho, setIsGanho] = useState(false)
   const [isPerdido, setIsPerdido] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [agenteIaAtivo, setAgenteIaAtivo] = useState(false)
-  const [instrucoesAgenteIa, setInstrucoesAgenteIa] = useState('')
   const [estagioAposRespostaId, setEstagioAposRespostaId] = useState<number | null>(null)
+  const [estagioAposEnvioId, setEstagioAposEnvioId] = useState<number | null>(null)
   const [estagiosList, setEstagiosList] = useState<EstagioFunil[]>([])
-  // Follow-up automático por estágio
-  const [followupAtivo, setFollowupAtivo] = useState(false)
-  const [followupTipo, setFollowupTipo] = useState<'manual' | 'agente_ia'>('agente_ia')
-  const [followupMensagem, setFollowupMensagem] = useState('')
-  const [followupInstrucaoIa, setFollowupInstrucaoIa] = useState('')
-  const [followupData, setFollowupData] = useState('')
-  const [followupHoraInicio, setFollowupHoraInicio] = useState('09:00')
-  const [followupHoraFim, setFollowupHoraFim] = useState('18:00')
-  const [followupDiasSemana, setFollowupDiasSemana] = useState<number[]>([1, 2, 3, 4, 5])
+  // Follow-up automático por estágio (padrão único de agendamento)
+  const [agendamento, setAgendamento] = useState<AgendamentoValue>(agendamentoPadrao())
 
   const updateEstagio = useUpdateEstagio()
   const deleteEstagio = useDeleteEstagio()
@@ -61,34 +54,31 @@ export default function EstagioSettingsModal({
       setCor(estagio.cor || '#6366f1')
       setIsGanho(estagio.is_ganho || false)
       setIsPerdido(estagio.is_perdido || false)
-      setAgenteIaAtivo(estagio.agente_ia_ativo || false)
-      setInstrucoesAgenteIa(estagio.instrucoes_agente_ia || '')
       setEstagioAposRespostaId(estagio.estagio_apos_resposta_id ?? null)
+      setEstagioAposEnvioId(estagio.estagio_apos_envio_id ?? null)
       const fc = estagio.followup_config
-      setFollowupAtivo(fc?.ativo || false)
-      setFollowupTipo(fc?.tipo || 'agente_ia')
-      setFollowupMensagem(fc?.mensagem || '')
-      setFollowupInstrucaoIa(fc?.instrucao_ia || '')
-      setFollowupData(fc?.data || '')
-      setFollowupHoraInicio(fc?.hora_inicio || '09:00')
-      setFollowupHoraFim(fc?.hora_fim || '18:00')
-      setFollowupDiasSemana(fc?.dias_semana ?? [1, 2, 3, 4, 5])
+      setAgendamento({
+        ativo: fc?.ativo || false,
+        tipo: fc?.tipo || 'manual',
+        mensagem: fc?.mensagem || '',
+        instrucao_ia: fc?.instrucao_ia || '',
+        media_url: fc?.media_url ?? null,
+        media_mimetype: fc?.media_mimetype ?? null,
+        media_filename: fc?.media_filename ?? null,
+        modo: fc?.modo || 'dias',
+        atraso_dias: fc?.atraso_dias ?? 0,
+        data_fixa: fc?.data_fixa ?? null,
+        hora_envio: fc?.hora_envio || '09:00',
+        dias_semana: fc?.dias_semana ?? [1, 2, 3, 4, 5],
+      })
     } else {
       setNome('')
       setCor('#6366f1')
       setIsGanho(false)
       setIsPerdido(false)
-      setAgenteIaAtivo(false)
-      setInstrucoesAgenteIa('')
       setEstagioAposRespostaId(null)
-      setFollowupAtivo(false)
-      setFollowupTipo('agente_ia')
-      setFollowupMensagem('')
-      setFollowupInstrucaoIa('')
-      setFollowupData('')
-      setFollowupHoraInicio('09:00')
-      setFollowupHoraFim('18:00')
-      setFollowupDiasSemana([1, 2, 3, 4, 5])
+      setEstagioAposEnvioId(null)
+      setAgendamento(agendamentoPadrao())
     }
     setShowDeleteConfirm(false)
   }, [estagio, mode, isOpen])
@@ -110,17 +100,21 @@ export default function EstagioSettingsModal({
         id: estagio.id,
         data: {
           nome, cor, is_ganho: isGanho, is_perdido: isPerdido,
-          agente_ia_ativo: agenteIaAtivo, instrucoes_agente_ia: instrucoesAgenteIa,
           estagio_apos_resposta_id: estagioAposRespostaId,
-          followup_config: followupAtivo ? {
+          estagio_apos_envio_id: estagioAposEnvioId,
+          followup_config: agendamento.ativo ? {
             ativo: true,
-            tipo: followupTipo,
-            mensagem: followupTipo === 'manual' ? followupMensagem : undefined,
-            instrucao_ia: followupTipo === 'agente_ia' ? followupInstrucaoIa : undefined,
-            data: followupData || undefined,
-            hora_inicio: followupHoraInicio || undefined,
-            hora_fim: followupTipo === 'agente_ia' ? (followupHoraFim || undefined) : undefined,
-            dias_semana: followupDiasSemana.length > 0 ? followupDiasSemana : undefined,
+            tipo: agendamento.tipo,
+            mensagem: agendamento.tipo === 'manual' ? agendamento.mensagem : undefined,
+            instrucao_ia: agendamento.tipo === 'agente_ia' ? agendamento.instrucao_ia : undefined,
+            media_url: agendamento.tipo === 'manual' ? (agendamento.media_url ?? undefined) : undefined,
+            media_mimetype: agendamento.tipo === 'manual' ? (agendamento.media_mimetype ?? undefined) : undefined,
+            media_filename: agendamento.tipo === 'manual' ? (agendamento.media_filename ?? undefined) : undefined,
+            modo: agendamento.modo,
+            atraso_dias: agendamento.modo === 'dias' ? (agendamento.atraso_dias ?? 0) : undefined,
+            data_fixa: agendamento.modo === 'data' ? (agendamento.data_fixa || undefined) : undefined,
+            hora_envio: agendamento.hora_envio || undefined,
+            dias_semana: (agendamento.dias_semana?.length ?? 0) > 0 ? agendamento.dias_semana : undefined,
           } : null,
         }
       })
@@ -231,225 +225,63 @@ export default function EstagioSettingsModal({
             </p>
           </div>
 
-          {/* Automação: ao responder */}
-          {mode === 'edit' && (
-            <div className="pt-4 border-t space-y-2">
-              <div className="flex items-center gap-2">
-                <MessageSquare size={15} className="text-green-500" />
-                <label className="text-sm font-medium text-gray-700">Ao lead responder, mover para</label>
-              </div>
-              <select
-                value={estagioAposRespostaId ?? ''}
-                onChange={e => setEstagioAposRespostaId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
-              >
-                <option value="">— Não mover —</option>
-                {estagiosList
-                  .filter(e => e.id !== estagio?.id)
-                  .map(e => (
-                    <option key={e.id} value={e.id}>{e.nome}</option>
-                  ))}
-              </select>
-              <p className="text-xs text-gray-400">
-                Quando um lead neste estágio responder uma mensagem no WhatsApp, ele será movido automaticamente.
-              </p>
-            </div>
-          )}
-
-          {/* Agente IA */}
+          {/* Automação: mover lead (ao responder / após envio) */}
           {mode === 'edit' && (
             <div className="pt-4 border-t space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Bot size={16} className="text-primary-500" />
-                  <label className="text-sm font-medium text-gray-700">Agente IA</label>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <MessageSquare size={15} className="text-green-500" />
+                  <label className="text-sm font-medium text-gray-700">Ao lead responder, mover para</label>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setAgenteIaAtivo(!agenteIaAtivo)}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                    agenteIaAtivo ? 'bg-primary-500' : 'bg-gray-300'
-                  }`}
+                <select
+                  value={estagioAposRespostaId ?? ''}
+                  onChange={e => setEstagioAposRespostaId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
                 >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                      agenteIaAtivo ? 'translate-x-4.5' : 'translate-x-0.5'
-                    }`}
-                  />
-                </button>
+                  <option value="">— Não mover —</option>
+                  {estagiosList
+                    .filter(e => e.id !== estagio?.id)
+                    .map(e => (
+                      <option key={e.id} value={e.id}>{e.nome}</option>
+                    ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  Quando um lead neste estágio responder uma mensagem no WhatsApp, ele será movido automaticamente.
+                </p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Instrucoes especificas deste estagio
-                </label>
-                <textarea
-                  value={instrucoesAgenteIa}
-                  onChange={(e) => setInstrucoesAgenteIa(e.target.value)}
-                  placeholder="Ex: Neste estagio, sempre pergunte sobre o orcamento disponivel e tente agendar uma reuniao..."
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none"
-                />
+                <div className="flex items-center gap-2 mb-1">
+                  <Send size={15} className="text-amber-500" />
+                  <label className="text-sm font-medium text-gray-700">Após enviar a mensagem agendada, mover para</label>
+                </div>
+                <select
+                  value={estagioAposEnvioId ?? ''}
+                  onChange={e => setEstagioAposEnvioId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                >
+                  <option value="">— Não mover —</option>
+                  {estagiosList
+                    .filter(e => e.id !== estagio?.id)
+                    .map(e => (
+                      <option key={e.id} value={e.id}>{e.nome}</option>
+                    ))}
+                </select>
                 <p className="text-xs text-gray-400 mt-1">
-                  Complementa as instrucoes globais do agente. Aplicado apenas aos leads neste estagio.
+                  Após o envio do agendamento abaixo, o lead é movido automaticamente para este estágio.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Follow-up automático */}
+          {/* Follow-up automático — padrão único de agendamento */}
           {mode === 'edit' && (
-            <div className="pt-4 border-t space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Bell size={16} className="text-orange-500" />
-                  <label className="text-sm font-medium text-gray-700">Follow-up automatico</label>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFollowupAtivo(!followupAtivo)}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                    followupAtivo ? 'bg-orange-500' : 'bg-gray-300'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                      followupAtivo ? 'translate-x-4.5' : 'translate-x-0.5'
-                    }`}
-                  />
-                </button>
-              </div>
-              {followupAtivo && (
-                <div className="space-y-3 pl-1">
-                  <p className="text-xs text-gray-400">
-                    Quando um lead entrar neste estagio, um follow-up sera agendado automaticamente.
-                  </p>
-                  {/* Tipo — primeiro para determinar os campos de data */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
-                    <div className="flex gap-3">
-                      <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                        <input
-                          type="radio"
-                          value="agente_ia"
-                          checked={followupTipo === 'agente_ia'}
-                          onChange={() => setFollowupTipo('agente_ia')}
-                          className="text-orange-500"
-                        />
-                        Agente IA
-                      </label>
-                      <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                        <input
-                          type="radio"
-                          value="manual"
-                          checked={followupTipo === 'manual'}
-                          onChange={() => setFollowupTipo('manual')}
-                          className="text-orange-500"
-                        />
-                        Mensagem fixa
-                      </label>
-                    </div>
-                  </div>
-                  {/* Campos de data/hora por tipo */}
-                  {followupTipo === 'agente_ia' ? (
-                    <div className="space-y-2">
-                      <p className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1.5">
-                        O agente ativa imediatamente quando um lead entra neste estágio. A janela de horário define em que período do dia o agente pode agir.
-                      </p>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Janela de atuação do agente
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="time"
-                            value={followupHoraInicio}
-                            onChange={(e) => setFollowupHoraInicio(e.target.value)}
-                            className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                          />
-                          <span className="text-xs text-gray-500">até</span>
-                          <input
-                            type="time"
-                            value={followupHoraFim}
-                            onChange={(e) => setFollowupHoraFim(e.target.value)}
-                            className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Data e hora de disparo da mensagem
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          type="date"
-                          value={followupData}
-                          onChange={(e) => setFollowupData(e.target.value)}
-                          className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                        />
-                        <input
-                          type="time"
-                          value={followupHoraInicio}
-                          onChange={(e) => setFollowupHoraInicio(e.target.value)}
-                          className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                        />
-                      </div>
-                    </div>
-                  )}
-                  {/* Conteúdo */}
-                  {followupTipo === 'manual' ? (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Mensagem
-                      </label>
-                      <textarea
-                        value={followupMensagem}
-                        onChange={(e) => setFollowupMensagem(e.target.value)}
-                        placeholder="Ola! Gostaria de saber se tem alguma duvida..."
-                        rows={3}
-                        className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 resize-none"
-                      />
-                    </div>
-                  ) : (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Instrucao para o agente (opcional)
-                      </label>
-                      <textarea
-                        value={followupInstrucaoIa}
-                        onChange={(e) => setFollowupInstrucaoIa(e.target.value)}
-                        placeholder="Ex: Retome o contato perguntando se o lead ja tomou uma decisao sobre a proposta..."
-                        rows={3}
-                        className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 resize-none"
-                      />
-                    </div>
-                  )}
-
-                  {/* Dias da semana */}
-                  <div className="pt-2 border-t">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Dias da semana</label>
-                    <div className="flex gap-1 flex-wrap">
-                      {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'].map((d, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => setFollowupDiasSemana(prev =>
-                            prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i].sort()
-                          )}
-                          className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors ${
-                            followupDiasSemana.includes(i)
-                              ? 'bg-orange-500 text-white border-orange-500'
-                              : 'bg-white text-gray-600 border-gray-300 hover:border-orange-400'
-                          }`}
-                        >
-                          {d}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
+            <div className="pt-4 border-t">
+              <AgendamentoConfig
+                value={agendamento}
+                onChange={setAgendamento}
+                nivel="estagio"
+                titulo="Follow-up automático"
+              />
             </div>
           )}
 

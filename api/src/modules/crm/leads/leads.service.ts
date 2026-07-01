@@ -569,22 +569,22 @@ export const leadsService = {
       const cfg = estagioResult.rows[0]?.followup_config;
       if (!cfg || !cfg.ativo) return;
 
-      let agendadoPara: string;
-      if (cfg.data && cfg.hora_inicio) {
-        // Data específica configurada no estágio
-        agendadoPara = new Date(`${cfg.data}T${cfg.hora_inicio}:00`).toISOString();
-      } else if (cfg.data) {
-        agendadoPara = new Date(`${cfg.data}T09:00:00`).toISOString();
-      } else {
-        // Agente ativa imediatamente ao lead entrar no estágio (janela hora_inicio/hora_fim controla quando dispara)
-        agendadoPara = new Date().toISOString();
-      }
-
-      await followupsService.criar(
-        leadId, usuarioId, empresaId, agendadoPara,
-        cfg.tipo || 'agente_ia', cfg.mensagem, cfg.instrucao_ia, 'estagio',
-        cfg.hora_inicio, cfg.hora_fim, cfg.dias_semana
-      );
+      // Padrão único: o instante é calculado pelo helper a partir da entrada no estágio (agora).
+      await followupsService.criar({
+        leadId, usuarioId, empresaId,
+        tipo: cfg.tipo || 'agente_ia',
+        mensagem: cfg.mensagem,
+        instrucaoIa: cfg.instrucao_ia,
+        mediaUrl: cfg.media_url,
+        mediaMimetype: cfg.media_mimetype,
+        mediaFilename: cfg.media_filename,
+        origem: 'estagio',
+        modo: cfg.modo || 'dias',
+        atrasoDias: cfg.atraso_dias,
+        dataFixa: cfg.data_fixa,
+        horaEnvio: cfg.hora_envio,
+        diasSemana: cfg.dias_semana,
+      });
     } catch (err: any) {
       console.error(`[Leads] Erro ao criar follow-up de estágio para lead #${leadId}:`, err.message);
     }

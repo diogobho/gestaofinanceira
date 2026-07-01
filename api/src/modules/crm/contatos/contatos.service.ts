@@ -464,6 +464,70 @@ export const contatosService = {
     }
   },
 
+  // Envia mídia JÁ ARMAZENADA em disco (ex.: anexo de follow-up). Diferente de enviarMedia,
+  // não recebe upload temporário — resolve o arquivo a partir do media_url salvo.
+  async enviarMediaArmazenada(
+    usuarioId: number,
+    empresaId: number,
+    contatoId: number,
+    mediaUrl: string,
+    mimetype: string,
+    originalFilename: string,
+    caption?: string,
+    leadId?: number
+  ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    const contato = await this.getById(contatoId, empresaId);
+    if (!contato) throw new Error('Contato nao encontrado');
+
+    const configResult = await query(
+      `SELECT whatsapp_porta FROM usuarios WHERE id = $1`,
+      [usuarioId]
+    );
+    const porta = configResult.rows[0]?.whatsapp_porta;
+    if (!porta) throw new Error('WhatsApp nao configurado');
+
+    // media_url é servido em /uploads/... a partir da raiz do app.
+    const absPath = path.join('/var/www/apps/gestao_financeira', mediaUrl.replace(/^\//, ''));
+    if (!fs.existsSync(absPath)) {
+      throw new Error(`Arquivo de mídia não encontrado: ${mediaUrl}`);
+    }
+    const fileBuffer = fs.readFileSync(absPath);
+    const base64 = fileBuffer.toString('base64');
+
+    let tipo = 'documento';
+    if (mimetype.startsWith('image/')) tipo = 'imagem';
+    else if (mimetype.startsWith('audio/')) tipo = 'audio';
+    else if (mimetype.startsWith('video/')) tipo = 'video';
+
+    const response = await axios.post(`http://localhost:${porta}/send-media`, {
+      number: contato.whatsapp_id,
+      media: base64,
+      mimetype,
+      filename: originalFilename,
+      caption: caption || undefined
+    }, { timeout: 60000 });
+
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Erro ao enviar midia');
+    }
+
+    await query(
+      `INSERT INTO historico_mensagens (
+        lead_id, contato_whatsapp_id, usuario_id, empresa_id,
+        whatsapp_message_id, direcao, tipo, conteudo,
+        media_url, media_filename, media_mimetype, media_tamanho,
+        enviado_at
+      ) VALUES ($1, $2, $3, $4, $5, 'saida', $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)`,
+      [
+        leadId || null, contatoId, usuarioId, empresaId,
+        response.data.messageId || null, tipo, caption || null,
+        mediaUrl, originalFilename, mimetype, fileBuffer.length,
+      ]
+    );
+
+    return { success: true, messageId: response.data.messageId };
+  },
+
   async marcarLido(contatoId: number, empresaId: number, leadId?: number): Promise<void> {
     // Marcar mensagens de entrada como lidas (filtrar por empresa)
     await query(

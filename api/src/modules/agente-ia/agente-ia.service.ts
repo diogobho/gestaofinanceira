@@ -515,22 +515,6 @@ export const agenteIaService = {
     return await this.getConfig(empresaId) as AgenteIAConfig;
   },
 
-  async toggleEstagio(estagioId: number, empresaId: number, ativo: boolean): Promise<void> {
-    await query(
-      `UPDATE estagios_funil SET agente_ia_ativo = $1
-       WHERE id = $2 AND funil_id IN (SELECT id FROM funis WHERE empresa_id = $3)`,
-      [ativo, estagioId, empresaId]
-    );
-    if (ativo) {
-      await query(
-        `UPDATE leads SET agente_ia_ativo = NULL
-         WHERE estagio_id = $1 AND empresa_id = $2 AND agente_ia_ativo = false`,
-        [estagioId, empresaId]
-      );
-    }
-    await sincronizarAutomacaoEstagio(estagioId, empresaId, ativo);
-  },
-
   async toggleLead(leadId: number, empresaId: number, ativo: boolean | null): Promise<void> {
     await query(`UPDATE leads SET agente_ia_ativo = $1 WHERE id = $2 AND empresa_id = $3`, [ativo, leadId, empresaId]);
     await sincronizarAutomacaoLead(leadId, empresaId, ativo);
@@ -628,7 +612,7 @@ ${anotacoesStr}
 ESTÁGIOS DO FUNIL — apenas para uso nas ferramentas, nunca mencione ao lead:
 ${estagiosStr}
 
-${estagio?.instrucoes_agente_ia ? `INSTRUÇÕES ESPECÍFICAS PARA O ESTÁGIO "${estagio.nome}":\n${estagio.instrucoes_agente_ia}\n\n` : ''}${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.system_prompt_extra}\n\n` : ''}REGRAS QUE NUNCA PODEM SER QUEBRADAS:
+${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.system_prompt_extra}\n\n` : ''}REGRAS QUE NUNCA PODEM SER QUEBRADAS:
 1. JAMAIS mencione ao lead que criou tarefas, anotações, moveu estágios ou fez qualquer ação no sistema. Essas ações acontecem em silêncio, por baixo dos panos.
 2. JAMAIS diga frases como: "Vou registrar isso", "Anotei aqui", "Criei uma tarefa para você", "Movi você para outra etapa", "Agendei no sistema".
 3. Use as ferramentas discretamente. A conversa flui normalmente como se fosse entre duas pessoas.
@@ -695,7 +679,7 @@ ${estagio?.instrucoes_agente_ia ? `INSTRUÇÕES ESPECÍFICAS PARA O ESTÁGIO "${
 
     // 3. Buscar dados do lead e estágio (incluindo nome do responsável atual)
     const leadResult = await query(
-      `SELECT l.*, ef.nome as estagio_nome, ef.is_ganho, ef.is_perdido, ef.instrucoes_agente_ia as estagio_instrucoes,
+      `SELECT l.*, ef.nome as estagio_nome, ef.is_ganho, ef.is_perdido,
               u.nome as responsavel_nome
        FROM leads l
        LEFT JOIN estagios_funil ef ON ef.id = l.estagio_id
@@ -741,7 +725,7 @@ ${estagio?.instrucoes_agente_ia ? `INSTRUÇÕES ESPECÍFICAS PARA O ESTÁGIO "${
     const systemPrompt = this.buildSystemPrompt(
       config,
       lead,
-      { nome: lead.estagio_nome, is_ganho: lead.is_ganho, is_perdido: lead.is_perdido, instrucoes_agente_ia: lead.estagio_instrucoes },
+      { nome: lead.estagio_nome, is_ganho: lead.is_ganho, is_perdido: lead.is_perdido },
       estagiosDisponiveis,
       anotacoes,
       tags,
@@ -1049,7 +1033,6 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
     // Montar estagio info
     const estagio = {
       nome: followup.estagio_nome,
-      instrucoes_agente_ia: followup.estagio_instrucoes,
     };
 
     const systemPrompt = this.buildSystemPromptFollowUp(
@@ -1118,51 +1101,6 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
 // Sincronização com tabela unificada `automacoes`
 // Idempotente: cria automação se não existir, atualiza se existir
 // ============================================================================
-async function sincronizarAutomacaoEstagio(estagioId: number, empresaId: number, ativo: boolean): Promise<void> {
-  const existente = await query(
-    `SELECT id FROM automacoes
-     WHERE estagio_id = $1 AND tipo_acao = 'ativar_agente_estagio' AND empresa_id = $2`,
-    [estagioId, empresaId]
-  );
-
-  if (existente.rows[0]) {
-    await query(
-      `UPDATE automacoes SET ativa = $1 WHERE id = $2`,
-      [ativo, existente.rows[0].id]
-    );
-    return;
-  }
-
-  if (!ativo) return;
-
-  const ctx = await query(
-    `SELECT ef.nome, ef.instrucoes_agente_ia, ef.estagio_apos_resposta_id, f.usuario_id
-     FROM estagios_funil ef
-     JOIN funis f ON f.id = ef.funil_id
-     WHERE ef.id = $1 AND f.empresa_id = $2`,
-    [estagioId, empresaId]
-  );
-  if (!ctx.rows[0]) return;
-
-  await query(
-    `INSERT INTO automacoes (
-       empresa_id, usuario_id, nome, descricao, tipo_acao,
-       estagio_id, ativa, config
-     ) VALUES ($1, $2, $3, $4, 'ativar_agente_estagio', $5, true, $6)`,
-    [
-      empresaId,
-      ctx.rows[0].usuario_id,
-      `Agente IA — ${ctx.rows[0].nome}`,
-      'Agente IA ativo para leads neste estágio',
-      estagioId,
-      JSON.stringify({
-        instrucoes: ctx.rows[0].instrucoes_agente_ia ?? '',
-        estagio_apos_resposta_id: ctx.rows[0].estagio_apos_resposta_id
-      })
-    ]
-  );
-}
-
 async function sincronizarAutomacaoLead(leadId: number, empresaId: number, ativo: boolean | null): Promise<void> {
   // ativo = null significa "voltar a herdar do estágio" → remover override
   if (ativo === null) {

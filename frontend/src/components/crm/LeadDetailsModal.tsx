@@ -8,6 +8,7 @@ import {
   MoreHorizontal, StickyNote, AlertTriangle, Bell, Globe, Square, Edit2, ArrowRight
 } from 'lucide-react'
 import LeadFormModal from './LeadFormModal'
+import AgendamentoConfig, { AgendamentoValue, agendamentoPadrao } from './AgendamentoConfig'
 import {
   useArquivarLead, useDeleteLead, useUpdateLead,
   useLeadAtividades, useMarcarLido, useHistoricoMensagens,
@@ -86,14 +87,7 @@ export default function LeadDetailsModal({ lead, estagios, isOpen, onClose }: Le
 
   // Follow-up state
   const [showFollowupPanel, setShowFollowupPanel] = useState(false)
-  const [followupTipo, setFollowupTipo] = useState<'manual' | 'agente_ia'>('agente_ia')
-  const [followupMensagem, setFollowupMensagem] = useState('')
-  const [followupInstrucaoIa, setFollowupInstrucaoIa] = useState('')
-  const [followupData, setFollowupData] = useState('')
-  const [followupHora, setFollowupHora] = useState('09:00')
-  const [followupHoraInicioJanela, setFollowupHoraInicioJanela] = useState('08:00')
-  const [followupHoraFimJanela, setFollowupHoraFimJanela] = useState('18:00')
-  const [followupDiasSemana, setFollowupDiasSemana] = useState<number[]>([1, 2, 3, 4, 5])
+  const [agendamento, setAgendamento] = useState<AgendamentoValue>({ ...agendamentoPadrao(), ativo: true })
 
   // Origem state (local para evitar que o select reverta ao valor antigo após mutação)
   const [leadOrigem, setLeadOrigem] = useState<LeadOrigem>(lead?.origem || 'manual')
@@ -250,30 +244,27 @@ const handleArquivar = async () => {
   }
 
   const handleAgendarFollowup = async () => {
-    if (followupTipo === 'manual' && (!followupData || !followupHora || !followupMensagem.trim())) return
-    // Agente IA: agenda para agora — janela e dias controlam quando envia
-    // Manual: usa a data/hora escolhida pelo usuário
-    const agendadoPara = followupTipo === 'agente_ia'
-      ? new Date().toISOString()
-      : new Date(`${followupData}T${followupHora}:00`).toISOString()
+    // Manual precisa de mensagem OU mídia anexada.
+    if (agendamento.tipo === 'manual' && !agendamento.mensagem?.trim() && !agendamento.media_url) return
+    if (agendamento.modo === 'data' && !agendamento.data_fixa) return
     await createFollowup.mutateAsync({
       leadId: lead.id,
       data: {
-        agendado_para: agendadoPara,
-        tipo: followupTipo,
-        mensagem: followupTipo === 'manual' ? followupMensagem : undefined,
-        instrucao_ia: followupTipo === 'agente_ia' ? followupInstrucaoIa : undefined,
-        hora_inicio: followupHoraInicioJanela || undefined,
-        hora_fim: followupHoraFimJanela || undefined,
-        dias_semana: followupDiasSemana.length > 0 ? followupDiasSemana : undefined,
+        tipo: agendamento.tipo,
+        mensagem: agendamento.tipo === 'manual' ? agendamento.mensagem : undefined,
+        instrucao_ia: agendamento.tipo === 'agente_ia' ? agendamento.instrucao_ia : undefined,
+        media_url: agendamento.tipo === 'manual' ? (agendamento.media_url ?? undefined) : undefined,
+        media_mimetype: agendamento.tipo === 'manual' ? (agendamento.media_mimetype ?? undefined) : undefined,
+        media_filename: agendamento.tipo === 'manual' ? (agendamento.media_filename ?? undefined) : undefined,
+        modo: agendamento.modo,
+        atraso_dias: agendamento.modo === 'dias' ? (agendamento.atraso_dias ?? 0) : undefined,
+        data_fixa: agendamento.modo === 'data' ? agendamento.data_fixa : undefined,
+        hora_envio: agendamento.hora_envio,
+        dias_semana: (agendamento.dias_semana?.length ?? 0) > 0 ? agendamento.dias_semana : undefined,
       }
     })
     setShowFollowupPanel(false)
-    setFollowupData('')
-    setFollowupHora('09:00')
-    setFollowupMensagem('')
-    setFollowupInstrucaoIa('')
-    setFollowupDiasSemana([1, 2, 3, 4, 5])
+    setAgendamento({ ...agendamentoPadrao(), ativo: true })
   }
 
   const formatarData = (data: string) => {
@@ -1032,9 +1023,9 @@ const handleArquivar = async () => {
 
         {/* Follow-up panel */}
         {showFollowupPanel && (
-          <div className="border-t bg-orange-50 p-4 space-y-3">
+          <div className="border-t bg-amber-50 p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-orange-800 flex items-center gap-1.5">
+              <span className="text-sm font-medium text-amber-800 flex items-center gap-1.5">
                 <Bell size={15} />
                 Agendar Follow-up
               </span>
@@ -1057,12 +1048,7 @@ const handleArquivar = async () => {
                           timeZone: 'America/Sao_Paulo'
                         })}
                         {isAtrasado && <span className="font-semibold text-red-600 ml-1">· atrasado</span>}
-                        {f.hora_inicio && (
-                          <span className="text-gray-400 ml-1">
-                            (janela: {f.hora_inicio}{f.hora_fim ? `–${f.hora_fim}` : ''})
-                          </span>
-                        )}
-                        {f.origem === 'estagio' && <span className="ml-1 text-orange-500">(estágio)</span>}
+                        {f.origem === 'estagio' && <span className="ml-1 text-amber-600">(estágio)</span>}
                       </span>
                       <button
                         onClick={() => cancelarFollowup.mutate({ id: f.id, leadId: lead.id })}
@@ -1095,118 +1081,22 @@ const handleArquivar = async () => {
                 ))}
               </div>
             )}
-            {/* Tipo */}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
-              <div className="flex gap-3">
-                <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="radio" value="agente_ia" checked={followupTipo === 'agente_ia'} onChange={() => setFollowupTipo('agente_ia')} className="text-orange-500" />
-                  Agente IA
-                </label>
-                <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="radio" value="manual" checked={followupTipo === 'manual'} onChange={() => setFollowupTipo('manual')} className="text-orange-500" />
-                  Mensagem fixa
-                </label>
-              </div>
-            </div>
-
-            {/* Campos por tipo */}
-            {followupTipo === 'agente_ia' ? (
-              <div className="space-y-2">
-                <p className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1.5">
-                  O agente enviará a mensagem assim que a janela de horário permitir — respeitando os dias da semana configurados.
-                </p>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Janela de atuação do agente</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="time"
-                      value={followupHoraInicioJanela}
-                      onChange={(e) => setFollowupHoraInicioJanela(e.target.value)}
-                      className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                    />
-                    <span className="text-xs text-gray-500">até</span>
-                    <input
-                      type="time"
-                      value={followupHoraFimJanela}
-                      onChange={(e) => setFollowupHoraFimJanela(e.target.value)}
-                      className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Instrução para o agente (opcional)</label>
-                  <textarea
-                    value={followupInstrucaoIa}
-                    onChange={(e) => setFollowupInstrucaoIa(e.target.value)}
-                    placeholder="Ex: Retome o contato perguntando se o lead já tomou uma decisão sobre a proposta..."
-                    rows={3}
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 resize-none"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Data e hora de envio</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="date"
-                      value={followupData}
-                      onChange={(e) => setFollowupData(e.target.value)}
-                      className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                    />
-                    <input
-                      type="time"
-                      value={followupHora}
-                      onChange={(e) => setFollowupHora(e.target.value)}
-                      className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Mensagem</label>
-                  <textarea
-                    value={followupMensagem}
-                    onChange={(e) => setFollowupMensagem(e.target.value)}
-                    placeholder="Olá! Gostaria de saber se tem alguma dúvida..."
-                    rows={3}
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 resize-none"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Dias da semana */}
-            <div className="pt-2 border-t">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Dias da semana</label>
-              <div className="flex gap-1 flex-wrap">
-                {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'].map((d, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => setFollowupDiasSemana(prev =>
-                      prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i].sort()
-                    )}
-                    className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors ${
-                      followupDiasSemana.includes(i)
-                        ? 'bg-orange-500 text-white border-orange-500'
-                        : 'bg-white text-gray-600 border-gray-300 hover:border-orange-400'
-                    }`}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* Padrão único de agendamento */}
+            <AgendamentoConfig
+              value={agendamento}
+              onChange={setAgendamento}
+              nivel="lead"
+              showToggle={false}
+            />
 
             <button
               onClick={handleAgendarFollowup}
               disabled={
-                (followupTipo === 'manual' && (!followupData || !followupHora || !followupMensagem.trim())) ||
+                (agendamento.tipo === 'manual' && !agendamento.mensagem?.trim()) ||
+                (agendamento.modo === 'data' && !agendamento.data_fixa) ||
                 createFollowup.isPending
               }
-              className="w-full px-3 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
+              className="w-full px-3 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-50"
             >
               {createFollowup.isPending ? 'Agendando...' : 'Confirmar agendamento'}
             </button>

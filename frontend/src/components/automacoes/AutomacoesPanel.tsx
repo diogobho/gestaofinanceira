@@ -21,7 +21,6 @@ interface AutomacoesPanelProps {
 const TIPO_ICONE: Record<TipoAcao, typeof Zap> = {
   envio_mensagem_grupo: MessageCircle,
   followup: Clock,
-  ativar_agente_estagio: Bot,
   ativar_agente_lead: Bot,
   disparo_lote: Send
 }
@@ -29,7 +28,6 @@ const TIPO_ICONE: Record<TipoAcao, typeof Zap> = {
 const TIPO_COR: Record<TipoAcao, string> = {
   envio_mensagem_grupo: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
   followup: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  ativar_agente_estagio: 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300',
   ativar_agente_lead: 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300',
   disparo_lote: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
 }
