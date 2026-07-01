@@ -12,6 +12,10 @@ router.post('/webhook/whatsapp/group-participant-add', webhookController.novoPar
 // (express.json global cobre o caso de envio em JSON).
 router.post('/webhook/form-leadership', urlencoded({ extended: true }), webhookController.receberFormLeadership);
 
+// Webhook de compra da Hotmart (evento PURCHASE_APPROVED) → cria lead no funil "Boas vindas".
+// Hotmart envia application/json; autenticado pelo hottok no header X-HOTMART-HOTTOK.
+router.post('/webhook/hotmart', webhookController.receberCompraHotmart);
+
 // Rota para obter o secret (protegida pelo auth do CRM index.ts)
 // Sera montada separadamente com auth
 router.get('/webhook/secret', webhookController.getSecret);

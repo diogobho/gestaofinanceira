@@ -18,6 +18,22 @@ const FORM_LEAD_FUNIL_ID = Number(process.env.LEADERSHIP_FORM_FUNIL_ID) || 5;
 const FORM_LEAD_RESPONSAVEL_ID = Number(process.env.LEADERSHIP_FORM_RESPONSAVEL_ID) || 22;
 const FORM_LEAD_ORIGEM = 'Leadership (form site)';
 
+// Webhook de compra da Hotmart (evento PURCHASE_APPROVED) → cria lead no CRM.
+// Autenticado pelo hottok no header X-HOTMART-HOTTOK (fallback body.hottok).
+// O comprador cai sempre no funil "Boas vindas" (id 32), sob responsabilidade da
+// Gabriela (id 27). O ESTÁGIO de entrada depende de qual conexão Hotmart enviou:
+//   - conexão existente (HOTMART_WEBHOOK_HOTTOK)  → "Entrada - ESCOLA"     (id 243)
+//   - conexão Leadership (HOTMART_LEADERSHIP_HOTTOK) → "Entrada - Leaderhsip" (id 245)
+// A camada de boas-vindas no WhatsApp é configurada pelo próprio usuário na
+// ferramenta (não é disparada aqui).
+const HOTMART_HOTTOK = process.env.HOTMART_WEBHOOK_HOTTOK || '';
+const HOTMART_LEADERSHIP_HOTTOK = process.env.HOTMART_LEADERSHIP_HOTTOK || '';
+const HOTMART_EMPRESA_ID = Number(process.env.HOTMART_EMPRESA_ID) || 5;
+const HOTMART_FUNIL_ID = Number(process.env.HOTMART_FUNIL_ID) || 32;
+const HOTMART_RESPONSAVEL_ID = Number(process.env.HOTMART_RESPONSAVEL_ID) || 27;
+const HOTMART_ESTAGIO_ESCOLA_ID = Number(process.env.HOTMART_ESTAGIO_ESCOLA_ID) || 243;
+const HOTMART_ESTAGIO_LEADERSHIP_ID = Number(process.env.HOTMART_ESTAGIO_LEADERSHIP_ID) || 245;
+
 // Extrai o valor de um campo aceitando os formatos comuns de webhook de form:
 // - flat (Elementor com Field ID = nome):           body.nome
 // - aninhado Elementor "fields[nome][value]":        body.fields.nome.value | body.fields.nome
@@ -655,6 +671,121 @@ export const webhookController = {
       }
     } catch (error) {
       console.error('[FormLead] Erro no webhook do formulário Leadership:', error);
+      next(error);
+    }
+  },
+
+  // Recebe a notificação de compra da Hotmart (webhook 2.0.0) e cria o lead no CRM.
+  // Apenas o evento PURCHASE_APPROVED gera lead; os demais são reconhecidos com 200 e ignorados.
+  async receberCompraHotmart(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!HOTMART_HOTTOK) {
+        console.error('[Hotmart] HOTMART_WEBHOOK_HOTTOK não configurado no .env');
+        return res.status(500).json({ error: 'Webhook não configurado' });
+      }
+      // hottok da Hotmart 2.0 vem no header X-HOTMART-HOTTOK; fallback para o campo body.hottok (1.0).
+      // O hottok identifica QUAL conexão enviou e define o estágio de entrada do lead:
+      //   conexão existente → "Entrada - ESCOLA"; conexão Leadership → "Entrada - Leaderhsip".
+      const hottok = req.headers['x-hotmart-hottok'] || req.body?.hottok;
+      let estagioEntradaId: number;
+      let conexao: string;
+      if (hottok === HOTMART_HOTTOK) {
+        estagioEntradaId = HOTMART_ESTAGIO_ESCOLA_ID;
+        conexao = 'ESCOLA';
+      } else if (HOTMART_LEADERSHIP_HOTTOK && hottok === HOTMART_LEADERSHIP_HOTTOK) {
+        estagioEntradaId = HOTMART_ESTAGIO_LEADERSHIP_ID;
+        conexao = 'Leadership';
+      } else {
+        return res.status(401).json({ error: 'hottok invalido' });
+      }
+
+      const body = req.body || {};
+      const event = body.event || body.data?.event;
+      // Só compra aprovada gera lead. Outros eventos: responde 200 para a Hotmart não reenviar.
+      if (event && event !== 'PURCHASE_APPROVED') {
+        return res.json({ success: true, processed: false, reason: `evento_ignorado:${event}` });
+      }
+
+      const data = body.data || {};
+      const buyer = data.buyer || {};
+      const purchase = data.purchase || {};
+
+      // Proteção contra parcelado/recorrência: cobranças seguintes de assinatura/parcelamento
+      // inteligente trazem recurrence_number > 1 → não recriam lead (evita boas-vindas repetida).
+      const recorrencia = Number(purchase.recurrence_number);
+      if (recorrencia && recorrencia > 1) {
+        console.log(`[Hotmart] Recorrência #${recorrencia} ignorada (transação ${purchase.transaction || '?'})`);
+        return res.json({ success: true, processed: false, reason: 'recorrencia' });
+      }
+
+      const nome = String(buyer.name || [buyer.first_name, buyer.last_name].filter(Boolean).join(' ') || '').trim();
+      const email = String(buyer.email || '').trim();
+      // Telefone: combina o DDI (checkout_phone_code, ex.: "55") com o número (checkout_phone).
+      // Fallback para phone (string). A normalização BR é feita pelo leadsService.create.
+      const ddi = String(buyer.checkout_phone_code || '').replace(/\D/g, '');
+      const foneRaw = String(buyer.checkout_phone || (typeof buyer.phone === 'string' ? buyer.phone : '') || '').replace(/\D/g, '');
+      const telefone = foneRaw ? `${ddi}${foneRaw}` : '';
+      const cpfCnpj = String(buyer.document || '').trim();
+
+      const produto = String(data.product?.name || '').trim();
+      const valor = Number(purchase.price?.value) || 0;
+      const origem = 'Hotmart';
+
+      // Bloco de notas com todos os dados aproveitáveis da compra (só os campos presentes).
+      const addr = buyer.address || {};
+      const pay = purchase.payment || {};
+      const fmtData = (v: any) => {
+        const n = Number(v);
+        return n ? new Date(n).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '';
+      };
+      const notas = [
+        produto && `Produto: ${produto}${data.product?.id ? ` (#${data.product.id})` : ''}`,
+        valor && `Valor: ${purchase.price?.currency_value || 'R$'} ${valor.toFixed(2)}`,
+        pay.type && `Pagamento: ${pay.type}${pay.installments_number ? ` em ${pay.installments_number}x` : ''}`,
+        purchase.transaction && `Transação: ${purchase.transaction}`,
+        purchase.offer?.code && `Oferta: ${purchase.offer.code}`,
+        cpfCnpj && `Documento: ${cpfCnpj}${buyer.document_type ? ` (${buyer.document_type})` : ''}`,
+        (addr.city || addr.state) && `Local: ${[addr.city, addr.state].filter(Boolean).join('/')}`,
+        addr.zipcode && `CEP: ${addr.zipcode}`,
+        fmtData(purchase.approved_date || purchase.order_date) && `Compra: ${fmtData(purchase.approved_date || purchase.order_date)}`,
+      ].filter(Boolean).join('\n') || undefined;
+
+      if (!nome && !telefone && !email) {
+        console.warn('[Hotmart] Payload sem comprador reconhecido:', JSON.stringify(body).slice(0, 500));
+        return res.status(400).json({ error: 'Nenhum dado de comprador (nome/telefone/email)' });
+      }
+
+      try {
+        const lead = await leadsService.create(
+          HOTMART_EMPRESA_ID,
+          HOTMART_RESPONSAVEL_ID,
+          {
+            funil_id: HOTMART_FUNIL_ID,
+            estagio_id: estagioEntradaId,      // estágio de entrada conforme a conexão (ESCOLA/Leadership)
+            responsavel_id: HOTMART_RESPONSAVEL_ID,
+            nome: nome || telefone || email,
+            telefone: telefone || undefined,
+            email: email || undefined,
+            titulo: produto || undefined,
+            cpf_cnpj: cpfCnpj || undefined,
+            valor_potencial: valor || undefined,
+            origem,
+            notas,
+          },
+          false // requireTarefa = false (lead automático de captação)
+        );
+        console.log(`[Hotmart/${conexao}] Lead #${lead.id} criado: "${lead.nome}" (${telefone || email}) — ${produto || origem}`);
+        return res.status(201).json({ success: true, lead_id: lead.id });
+      } catch (err: any) {
+        // Duplicata no funil: comprador já é lead (ex.: reenvio do evento) → 200 sem recriar.
+        if (/Já existe um lead/i.test(err?.message || '')) {
+          console.log(`[Hotmart] Duplicata ignorada: ${err.message}`);
+          return res.json({ success: true, duplicate: true, message: err.message });
+        }
+        throw err;
+      }
+    } catch (error) {
+      console.error('[Hotmart] Erro no webhook de compra:', error);
       next(error);
     }
   },
