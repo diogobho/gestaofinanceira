@@ -70,19 +70,34 @@ if (isMainInstance) {
           }
 
           if (followup.tipo === 'manual') {
-            if (!followup.contato_whatsapp_id) {
-              await followupsService.marcarFalhou(followup.id, 'Lead sem contato WhatsApp vinculado');
+            const leadRow = (await query(`SELECT * FROM leads WHERE id = $1`, [followup.lead_id])).rows[0];
+            if (!leadRow) {
+              await followupsService.marcarFalhou(followup.id, 'Lead não encontrado');
+              continue;
+            }
+            // A mensagem sai SEMPRE pelo WhatsApp do RESPONSÁVEL do lead (dono da relação),
+            // não por quem criou/moveu o lead nem pelo usuario_id do registro.
+            const remetenteId = leadRow.responsavel_id || followup.usuario_id;
+            // Se o lead ainda não tem contato vinculado (ex.: lead novo da Hotmart que
+            // nunca conversou), resolve/cria um a partir do telefone (sob o responsável) e vincula.
+            let contatoId = leadRow.contato_whatsapp_id;
+            if (!contatoId) {
+              contatoId = await contatosService.resolverContatoParaLead(
+                followup.lead_id, remetenteId, followup.empresa_id
+              );
+            }
+            if (!contatoId) {
+              await followupsService.marcarFalhou(followup.id, 'Lead sem telefone válido para envio no WhatsApp');
               continue;
             }
             // Personalização: substitui [Nome], [Telefone] e demais atributos do lead.
-            const leadRow = (await query(`SELECT * FROM leads WHERE id = $1`, [followup.lead_id])).rows[0];
             const texto = aplicarVariaveisLead(followup.mensagem || '', leadRow);
             if (followup.media_url) {
               // Anexo: envia a mídia via /send-media; o texto (com variáveis) vira a legenda.
               await contatosService.enviarMediaArmazenada(
-                followup.usuario_id,
+                remetenteId,
                 followup.empresa_id,
-                followup.contato_whatsapp_id,
+                contatoId,
                 followup.media_url,
                 followup.media_mimetype || 'application/octet-stream',
                 followup.media_filename || 'arquivo',
@@ -91,16 +106,16 @@ if (isMainInstance) {
               );
             } else {
               await contatosService.enviarMensagem(
-                followup.usuario_id,
+                remetenteId,
                 followup.empresa_id,
-                followup.contato_whatsapp_id,
+                contatoId,
                 texto,
                 followup.lead_id
               );
             }
             await followupsService.marcarEnviado(followup.id);
             await moverLeadAposEnvio(followup);
-            console.log(`[FollowUp Scheduler] Manual enviado: follow-up #${followup.id} → lead #${followup.lead_id}${followup.media_url ? ' (com mídia)' : ''}`);
+            console.log(`[FollowUp Scheduler] Manual enviado: follow-up #${followup.id} → lead #${followup.lead_id} (remetente user #${remetenteId})${followup.media_url ? ' (com mídia)' : ''}`);
           } else {
             // agente_ia
             if (!followup.contato_whatsapp_id) {

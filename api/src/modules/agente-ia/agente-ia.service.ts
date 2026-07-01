@@ -1023,12 +1023,13 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
     );
     const tags = tagsResult.rows.map((r: any) => r.nome);
 
-    // Buscar nome do responsável atual do lead
+    // Buscar nome + id do responsável atual do lead (a msg sai pelo WhatsApp dele)
     const responsavelResult = await query(
-      `SELECT u.nome FROM leads l JOIN usuarios u ON u.id = l.responsavel_id WHERE l.id = $1`,
+      `SELECT u.nome, l.responsavel_id FROM leads l JOIN usuarios u ON u.id = l.responsavel_id WHERE l.id = $1`,
       [leadId]
     );
     const responsavelNome: string | undefined = responsavelResult.rows[0]?.nome || undefined;
+    const remetenteId: number = responsavelResult.rows[0]?.responsavel_id || usuarioId;
 
     // Montar estagio info
     const estagio = {
@@ -1078,7 +1079,7 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
     // Enviar a mensagem — não salva em agente_ia_contexto pois o histórico já fica em
     // historico_mensagens e o próximo follow-up/reativo lê de lá via getContextoHistorico.
     await contatosService.enviarMensagem(
-      usuarioId, empresaId, followup.contato_whatsapp_id, texto, leadId
+      remetenteId, empresaId, followup.contato_whatsapp_id, texto, leadId
     );
     await this.logarAcao(leadId, empresaId, 'followup_ia', { texto, followup_id: followup.id }, true);
 
