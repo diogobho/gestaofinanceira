@@ -258,6 +258,7 @@ const handleArquivar = async () => {
         media_filename: agendamento.tipo === 'manual' ? (agendamento.media_filename ?? undefined) : undefined,
         modo: agendamento.modo,
         atraso_dias: agendamento.modo === 'dias' ? (agendamento.atraso_dias ?? 0) : undefined,
+        atraso_unidade: agendamento.modo === 'dias' ? (agendamento.atraso_unidade ?? 'dia') : undefined,
         data_fixa: agendamento.modo === 'data' ? agendamento.data_fixa : undefined,
         hora_envio: agendamento.hora_envio,
         dias_semana: (agendamento.dias_semana?.length ?? 0) > 0 ? agendamento.dias_semana : undefined,

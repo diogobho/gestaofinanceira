@@ -581,6 +581,7 @@ export const leadsService = {
         origem: 'estagio',
         modo: cfg.modo || 'dias',
         atrasoDias: cfg.atraso_dias,
+        atrasoUnidade: cfg.atraso_unidade,
         dataFixa: cfg.data_fixa,
         horaEnvio: cfg.hora_envio,
         diasSemana: cfg.dias_semana,

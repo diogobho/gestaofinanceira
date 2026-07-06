@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { query } from '../../../config/database';
-import { calcularAgendadoPara, ModoAgendamento } from '../_shared/agendamento';
+import { calcularAgendadoPara, ModoAgendamento, UnidadeAtraso } from '../_shared/agendamento';
 
 const UPLOADS_DIR = '/var/www/apps/gestao_financeira/uploads/whatsapp';
 
@@ -19,8 +19,9 @@ export interface CriarFollowupInput {
   mediaFilename?: string | null;
   origem?: 'lead' | 'estagio';
   // Padrão único de agendamento
-  modo?: ModoAgendamento;        // 'dias' (após X dias) | 'data' (data fixa)
-  atrasoDias?: number | null;
+  modo?: ModoAgendamento;        // 'dias' (após X unidade) | 'data' (data fixa)
+  atrasoDias?: number | null;    // quantidade (X) do atraso
+  atrasoUnidade?: UnidadeAtraso | null; // 'minuto' | 'hora' | 'dia' (default 'dia')
   dataFixa?: string | null;      // 'YYYY-MM-DD'
   horaEnvio?: string | null;     // 'HH:MM'
   diasSemana?: number[] | null;  // 0=Dom..6=Sáb
@@ -33,12 +34,12 @@ export const followupsService = {
     const {
       leadId, usuarioId, empresaId, tipo, mensagem, instrucaoIa,
       mediaUrl, mediaMimetype, mediaFilename,
-      origem = 'lead', modo = 'dias', atrasoDias, dataFixa, horaEnvio,
+      origem = 'lead', modo = 'dias', atrasoDias, atrasoUnidade, dataFixa, horaEnvio,
       diasSemana, base, agendadoPara,
     } = input;
 
     const quando = agendadoPara || calcularAgendadoPara(
-      { modo, atrasoDias, dataFixa, horaEnvio, diasSemana },
+      { modo, atrasoDias, atrasoUnidade, dataFixa, horaEnvio, diasSemana },
       base || new Date()
     );
 
@@ -46,14 +47,14 @@ export const followupsService = {
       `INSERT INTO followups_agendados
          (lead_id, usuario_id, empresa_id, agendado_para, tipo, mensagem, instrucao_ia,
           media_url, media_mimetype, media_filename,
-          origem, modo, atraso_dias, data_fixa, hora_envio, dias_semana)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          origem, modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        RETURNING *`,
       [
         leadId, usuarioId, empresaId, quando, tipo,
         mensagem || null, instrucaoIa || null,
         mediaUrl || null, mediaMimetype || null, mediaFilename || null,
-        origem, modo, atrasoDias ?? null, dataFixa || null, horaEnvio || null,
+        origem, modo, atrasoDias ?? null, atrasoUnidade || 'dia', dataFixa || null, horaEnvio || null,
         diasSemana?.length ? diasSemana : null,
       ]
     );

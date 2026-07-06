@@ -11,7 +11,7 @@ export const followupsController = {
       const {
         agendado_para, tipo, mensagem, instrucao_ia,
         media_url, media_mimetype, media_filename,
-        modo, atraso_dias, data_fixa, hora_envio, dias_semana,
+        modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana,
       } = req.body;
 
       if (!tipo || !['manual', 'agente_ia'].includes(tipo)) {
@@ -31,7 +31,7 @@ export const followupsController = {
         mensagem, instrucaoIa: instrucao_ia,
         mediaUrl: media_url, mediaMimetype: media_mimetype, mediaFilename: media_filename,
         origem: 'lead',
-        modo: modo || 'dias', atrasoDias: atraso_dias, dataFixa: data_fixa,
+        modo: modo || 'dias', atrasoDias: atraso_dias, atrasoUnidade: atraso_unidade, dataFixa: data_fixa,
         horaEnvio: hora_envio, diasSemana: dias_semana,
         agendadoPara: agendado_para,
       });

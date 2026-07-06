@@ -974,7 +974,7 @@ export const useCreateFollowup = () => {
       data: {
         tipo: 'manual' | 'agente_ia'; mensagem?: string; instrucao_ia?: string
         media_url?: string | null; media_mimetype?: string | null; media_filename?: string | null
-        modo?: 'dias' | 'data' | 'imediato'; atraso_dias?: number | null; data_fixa?: string | null
+        modo?: 'dias' | 'data'; atraso_dias?: number | null; atraso_unidade?: 'minuto' | 'hora' | 'dia'; data_fixa?: string | null
         hora_envio?: string | null; dias_semana?: number[] | null; agendado_para?: string
       }
     }) => followupsApi.criar(leadId, data),

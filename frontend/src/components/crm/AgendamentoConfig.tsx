@@ -25,8 +25,9 @@ export interface AgendamentoValue {
   media_url?: string | null
   media_mimetype?: string | null
   media_filename?: string | null
-  modo: 'dias' | 'data' | 'imediato'
-  atraso_dias?: number | null
+  modo: 'dias' | 'data'
+  atraso_dias?: number | null       // quantidade (X) do atraso
+  atraso_unidade?: 'minuto' | 'hora' | 'dia' // unidade do atraso (default 'dia')
   data_fixa?: string | null         // 'YYYY-MM-DD'
   hora_envio?: string | null        // 'HH:MM'
   dias_semana?: number[] | null     // 0=Dom..6=Sáb
@@ -47,6 +48,7 @@ export function agendamentoPadrao(): AgendamentoValue {
     tipo: 'manual',
     modo: 'dias',
     atraso_dias: 0,
+    atraso_unidade: 'dia',
     hora_envio: '09:00',
     dias_semana: [1, 2, 3, 4, 5],
   }
@@ -141,20 +143,11 @@ export default function AgendamentoConfig({
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input
                   type="radio"
-                  checked={value.modo === 'imediato'}
-                  onChange={() => set({ modo: 'imediato' })}
-                  className="text-amber-500"
-                />
-                Imediato (na entrada)
-              </label>
-              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                <input
-                  type="radio"
                   checked={value.modo === 'dias'}
                   onChange={() => set({ modo: 'dias' })}
                   className="text-amber-500"
                 />
-                Após X dias
+                Após um tempo
               </label>
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input
@@ -166,13 +159,70 @@ export default function AgendamentoConfig({
                 Data fixa
               </label>
             </div>
-            {value.modo === 'imediato' ? (
+
+            {value.modo === 'dias' ? (
               <div className="space-y-1.5">
-                <p className="text-[11px] text-gray-400">
-                  Envia assim que o lead entra no estágio (≤ 1 min), nos dias permitidos abaixo.
-                </p>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500">Se cair em dia não permitido, envia no próximo dia válido às</span>
+                  <span className="text-xs text-gray-500">Após</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={value.atraso_dias ?? 0}
+                    onChange={(e) => set({ atraso_dias: Math.max(0, Number(e.target.value) || 0) })}
+                    className="w-16 px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                  />
+                  <select
+                    value={value.atraso_unidade ?? 'dia'}
+                    onChange={(e) => set({ atraso_unidade: e.target.value as 'minuto' | 'hora' | 'dia' })}
+                    className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                  >
+                    <option value="minuto">minuto(s)</option>
+                    <option value="hora">hora(s)</option>
+                    <option value="dia">dia(s)</option>
+                  </select>
+                  {(value.atraso_unidade ?? 'dia') === 'dia' && (
+                    <>
+                      <span className="text-xs text-gray-500">às</span>
+                      <input
+                        type="time"
+                        value={value.hora_envio ?? '09:00'}
+                        onChange={(e) => set({ hora_envio: e.target.value })}
+                        className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                      />
+                    </>
+                  )}
+                </div>
+
+                {(value.atraso_unidade ?? 'dia') === 'dia' ? (
+                  <p className="text-[11px] text-gray-400">Contado {baseAtraso}.</p>
+                ) : (
+                  <>
+                    <p className="text-[11px] text-gray-400">
+                      Envia {value.atraso_dias ?? 0} {value.atraso_unidade}(s) após a entrada
+                      {(value.atraso_dias ?? 0) === 0 ? ' (ou seja, na hora, em até 1 min)' : ''}.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">Se cair em dia não permitido, envia no próximo dia válido às</span>
+                      <input
+                        type="time"
+                        value={value.hora_envio ?? '09:00'}
+                        onChange={(e) => set({ hora_envio: e.target.value })}
+                        className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="date"
+                  value={value.data_fixa ?? ''}
+                  onChange={(e) => set({ data_fixa: e.target.value })}
+                  className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">às</span>
                   <input
                     type="time"
                     value={value.hora_envio ?? '09:00'}
@@ -181,44 +231,10 @@ export default function AgendamentoConfig({
                   />
                 </div>
               </div>
-            ) : (
-            <div className="grid grid-cols-2 gap-2">
-              {value.modo === 'dias' ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    value={value.atraso_dias ?? 0}
-                    onChange={(e) => set({ atraso_dias: Math.max(0, Number(e.target.value) || 0) })}
-                    className="w-16 px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
-                  />
-                  <span className="text-xs text-gray-500">dia(s)</span>
-                </div>
-              ) : (
-                <input
-                  type="date"
-                  value={value.data_fixa ?? ''}
-                  onChange={(e) => set({ data_fixa: e.target.value })}
-                  className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
-                />
-              )}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">às</span>
-                <input
-                  type="time"
-                  value={value.hora_envio ?? '09:00'}
-                  onChange={(e) => set({ hora_envio: e.target.value })}
-                  className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
-                />
-              </div>
-            </div>
-            )}
-            {value.modo === 'dias' && (
-              <p className="text-[11px] text-gray-400 mt-1">Contado {baseAtraso}.</p>
             )}
           </div>
 
-          {/* Dias da semana (roll-forward) — vale para todos os modos, inclusive imediato */}
+          {/* Dias da semana (roll-forward) — vale para todos os modos */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Dias permitidos para envio</label>
             <div className="flex gap-1 flex-wrap">

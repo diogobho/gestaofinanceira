@@ -7,8 +7,9 @@ export interface EstagioFollowupConfig {
   mensagem?: string;
   instrucao_ia?: string;
   // Padrão único de agendamento
-  modo?: 'dias' | 'data';        // 'dias' = após X dias da entrada | 'data' = data fixa
-  atraso_dias?: number | null;
+  modo?: 'dias' | 'data';        // 'dias' = após X unidade da entrada | 'data' = data fixa
+  atraso_dias?: number | null;   // quantidade (X) do atraso
+  atraso_unidade?: 'minuto' | 'hora' | 'dia'; // unidade do atraso (default 'dia')
   data_fixa?: string | null;     // 'YYYY-MM-DD'
   hora_envio?: string | null;    // 'HH:MM'
   dias_semana?: number[] | null; // 0=Dom..6=Sáb
@@ -310,6 +311,7 @@ async function sincronizarAutomacaoFollowupEstagio(
     const agendadoPara = calcularAgendadoPara({
       modo: followupConfig.modo || 'dias',
       atrasoDias: followupConfig.atraso_dias,
+      atrasoUnidade: followupConfig.atraso_unidade,
       dataFixa: followupConfig.data_fixa,
       horaEnvio: followupConfig.hora_envio,
       diasSemana: followupConfig.dias_semana,
@@ -319,10 +321,10 @@ async function sincronizarAutomacaoFollowupEstagio(
       `INSERT INTO followups_agendados
          (lead_id, usuario_id, empresa_id, agendado_para, tipo, mensagem, instrucao_ia,
           media_url, media_mimetype, media_filename,
-          origem, modo, atraso_dias, data_fixa, hora_envio, dias_semana)
-       SELECT l.id, l.usuario_id, $1, $2, $3, $4, $5, $6, $7, $8, 'estagio', $9, $10, $11, $12, $13
+          origem, modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana)
+       SELECT l.id, l.usuario_id, $1, $2, $3, $4, $5, $6, $7, $8, 'estagio', $9, $10, $11, $12, $13, $14
        FROM leads l
-       WHERE l.estagio_id = $14
+       WHERE l.estagio_id = $15
          AND l.empresa_id = $1
          AND l.arquivado = false
          AND NOT EXISTS (
@@ -340,6 +342,7 @@ async function sincronizarAutomacaoFollowupEstagio(
         ehManual ? (followupConfig.media_filename || null) : null,
         followupConfig.modo || 'dias',
         followupConfig.atraso_dias ?? null,
+        followupConfig.atraso_unidade || 'dia',
         followupConfig.data_fixa || null,
         followupConfig.hora_envio || null,
         followupConfig.dias_semana?.length ? followupConfig.dias_semana : null,
