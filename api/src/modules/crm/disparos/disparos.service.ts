@@ -41,6 +41,9 @@ export interface IniciarDisparoDto {
   responsavel_id?: number;
   temperatura?: string;
   origem?: string;
+  sem_tarefa?: boolean;
+  com_tarefa_hoje?: boolean;
+  com_tarefa_atrasada?: boolean;
 }
 
 // Usa o padrão único de substituição (todos os atributos do lead).
@@ -64,12 +67,46 @@ async function sleepRandom(minMs: number, maxMs: number) {
   return sleep(ms);
 }
 
+// Filtros de tarefa — espelham os do kanban (leads.service._buildWhereClause).
+// Subqueries sem parâmetros; assumem que a tabela leads está aliasada como "l".
+export interface FiltrosTarefa {
+  sem_tarefa?: boolean;
+  com_tarefa_hoje?: boolean;
+  com_tarefa_atrasada?: boolean;
+}
+
+export function _tarefaFiltroSQL(filtros?: FiltrosTarefa): string {
+  let sql = '';
+  if (filtros?.com_tarefa_atrasada) {
+    sql += ` AND EXISTS (
+      SELECT 1 FROM tarefas_lead tf
+      WHERE tf.lead_id = l.id AND tf.status IN ('pendente', 'em_andamento')
+      AND tf.data_vencimento < NOW()
+    )`;
+  }
+  if (filtros?.com_tarefa_hoje) {
+    sql += ` AND EXISTS (
+      SELECT 1 FROM tarefas_lead tf
+      WHERE tf.lead_id = l.id AND tf.status IN ('pendente', 'em_andamento')
+      AND tf.data_vencimento >= CURRENT_DATE
+      AND tf.data_vencimento < CURRENT_DATE + INTERVAL '1 day'
+    )`;
+  }
+  if (filtros?.sem_tarefa) {
+    sql += ` AND NOT EXISTS (
+      SELECT 1 FROM tarefas_lead tf
+      WHERE tf.lead_id = l.id AND tf.status IN ('pendente', 'em_andamento')
+    )`;
+  }
+  return sql;
+}
+
 async function _buscarLeadsPorConfig(
   empresaId: number,
   config: {
     todos?: boolean; funil_id?: number; lead_ids?: number[];
     estagio_id?: number; responsavel_id?: number; temperatura?: string; origem?: string;
-  }
+  } & FiltrosTarefa
 ): Promise<DisparoLead[]> {
   if (config.todos && config.funil_id) {
     const params: any[] = [empresaId, config.funil_id];
@@ -91,6 +128,7 @@ async function _buscarLeadsPorConfig(
       params.push(config.origem);
       extraWhere += ` AND l.origem = $${params.length}`;
     }
+    extraWhere += _tarefaFiltroSQL(config);
 
     const r = await query(
       `SELECT
@@ -287,7 +325,7 @@ export const disparosService = {
     search?: string,
     page = 1,
     perPage = 50,
-    filtros?: { estagio_id?: number; responsavel_id?: number; temperatura?: string; origem?: string }
+    filtros?: { estagio_id?: number; responsavel_id?: number; temperatura?: string; origem?: string } & FiltrosTarefa
   ): Promise<{ leads: any[]; total: number; paginas: number }> {
     const offset = (page - 1) * perPage;
     const params: any[] = [empresaId, funilId];
@@ -313,6 +351,7 @@ export const disparosService = {
       params.push(filtros.origem);
       whereExtra += ` AND l.origem = $${params.length}`;
     }
+    whereExtra += _tarefaFiltroSQL(filtros);
 
     const baseWhere = `WHERE l.empresa_id = $1 AND l.funil_id = $2 AND l.arquivado = false
       AND l.telefone IS NOT NULL AND l.telefone != ''${whereExtra}`;
@@ -355,6 +394,9 @@ export const disparosService = {
       responsavel_id: dto.responsavel_id,
       temperatura: dto.temperatura,
       origem: dto.origem,
+      sem_tarefa: dto.sem_tarefa,
+      com_tarefa_hoje: dto.com_tarefa_hoje,
+      com_tarefa_atrasada: dto.com_tarefa_atrasada,
     });
 
     // Filtrar grupos (@g.us) — disparo individual apenas
@@ -392,6 +434,14 @@ export const disparosService = {
       todos: dto.todos || false,
       funil_id: dto.funil_id || null,
       lead_ids: dto.todos ? null : (dto.lead_ids || null),
+      // Filtros do modo 'todos' — precisam persistir para o disparo agendado reaplicá-los.
+      estagio_id: dto.estagio_id || null,
+      responsavel_id: dto.responsavel_id || null,
+      temperatura: dto.temperatura || null,
+      origem: dto.origem || null,
+      sem_tarefa: dto.sem_tarefa || false,
+      com_tarefa_hoje: dto.com_tarefa_hoje || false,
+      com_tarefa_atrasada: dto.com_tarefa_atrasada || false,
     };
 
     const status = agendado ? 'agendado' : 'processando';

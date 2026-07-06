@@ -6,7 +6,8 @@ export const disparosController = {
   async listarLeads(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const empresaId = req.user!.empresa_id;
-      const { funil_id, search, page, per_page, estagio_id, responsavel_id, temperatura, origem } = req.query;
+      const { funil_id, search, page, per_page, estagio_id, responsavel_id, temperatura, origem,
+              sem_tarefa, com_tarefa_hoje, com_tarefa_atrasada } = req.query;
 
       if (!funil_id) {
         return res.status(400).json({ message: 'funil_id é obrigatório' });
@@ -23,6 +24,9 @@ export const disparosController = {
           responsavel_id: responsavel_id ? parseInt(responsavel_id as string) : undefined,
           temperatura: temperatura as string | undefined,
           origem: origem as string | undefined,
+          sem_tarefa: sem_tarefa === 'true',
+          com_tarefa_hoje: com_tarefa_hoje === 'true',
+          com_tarefa_atrasada: com_tarefa_atrasada === 'true',
         }
       );
 
@@ -37,7 +41,8 @@ export const disparosController = {
       const empresaId = req.user!.empresa_id;
       const usuarioId = req.user!.id;
       const { lead_ids, todos, template, funil_id, estagio_pos_disparo_id, agendado_para,
-              estagio_id, responsavel_id, temperatura, origem } = req.body;
+              estagio_id, responsavel_id, temperatura, origem,
+              sem_tarefa, com_tarefa_hoje, com_tarefa_atrasada } = req.body;
 
       if (!template || !template.trim()) {
         return res.status(400).json({ message: 'template é obrigatório' });
@@ -67,6 +72,9 @@ export const disparosController = {
         responsavel_id: responsavel_id ? Number(responsavel_id) : undefined,
         temperatura: temperatura || undefined,
         origem: origem || undefined,
+        sem_tarefa: sem_tarefa === true,
+        com_tarefa_hoje: com_tarefa_hoje === true,
+        com_tarefa_atrasada: com_tarefa_atrasada === true,
       });
 
       res.json({ disparo_id: disparoId });

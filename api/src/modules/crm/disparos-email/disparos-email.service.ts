@@ -3,6 +3,7 @@ import { query } from '../../../config/database';
 import { enviarEmail, EmailAnexo } from '../../../services/email.service';
 import { configuracoesSmtpService } from '../../configuracoes-smtp/configuracoes-smtp.service';
 import { leadsService } from '../leads/leads.service';
+import { _tarefaFiltroSQL, FiltrosTarefa } from '../disparos/disparos.service';
 
 export interface IniciarDisparoEmailDto {
   lead_ids?: number[];
@@ -18,6 +19,9 @@ export interface IniciarDisparoEmailDto {
   responsavel_id?: number;
   temperatura?: string;
   origem?: string;
+  sem_tarefa?: boolean;
+  com_tarefa_hoje?: boolean;
+  com_tarefa_atrasada?: boolean;
 }
 
 function aplicarVariaveis(template: string, lead: Record<string, any>): string {
@@ -40,7 +44,7 @@ async function _buscarLeadsPorConfig(
   config: {
     todos?: boolean; funil_id?: number; lead_ids?: number[];
     estagio_id?: number; responsavel_id?: number; temperatura?: string; origem?: string;
-  }
+  } & FiltrosTarefa
 ): Promise<any[]> {
   if (config.todos && config.funil_id) {
     const params: any[] = [empresaId, config.funil_id];
@@ -62,6 +66,7 @@ async function _buscarLeadsPorConfig(
       params.push(config.origem);
       extraWhere += ` AND l.origem = $${params.length}`;
     }
+    extraWhere += _tarefaFiltroSQL(config);
 
     const r = await query(
       `SELECT l.id, l.nome, l.email, l.empresa, l.origem
@@ -209,7 +214,7 @@ export const disparosEmailService = {
     search?: string,
     page = 1,
     perPage = 50,
-    filtros?: { estagio_id?: number; responsavel_id?: number; temperatura?: string; origem?: string }
+    filtros?: { estagio_id?: number; responsavel_id?: number; temperatura?: string; origem?: string } & FiltrosTarefa
   ) {
     const offset = (page - 1) * perPage;
     const params: any[] = [empresaId, funilId];
@@ -235,6 +240,7 @@ export const disparosEmailService = {
       params.push(filtros.origem);
       whereExtra += ` AND l.origem = $${params.length}`;
     }
+    whereExtra += _tarefaFiltroSQL(filtros);
 
     const baseWhere = `WHERE l.empresa_id = $1 AND l.funil_id = $2 AND l.arquivado = false
       AND l.email IS NOT NULL AND l.email != ''${whereExtra}`;
@@ -265,6 +271,13 @@ export const disparosEmailService = {
       todos: dto.todos,
       funil_id: dto.funil_id,
       lead_ids: dto.lead_ids,
+      estagio_id: dto.estagio_id,
+      responsavel_id: dto.responsavel_id,
+      temperatura: dto.temperatura,
+      origem: dto.origem,
+      sem_tarefa: dto.sem_tarefa,
+      com_tarefa_hoje: dto.com_tarefa_hoje,
+      com_tarefa_atrasada: dto.com_tarefa_atrasada,
     });
 
     const agendado = dto.agendado_para && new Date(dto.agendado_para) > new Date();
@@ -275,6 +288,14 @@ export const disparosEmailService = {
       todos: dto.todos || false,
       funil_id: dto.funil_id || null,
       lead_ids: dto.todos ? null : (dto.lead_ids || null),
+      // Filtros do modo 'todos' — precisam persistir para o disparo agendado reaplicá-los.
+      estagio_id: dto.estagio_id || null,
+      responsavel_id: dto.responsavel_id || null,
+      temperatura: dto.temperatura || null,
+      origem: dto.origem || null,
+      sem_tarefa: dto.sem_tarefa || false,
+      com_tarefa_hoje: dto.com_tarefa_hoje || false,
+      com_tarefa_atrasada: dto.com_tarefa_atrasada || false,
     };
 
     const status = agendado ? 'agendado' : 'processando';

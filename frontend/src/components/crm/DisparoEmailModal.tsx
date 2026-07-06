@@ -180,6 +180,9 @@ export default function DisparoEmailModal({ isOpen, onClose, funilId, filtros }:
           responsavel_id: filtros?.responsavel_id,
           temperatura: filtros?.temperatura,
           origem: filtros?.origem,
+          sem_tarefa: filtros?.sem_tarefa || undefined,
+          com_tarefa_hoje: filtros?.com_tarefa_hoje || undefined,
+          com_tarefa_atrasada: filtros?.com_tarefa_atrasada || undefined,
         }
       })
       setLeads(res.data.leads)
@@ -291,6 +294,9 @@ export default function DisparoEmailModal({ isOpen, onClose, funilId, filtros }:
         if (filtros?.responsavel_id) formData.append('responsavel_id', String(filtros.responsavel_id))
         if (filtros?.temperatura) formData.append('temperatura', filtros.temperatura)
         if (filtros?.origem) formData.append('origem', filtros.origem)
+        if (filtros?.sem_tarefa) formData.append('sem_tarefa', 'true')
+        if (filtros?.com_tarefa_hoje) formData.append('com_tarefa_hoje', 'true')
+        if (filtros?.com_tarefa_atrasada) formData.append('com_tarefa_atrasada', 'true')
       } else {
         formData.append('lead_ids', JSON.stringify(Array.from(selectedIds)))
       }

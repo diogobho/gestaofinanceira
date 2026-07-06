@@ -115,6 +115,9 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
           responsavel_id: filtros?.responsavel_id,
           temperatura: filtros?.temperatura,
           origem: filtros?.origem,
+          sem_tarefa: filtros?.sem_tarefa || undefined,
+          com_tarefa_hoje: filtros?.com_tarefa_hoje || undefined,
+          com_tarefa_atrasada: filtros?.com_tarefa_atrasada || undefined,
         }
       })
       setLeads(res.data.leads)
@@ -231,6 +234,9 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
         if (filtros?.responsavel_id) body.responsavel_id = filtros.responsavel_id
         if (filtros?.temperatura) body.temperatura = filtros.temperatura
         if (filtros?.origem) body.origem = filtros.origem
+        if (filtros?.sem_tarefa) body.sem_tarefa = true
+        if (filtros?.com_tarefa_hoje) body.com_tarefa_hoje = true
+        if (filtros?.com_tarefa_atrasada) body.com_tarefa_atrasada = true
       } else {
         body.lead_ids = Array.from(selectedIds)
       }
