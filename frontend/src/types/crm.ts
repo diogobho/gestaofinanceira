@@ -25,7 +25,7 @@ export interface EstagioFollowupConfig {
   media_mimetype?: string | null;
   media_filename?: string | null;
   // Padrão único de agendamento
-  modo?: 'dias' | 'data';        // 'dias' = após X dias da entrada | 'data' = data fixa
+  modo?: 'dias' | 'data' | 'imediato'; // 'dias' = após X dias | 'data' = data fixa | 'imediato' = na entrada
   atraso_dias?: number | null;
   data_fixa?: string | null;     // 'YYYY-MM-DD'
   hora_envio?: string | null;    // 'HH:MM'
@@ -48,7 +48,7 @@ export interface FollowupAgendado {
   erro?: string;
   enviado_at?: string;
   origem: 'lead' | 'estagio';
-  modo?: 'dias' | 'data';
+  modo?: 'dias' | 'data' | 'imediato';
   atraso_dias?: number | null;
   data_fixa?: string | null;
   hora_envio?: string | null;

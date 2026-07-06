@@ -398,7 +398,7 @@ export interface Followup {
   origem: 'lead' | 'estagio'
   erro: string | null
   enviado_at: string | null
-  modo?: 'dias' | 'data' | null
+  modo?: 'dias' | 'data' | 'imediato' | null
   atraso_dias?: number | null
   data_fixa?: string | null
   hora_envio?: string | null
@@ -432,7 +432,7 @@ export const followupsApi = {
     media_mimetype?: string | null
     media_filename?: string | null
     // Padrão único de agendamento
-    modo?: 'dias' | 'data'
+    modo?: 'dias' | 'data' | 'imediato'
     atraso_dias?: number | null
     data_fixa?: string | null
     hora_envio?: string | null

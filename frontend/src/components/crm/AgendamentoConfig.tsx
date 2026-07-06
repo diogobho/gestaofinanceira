@@ -25,7 +25,7 @@ export interface AgendamentoValue {
   media_url?: string | null
   media_mimetype?: string | null
   media_filename?: string | null
-  modo: 'dias' | 'data'
+  modo: 'dias' | 'data' | 'imediato'
   atraso_dias?: number | null
   data_fixa?: string | null         // 'YYYY-MM-DD'
   hora_envio?: string | null        // 'HH:MM'
@@ -137,7 +137,16 @@ export default function AgendamentoConfig({
           {/* Quando enviar: modo + atraso/data + hora */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Quando enviar</label>
-            <div className="flex gap-3 mb-2">
+            <div className="flex gap-3 mb-2 flex-wrap">
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  checked={value.modo === 'imediato'}
+                  onChange={() => set({ modo: 'imediato' })}
+                  className="text-amber-500"
+                />
+                Imediato (na entrada)
+              </label>
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input
                   type="radio"
@@ -157,6 +166,11 @@ export default function AgendamentoConfig({
                 Data fixa
               </label>
             </div>
+            {value.modo === 'imediato' ? (
+              <p className="text-[11px] text-gray-400 mt-1">
+                Envia assim que o lead entra no estágio (ou ao criar o follow-up). Pode levar até 1 min.
+              </p>
+            ) : (
             <div className="grid grid-cols-2 gap-2">
               {value.modo === 'dias' ? (
                 <div className="flex items-center gap-2">
@@ -187,12 +201,14 @@ export default function AgendamentoConfig({
                 />
               </div>
             </div>
+            )}
             {value.modo === 'dias' && (
               <p className="text-[11px] text-gray-400 mt-1">Contado {baseAtraso}.</p>
             )}
           </div>
 
-          {/* Dias da semana (roll-forward) */}
+          {/* Dias da semana (roll-forward) — não se aplica ao modo imediato */}
+          {value.modo !== 'imediato' && (
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Dias permitidos para envio</label>
             <div className="flex gap-1 flex-wrap">
@@ -215,6 +231,7 @@ export default function AgendamentoConfig({
               Se o envio cair num dia não permitido, vai para o próximo dia permitido no mesmo horário.
             </p>
           </div>
+          )}
 
           {/* Tipo de mensagem */}
           <div className="pt-2 border-t">

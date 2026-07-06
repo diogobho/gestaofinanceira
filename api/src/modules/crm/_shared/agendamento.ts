@@ -12,7 +12,7 @@
 const TZ_OFFSET = '-03:00';
 const HORA_PADRAO = '09:00';
 
-export type ModoAgendamento = 'dias' | 'data';
+export type ModoAgendamento = 'dias' | 'data' | 'imediato';
 
 export interface AgendamentoParams {
   modo: ModoAgendamento;
@@ -38,6 +38,7 @@ function partesDataSP(d: Date): { y: number; m: number; day: number } {
 /**
  * Calcula o instante (ISO/UTC) em que a mensagem deve ser disparada.
  *
+ * - modo 'imediato': o próprio instante da base (envio na entrada; ignora hora/dias).
  * - modo 'dias': base (entrada no estágio / criação no lead) + atrasoDias, no horaEnvio.
  * - modo 'data': dataFixa, no horaEnvio.
  * - Se diasSemana for informado e o dia calculado não estiver nele, rola para o
@@ -45,6 +46,11 @@ function partesDataSP(d: Date): { y: number; m: number; day: number } {
  */
 export function calcularAgendadoPara(params: AgendamentoParams, base: Date = new Date()): string {
   const { modo, atrasoDias, dataFixa, horaEnvio, diasSemana } = params;
+
+  // Imediato: envia já. O job (a cada 1 min) processa no próximo ciclo.
+  if (modo === 'imediato') {
+    return base.toISOString();
+  }
 
   // Data-calendário alvo, manipulada em UTC-midnight para a aritmética não sofrer com fuso local.
   let alvo: Date;
