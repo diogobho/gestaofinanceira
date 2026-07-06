@@ -21,9 +21,11 @@ const FORM_LEAD_ORIGEM = 'Leadership (form site)';
 // Webhook de compra da Hotmart (evento PURCHASE_APPROVED) → cria lead no CRM.
 // Autenticado pelo hottok no header X-HOTMART-HOTTOK (fallback body.hottok).
 // O comprador cai sempre no funil "Boas vindas" (id 32), sob responsabilidade da
-// Gabriela (id 27). O ESTÁGIO de entrada depende de qual conexão Hotmart enviou:
-//   - conexão existente (HOTMART_WEBHOOK_HOTTOK)  → "Entrada - ESCOLA"     (id 243)
-//   - conexão Leadership (HOTMART_LEADERSHIP_HOTTOK) → "Entrada - Leaderhsip" (id 245)
+// Gabriela (id 27). O ESTÁGIO de entrada é definido pelo PRODUTO comprado:
+//   - Escola de Empreendedorismo (product.id 5510712) → "Entrada - ESCOLA"     (id 243)
+//   - Formação Líderes Quânticos (product.id 7956451) → "Entrada - Leaderhsip" (id 245)
+// O hottok NÃO serve para rotear: as duas ofertas usam a mesma conta Hotmart e
+// portanto o MESMO token — ele só autentica. O roteamento é pelo product.id.
 // A camada de boas-vindas no WhatsApp é configurada pelo próprio usuário na
 // ferramenta (não é disparada aqui).
 const HOTMART_HOTTOK = process.env.HOTMART_WEBHOOK_HOTTOK || '';
@@ -33,6 +35,8 @@ const HOTMART_FUNIL_ID = Number(process.env.HOTMART_FUNIL_ID) || 32;
 const HOTMART_RESPONSAVEL_ID = Number(process.env.HOTMART_RESPONSAVEL_ID) || 27;
 const HOTMART_ESTAGIO_ESCOLA_ID = Number(process.env.HOTMART_ESTAGIO_ESCOLA_ID) || 243;
 const HOTMART_ESTAGIO_LEADERSHIP_ID = Number(process.env.HOTMART_ESTAGIO_LEADERSHIP_ID) || 245;
+// Produtos Hotmart → estágio de entrada. Escola é o padrão (produto desconhecido cai em ESCOLA).
+const HOTMART_PRODUTO_LEADERSHIP_ID = Number(process.env.HOTMART_PRODUTO_LEADERSHIP_ID) || 7956451;
 
 // Extrai o valor de um campo aceitando os formatos comuns de webhook de form:
 // - flat (Elementor com Field ID = nome):           body.nome
@@ -683,19 +687,12 @@ export const webhookController = {
         console.error('[Hotmart] HOTMART_WEBHOOK_HOTTOK não configurado no .env');
         return res.status(500).json({ error: 'Webhook não configurado' });
       }
-      // hottok da Hotmart 2.0 vem no header X-HOTMART-HOTTOK; fallback para o campo body.hottok (1.0).
-      // O hottok identifica QUAL conexão enviou e define o estágio de entrada do lead:
-      //   conexão existente → "Entrada - ESCOLA"; conexão Leadership → "Entrada - Leaderhsip".
-      const hottok = req.headers['x-hotmart-hottok'] || req.body?.hottok;
-      let estagioEntradaId: number;
-      let conexao: string;
-      if (hottok === HOTMART_HOTTOK) {
-        estagioEntradaId = HOTMART_ESTAGIO_ESCOLA_ID;
-        conexao = 'ESCOLA';
-      } else if (HOTMART_LEADERSHIP_HOTTOK && hottok === HOTMART_LEADERSHIP_HOTTOK) {
-        estagioEntradaId = HOTMART_ESTAGIO_LEADERSHIP_ID;
-        conexao = 'Leadership';
-      } else {
+      // Autenticação: o hottok (header X-HOTMART-HOTTOK, fallback body.hottok em 1.0)
+      // só valida a origem. As duas ofertas compartilham a mesma conta Hotmart, então
+      // aceitamos QUALQUER token configurado — o roteamento é feito depois pelo product.id.
+      const hottok = String(req.headers['x-hotmart-hottok'] || req.body?.hottok || '');
+      const tokensValidos = [HOTMART_HOTTOK, HOTMART_LEADERSHIP_HOTTOK].filter(Boolean);
+      if (!hottok || !tokensValidos.includes(hottok)) {
         return res.status(401).json({ error: 'hottok invalido' });
       }
 
@@ -709,6 +706,19 @@ export const webhookController = {
       const data = body.data || {};
       const buyer = data.buyer || {};
       const purchase = data.purchase || {};
+
+      // Roteamento por PRODUTO (não por hottok): cada oferta entra num estágio distinto
+      // do funil "Boas vindas". Produto desconhecido cai no estágio da Escola (padrão).
+      const produtoId = Number(data.product?.id) || 0;
+      let estagioEntradaId: number;
+      let conexao: string;
+      if (produtoId === HOTMART_PRODUTO_LEADERSHIP_ID) {
+        estagioEntradaId = HOTMART_ESTAGIO_LEADERSHIP_ID;
+        conexao = 'Leadership';
+      } else {
+        estagioEntradaId = HOTMART_ESTAGIO_ESCOLA_ID;
+        conexao = 'ESCOLA';
+      }
 
       // Proteção contra parcelado/recorrência: cobranças seguintes de assinatura/parcelamento
       // inteligente trazem recurrence_number > 1 → não recriam lead (evita boas-vindas repetida).
