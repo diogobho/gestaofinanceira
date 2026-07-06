@@ -64,8 +64,8 @@ if (isMainInstance) {
       for (const followup of pendentes) {
         try {
           // Segurança: se atrasado e o dia atual não é permitido, aguarda o próximo dia válido.
-          // Modo 'imediato' ignora dias_semana — a intenção é enviar na entrada, sem adiar.
-          if (followup.modo !== 'imediato' && !diaSemanaPermitido(followup.dias_semana)) {
+          // Vale inclusive para o modo 'imediato' — ele envia "na entrada", mas só em dia permitido.
+          if (!diaSemanaPermitido(followup.dias_semana)) {
             console.log(`[FollowUp Scheduler] #${followup.id} fora dos dias permitidos — aguardando próximo dia válido`);
             continue;
           }

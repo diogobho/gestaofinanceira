@@ -168,7 +168,8 @@ export default function AgendamentoConfig({
             </div>
             {value.modo === 'imediato' ? (
               <p className="text-[11px] text-gray-400 mt-1">
-                Envia assim que o lead entra no estágio (ou ao criar o follow-up). Pode levar até 1 min.
+                Envia assim que o lead entra no estágio (ou ao criar o follow-up), respeitando os
+                dias permitidos abaixo. Pode levar até 1 min. Se cair num dia não permitido, envia no próximo dia válido.
               </p>
             ) : (
             <div className="grid grid-cols-2 gap-2">
@@ -207,8 +208,7 @@ export default function AgendamentoConfig({
             )}
           </div>
 
-          {/* Dias da semana (roll-forward) — não se aplica ao modo imediato */}
-          {value.modo !== 'imediato' && (
+          {/* Dias da semana (roll-forward) — vale para todos os modos, inclusive imediato */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Dias permitidos para envio</label>
             <div className="flex gap-1 flex-wrap">
@@ -231,7 +231,6 @@ export default function AgendamentoConfig({
               Se o envio cair num dia não permitido, vai para o próximo dia permitido no mesmo horário.
             </p>
           </div>
-          )}
 
           {/* Tipo de mensagem */}
           <div className="pt-2 border-t">
