@@ -167,10 +167,20 @@ export default function AgendamentoConfig({
               </label>
             </div>
             {value.modo === 'imediato' ? (
-              <p className="text-[11px] text-gray-400 mt-1">
-                Envia assim que o lead entra no estágio (ou ao criar o follow-up), respeitando os
-                dias permitidos abaixo. Pode levar até 1 min. Se cair num dia não permitido, envia no próximo dia válido.
-              </p>
+              <div className="space-y-1.5">
+                <p className="text-[11px] text-gray-400">
+                  Envia assim que o lead entra no estágio (≤ 1 min), nos dias permitidos abaixo.
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">Se cair em dia não permitido, envia no próximo dia válido às</span>
+                  <input
+                    type="time"
+                    value={value.hora_envio ?? '09:00'}
+                    onChange={(e) => set({ hora_envio: e.target.value })}
+                    className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                  />
+                </div>
+              </div>
             ) : (
             <div className="grid grid-cols-2 gap-2">
               {value.modo === 'dias' ? (

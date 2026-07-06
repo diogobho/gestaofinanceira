@@ -38,7 +38,8 @@ function partesDataSP(d: Date): { y: number; m: number; day: number } {
 /**
  * Calcula o instante (ISO/UTC) em que a mensagem deve ser disparada.
  *
- * - modo 'imediato': o próprio instante da base (envio na entrada; ignora hora/dias).
+ * - modo 'imediato': se a base cai num dia permitido, envia já (o próprio instante).
+ *   Se cai num dia bloqueado, rola para o PRÓXIMO dia permitido no horaEnvio (fallback).
  * - modo 'dias': base (entrada no estágio / criação no lead) + atrasoDias, no horaEnvio.
  * - modo 'data': dataFixa, no horaEnvio.
  * - Se diasSemana for informado e o dia calculado não estiver nele, rola para o
@@ -47,8 +48,9 @@ function partesDataSP(d: Date): { y: number; m: number; day: number } {
 export function calcularAgendadoPara(params: AgendamentoParams, base: Date = new Date()): string {
   const { modo, atrasoDias, dataFixa, horaEnvio, diasSemana } = params;
 
-  // Imediato: envia já. O job (a cada 1 min) processa no próximo ciclo.
-  if (modo === 'imediato') {
+  // Imediato num dia permitido: envia já (o job a cada 1 min processa no próximo ciclo).
+  // Num dia bloqueado, cai no cálculo abaixo (rola p/ próximo dia permitido no horaEnvio).
+  if (modo === 'imediato' && diaSemanaPermitido(diasSemana, base)) {
     return base.toISOString();
   }
 
