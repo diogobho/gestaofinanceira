@@ -27,6 +27,9 @@ export interface CriarFollowupInput {
   diasSemana?: number[] | null;  // 0=Dom..6=Sáb
   base?: Date;                   // base do cálculo (entrada no estágio); default now
   agendadoPara?: string;         // override: instante já calculado
+  // Cadência (origem 'estagio'): posição do passo e se move o lead ao enviar.
+  passoOrdem?: number | null;    // 0 = primeiro passo da cadência
+  moverAposEnvio?: boolean;      // true só no último passo (default true p/ passo único)
 }
 
 export const followupsService = {
@@ -35,7 +38,7 @@ export const followupsService = {
       leadId, usuarioId, empresaId, tipo, mensagem, instrucaoIa,
       mediaUrl, mediaMimetype, mediaFilename,
       origem = 'lead', modo = 'dias', atrasoDias, atrasoUnidade, dataFixa, horaEnvio,
-      diasSemana, base, agendadoPara,
+      diasSemana, base, agendadoPara, passoOrdem, moverAposEnvio,
     } = input;
 
     const quando = agendadoPara || calcularAgendadoPara(
@@ -47,8 +50,9 @@ export const followupsService = {
       `INSERT INTO followups_agendados
          (lead_id, usuario_id, empresa_id, agendado_para, tipo, mensagem, instrucao_ia,
           media_url, media_mimetype, media_filename,
-          origem, modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+          origem, modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana,
+          passo_ordem, mover_apos_envio)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        RETURNING *`,
       [
         leadId, usuarioId, empresaId, quando, tipo,
@@ -56,6 +60,7 @@ export const followupsService = {
         mediaUrl || null, mediaMimetype || null, mediaFilename || null,
         origem, modo, atrasoDias ?? null, atrasoUnidade || 'dia', dataFixa || null, horaEnvio || null,
         diasSemana?.length ? diasSemana : null,
+        passoOrdem ?? null, moverAposEnvio ?? true,
       ]
     );
     return result.rows[0];

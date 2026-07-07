@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { MessageCircle, Plus, RefreshCw, BarChart3, Upload, Settings, Search, Send, Mail, Bell } from 'lucide-react'
+import { MessageCircle, Plus, RefreshCw, BarChart3, Upload, Settings, Search, Send, Mail, Bell, LayoutGrid, LayoutList, Workflow } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useKanban, useFunilStats, useRegistrarWebhook, useFunisAquisicao, useUsuariosEmpresa, useReorderEstagios } from '@/hooks/useCRM'
 import KanbanBoard from '@/components/crm/KanbanBoard'
 import KanbanFilters from '@/components/crm/KanbanFilters'
+import CRMListView from '@/components/crm/CRMListView'
+import FluxoAutomacaoView from '@/components/crm/FluxoAutomacaoView'
 import ContatosWhatsAppModal from '@/components/crm/ContatosWhatsAppModal'
 import LeadDetailsModal from '@/components/crm/LeadDetailsModal'
 import LeadFormModal from '@/components/crm/LeadFormModal'
@@ -21,6 +23,7 @@ import type { FiltrosLead } from '@/api/crm'
 export default function CRMKanban() {
   const [filtros, setFiltros] = useState<FiltrosLead>({})
   const [searchInput, setSearchInput] = useState('')
+  const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'fluxo'>('kanban')
   const [selectedFunilId, setSelectedFunilId] = useState<number | undefined>()
   const [showFunilFormModal, setShowFunilFormModal] = useState(false)
   const [editingFunil, setEditingFunil] = useState<Funil | null>(null)
@@ -239,6 +242,40 @@ export default function CRMKanban() {
               />
             </div>
 
+            {/* Toggle Kanban / Lista / Fluxo */}
+            <div className="shrink-0 flex items-center border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setViewMode('kanban')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-sm transition-colors ${
+                  viewMode === 'kanban' ? 'bg-primary-500 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                title="Visualização Kanban"
+              >
+                <LayoutGrid size={15} />
+                <span className="hidden sm:inline text-xs">Kanban</span>
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-sm transition-colors ${
+                  viewMode === 'list' ? 'bg-primary-500 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                title="Visualização Lista"
+              >
+                <LayoutList size={15} />
+                <span className="hidden sm:inline text-xs">Lista</span>
+              </button>
+              <button
+                onClick={() => setViewMode('fluxo')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-sm transition-colors ${
+                  viewMode === 'fluxo' ? 'bg-primary-500 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                title="Visualização Fluxo de automações"
+              >
+                <Workflow size={15} />
+                <span className="hidden sm:inline text-xs">Fluxo</span>
+              </button>
+            </div>
+
             {/* Filtros */}
             <div className="shrink-0" data-tour="crm-filtros">
               <KanbanFilters
@@ -328,19 +365,29 @@ export default function CRMKanban() {
         </div>
       </div>
 
-      {/* Kanban Board */}
-      <div className="flex-1 overflow-hidden p-4 bg-gray-50 dark:bg-gray-900" data-tour="crm-kanban">
-        <KanbanBoard
-          colunas={colunas}
-          onMoverLead={handleMoverLead}
-          onReorderEstagios={handleReorderEstagios}
-          onCardClick={handleCardClick}
-          onAddClick={handleAddClick}
-          onEditEstagio={handleEditEstagio}
-          onLoadMore={loadMore}
-          loadingMore={loadingMore}
-        />
-      </div>
+      {/* Conteúdo: Kanban / Lista / Fluxo */}
+      {viewMode === 'kanban' ? (
+        <div className="flex-1 overflow-hidden p-4 bg-gray-50 dark:bg-gray-900" data-tour="crm-kanban">
+          <KanbanBoard
+            colunas={colunas}
+            onMoverLead={handleMoverLead}
+            onReorderEstagios={handleReorderEstagios}
+            onCardClick={handleCardClick}
+            onAddClick={handleAddClick}
+            onEditEstagio={handleEditEstagio}
+            onLoadMore={loadMore}
+            loadingMore={loadingMore}
+          />
+        </div>
+      ) : viewMode === 'fluxo' ? (
+        <div className="flex-1 overflow-auto p-6 bg-gray-50 dark:bg-gray-900">
+          <FluxoAutomacaoView variante="aquisicao" funilId={funil?.id} />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto p-6 bg-gray-50 dark:bg-gray-900">
+          <CRMListView colunas={colunas} onCardClick={handleCardClick} />
+        </div>
+      )}
 
       {/* Modals */}
       {funil && (

@@ -18,6 +18,8 @@ const MEDIA_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/
 
 export interface AgendamentoValue {
   ativo: boolean
+  _key?: string                     // id de cliente (cadência) — estável na reordenação; não persiste
+  base?: 'entrada' | 'anterior'     // cadência: base do atraso (entrada no estágio / msg anterior)
   tipo: 'manual' | 'agente_ia'      // manual = mensagem fixa ou personalizada (com variáveis)
   mensagem?: string
   instrucao_ia?: string
@@ -105,10 +107,17 @@ export default function AgendamentoConfig({
   const inserirVariavel = (v: string) =>
     set({ mensagem: `${value.mensagem ?? ''}[${v}]` })
 
+  // Numa cadência, um passo pode contar a partir da mensagem anterior.
   const baseAtraso =
-    nivel === 'lead' ? 'a partir de agora'
+    value.base === 'anterior' ? 'a partir da mensagem anterior'
+    : nivel === 'lead' ? 'a partir de agora'
     : nivel === 'geral' ? 'a partir do disparo'
     : 'a partir da entrada do lead no estágio'
+  const baseCurta =
+    value.base === 'anterior' ? 'a mensagem anterior'
+    : nivel === 'lead' ? 'agora'
+    : nivel === 'geral' ? 'o disparo'
+    : 'a entrada'
 
   return (
     <div className="space-y-3">
@@ -198,7 +207,7 @@ export default function AgendamentoConfig({
                 ) : (
                   <>
                     <p className="text-[11px] text-gray-400">
-                      Envia {value.atraso_dias ?? 0} {value.atraso_unidade}(s) após a entrada
+                      Envia {value.atraso_dias ?? 0} {value.atraso_unidade}(s) após {baseCurta}
                       {(value.atraso_dias ?? 0) === 0 ? ' (ou seja, na hora, em até 1 min)' : ''}.
                     </p>
                     <div className="flex items-center gap-2">

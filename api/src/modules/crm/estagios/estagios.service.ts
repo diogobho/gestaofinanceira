@@ -1,18 +1,43 @@
 import { query } from '../../../config/database';
-import { calcularAgendadoPara } from '../_shared/agendamento';
+import { extrairPassosFollowup, calcularCadencia } from '../_shared/agendamento';
 
-export interface EstagioFollowupConfig {
-  ativo: boolean;
+/** Um toque da cadência (mensagem agendada) dentro de um estágio. */
+export interface PassoFollowupConfig {
+  base?: 'entrada' | 'anterior'; // 'entrada' = da entrada no estágio | 'anterior' = do passo anterior
   tipo: 'manual' | 'agente_ia';
   mensagem?: string;
   instrucao_ia?: string;
+  // Mídia opcional (só tipo 'manual'): a mensagem vira a legenda do anexo.
+  media_url?: string | null;
+  media_mimetype?: string | null;
+  media_filename?: string | null;
   // Padrão único de agendamento
-  modo?: 'dias' | 'data';        // 'dias' = após X unidade da entrada | 'data' = data fixa
+  modo?: 'dias' | 'data';        // 'dias' = após X unidade da base | 'data' = data fixa
   atraso_dias?: number | null;   // quantidade (X) do atraso
   atraso_unidade?: 'minuto' | 'hora' | 'dia'; // unidade do atraso (default 'dia')
   data_fixa?: string | null;     // 'YYYY-MM-DD'
   hora_envio?: string | null;    // 'HH:MM'
   dias_semana?: number[] | null; // 0=Dom..6=Sáb
+}
+
+export interface EstagioFollowupConfig {
+  ativo: boolean;
+  // Cadência de vários toques. Config antiga (campos no topo) continua sendo lida
+  // como um passo único pelo backend (extrairPassosFollowup).
+  passos?: PassoFollowupConfig[];
+  // --- Campos legados (shape antigo de passo único) ---
+  tipo?: 'manual' | 'agente_ia';
+  mensagem?: string;
+  instrucao_ia?: string;
+  media_url?: string | null;
+  media_mimetype?: string | null;
+  media_filename?: string | null;
+  modo?: 'dias' | 'data';
+  atraso_dias?: number | null;
+  atraso_unidade?: 'minuto' | 'hora' | 'dia';
+  data_fixa?: string | null;
+  hora_envio?: string | null;
+  dias_semana?: number[] | null;
 }
 
 export interface EstagioFunil {
@@ -305,49 +330,83 @@ async function sincronizarAutomacaoFollowupEstagio(
     );
   }
 
-  // Criar follow-up retroativo para leads já no estágio sem follow-up de estágio pendente.
-  // O instante é calculado uma vez (base = agora) pelo padrão único e aplicado a todos.
+  // Criar a cadência retroativa para leads já no estágio sem follow-up de estágio pendente.
+  // Os instantes são calculados uma vez (base = agora) e aplicados a todos os leads elegíveis.
   if (ativa) {
-    const agendadoPara = calcularAgendadoPara({
-      modo: followupConfig.modo || 'dias',
-      atrasoDias: followupConfig.atraso_dias,
-      atrasoUnidade: followupConfig.atraso_unidade,
-      dataFixa: followupConfig.data_fixa,
-      horaEnvio: followupConfig.hora_envio,
-      diasSemana: followupConfig.dias_semana,
-    });
-    const ehManual = (followupConfig.tipo || 'agente_ia') === 'manual';
-    await query(
-      `INSERT INTO followups_agendados
-         (lead_id, usuario_id, empresa_id, agendado_para, tipo, mensagem, instrucao_ia,
-          media_url, media_mimetype, media_filename,
-          origem, modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana)
-       SELECT l.id, l.usuario_id, $1, $2, $3, $4, $5, $6, $7, $8, 'estagio', $9, $10, $11, $12, $13, $14
+    const passos = extrairPassosFollowup(followupConfig);
+    if (passos.length === 0) return;
+
+    // Leads elegíveis capturados ANTES de inserir, para que todos os passos apliquem
+    // ao mesmo conjunto (o guard NOT EXISTS deixaria de valer após o 1º insert).
+    const elegiveis = await query(
+      `SELECT l.id, l.usuario_id
        FROM leads l
-       WHERE l.estagio_id = $15
-         AND l.empresa_id = $1
+       WHERE l.estagio_id = $1
+         AND l.empresa_id = $2
          AND l.arquivado = false
          AND NOT EXISTS (
            SELECT 1 FROM followups_agendados fa
            WHERE fa.lead_id = l.id AND fa.origem = 'estagio' AND fa.status = 'pendente'
          )`,
-      [
-        empresaId,
-        agendadoPara,
-        followupConfig.tipo || 'agente_ia',
-        ehManual ? (followupConfig.mensagem || null) : null,
-        !ehManual ? (followupConfig.instrucao_ia || null) : null,
-        ehManual ? (followupConfig.media_url || null) : null,
-        ehManual ? (followupConfig.media_mimetype || null) : null,
-        ehManual ? (followupConfig.media_filename || null) : null,
-        followupConfig.modo || 'dias',
-        followupConfig.atraso_dias ?? null,
-        followupConfig.atraso_unidade || 'dia',
-        followupConfig.data_fixa || null,
-        followupConfig.hora_envio || null,
-        followupConfig.dias_semana?.length ? followupConfig.dias_semana : null,
-        estagioId,
-      ]
+      [estagioId, empresaId]
+    );
+    if (elegiveis.rows.length === 0) return;
+    const leadIds = elegiveis.rows.map((r: any) => r.id);
+
+    const cadencia = calcularCadencia(
+      passos.map((p: any) => ({
+        modo: p.modo || 'dias',
+        atrasoDias: p.atraso_dias,
+        atrasoUnidade: p.atraso_unidade,
+        dataFixa: p.data_fixa,
+        horaEnvio: p.hora_envio,
+        diasSemana: p.dias_semana,
+        base: p.base,
+      }))
+    );
+
+    for (let i = 0; i < passos.length; i++) {
+      const p = passos[i];
+      const ehManual = (p.tipo || 'agente_ia') === 'manual';
+      await query(
+        `INSERT INTO followups_agendados
+           (lead_id, usuario_id, empresa_id, agendado_para, tipo, mensagem, instrucao_ia,
+            media_url, media_mimetype, media_filename,
+            origem, modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana,
+            passo_ordem, mover_apos_envio)
+         SELECT l.id, l.usuario_id, $1, $2, $3, $4, $5, $6, $7, $8, 'estagio', $9, $10, $11, $12, $13, $14, $15, $16
+         FROM leads l
+         WHERE l.id = ANY($17::int[])`,
+        [
+          empresaId,
+          cadencia[i].agendadoPara,
+          p.tipo || 'agente_ia',
+          ehManual ? (p.mensagem || null) : null,
+          !ehManual ? (p.instrucao_ia || null) : null,
+          ehManual ? (p.media_url || null) : null,
+          ehManual ? (p.media_mimetype || null) : null,
+          ehManual ? (p.media_filename || null) : null,
+          p.modo || 'dias',
+          p.atraso_dias ?? null,
+          p.atraso_unidade || 'dia',
+          p.data_fixa || null,
+          p.hora_envio || null,
+          p.dias_semana?.length ? p.dias_semana : null,
+          i,
+          i === passos.length - 1,
+          leadIds,
+        ]
+      );
+    }
+  } else {
+    // Pausado (ativo:false, mas com passos preservados): cancela os follow-ups de
+    // estágio ainda pendentes deste estágio, para nada disparar enquanto pausado.
+    // Ao reativar, a cadência é recriada retroativamente (bloco acima).
+    await query(
+      `UPDATE followups_agendados SET status = 'cancelado', updated_at = NOW()
+       WHERE origem = 'estagio' AND status = 'pendente'
+         AND lead_id IN (SELECT id FROM leads WHERE estagio_id = $1 AND empresa_id = $2)`,
+      [estagioId, empresaId]
     );
   }
 }

@@ -4,6 +4,7 @@ import { tarefasService } from '../tarefas/tarefas.service';
 import { followupsService } from '../followups/followups.service';
 import { funisService } from '../funis/funis.service';
 import { receitasService } from '../../receitas/receitas.service';
+import { extrairPassosFollowup } from '../_shared/agendamento';
 
 function normalizePhone(tel: string | undefined | null): string | null {
   if (!tel) return null;
@@ -569,23 +570,37 @@ export const leadsService = {
       const cfg = estagioResult.rows[0]?.followup_config;
       if (!cfg || !cfg.ativo) return;
 
-      // Padrão único: o instante é calculado pelo helper a partir da entrada no estágio (agora).
-      await followupsService.criar({
-        leadId, usuarioId, empresaId,
-        tipo: cfg.tipo || 'agente_ia',
-        mensagem: cfg.mensagem,
-        instrucaoIa: cfg.instrucao_ia,
-        mediaUrl: cfg.media_url,
-        mediaMimetype: cfg.media_mimetype,
-        mediaFilename: cfg.media_filename,
-        origem: 'estagio',
-        modo: cfg.modo || 'dias',
-        atrasoDias: cfg.atraso_dias,
-        atrasoUnidade: cfg.atraso_unidade,
-        dataFixa: cfg.data_fixa,
-        horaEnvio: cfg.hora_envio,
-        diasSemana: cfg.dias_semana,
-      });
+      // Cadência: cria N passos. O 1º conta da entrada (agora); passos com base
+      // 'anterior' encadeiam sobre o instante agendado do passo anterior.
+      const passos = extrairPassosFollowup(cfg);
+      if (passos.length === 0) return;
+
+      const entrada = new Date();
+      let anterior: Date | null = null;
+      for (let i = 0; i < passos.length; i++) {
+        const p = passos[i];
+        const base = p.base === 'anterior' && anterior ? anterior : entrada;
+        const row = await followupsService.criar({
+          leadId, usuarioId, empresaId,
+          tipo: p.tipo || 'agente_ia',
+          mensagem: p.mensagem,
+          instrucaoIa: p.instrucao_ia,
+          mediaUrl: p.media_url,
+          mediaMimetype: p.media_mimetype,
+          mediaFilename: p.media_filename,
+          origem: 'estagio',
+          modo: p.modo || 'dias',
+          atrasoDias: p.atraso_dias,
+          atrasoUnidade: p.atraso_unidade,
+          dataFixa: p.data_fixa,
+          horaEnvio: p.hora_envio,
+          diasSemana: p.dias_semana,
+          base,
+          passoOrdem: i,
+          moverAposEnvio: i === passos.length - 1,
+        });
+        anterior = new Date(row.agendado_para);
+      }
     } catch (err: any) {
       console.error(`[Leads] Erro ao criar follow-up de estágio para lead #${leadId}:`, err.message);
     }

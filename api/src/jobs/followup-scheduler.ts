@@ -26,6 +26,8 @@ import { aplicarVariaveisLead, diaSemanaPermitido } from '../modules/crm/_shared
  */
 async function moverLeadAposEnvio(followup: any): Promise<void> {
   if (followup.origem !== 'estagio') return;
+  // Numa cadência de vários passos, só o último move o lead (intermediários não).
+  if (followup.mover_apos_envio === false) return;
   const r = await query(
     `SELECT ef.estagio_apos_envio_id, ef2.nome AS destino_nome
      FROM estagios_funil ef

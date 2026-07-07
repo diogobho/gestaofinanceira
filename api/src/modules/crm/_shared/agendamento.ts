@@ -110,6 +110,50 @@ export function calcularAgendadoPara(params: AgendamentoParams, base: Date = new
   return montarInstanteSP(rolarDiaPermitido(alvo, diasSemana), horaEnvio);
 }
 
+/**
+ * Cadência de vários toques por estágio.
+ *
+ * Cada passo tem os mesmos parâmetros de agendamento + uma `base`:
+ *   - 'entrada'  → conta a partir da entrada do lead no estágio (base da cadência);
+ *   - 'anterior' → conta a partir do horário AGENDADO do passo anterior (encadeado).
+ * O primeiro passo é sempre relativo à entrada (não existe "anterior").
+ */
+export interface PassoCadencia extends AgendamentoParams {
+  base?: 'entrada' | 'anterior';
+}
+
+/**
+ * Extrai a lista de passos de um followup_config (JSONB do estágio).
+ * Retrocompatível: um config no shape antigo (objeto único, sem `passos`) vira uma
+ * cadência de 1 passo com base 'entrada'. Retorna [] se não houver config utilizável.
+ */
+export function extrairPassosFollowup(cfg: any): any[] {
+  if (!cfg) return [];
+  if (Array.isArray(cfg.passos)) return cfg.passos;
+  // Shape antigo: o próprio config é o passo único.
+  return [{ ...cfg, base: 'entrada' }];
+}
+
+/**
+ * Calcula os instantes de disparo de uma cadência a partir da entrada no estágio.
+ * Passos com base 'anterior' encadeiam sobre o instante agendado do passo anterior.
+ * Retorna, para cada passo, o instante (ISO/UTC) e sua ordem (0 = primeiro).
+ */
+export function calcularCadencia(
+  passos: PassoCadencia[],
+  entrada: Date = new Date()
+): Array<{ agendadoPara: string; ordem: number }> {
+  const out: Array<{ agendadoPara: string; ordem: number }> = [];
+  let anterior: Date | null = null;
+  passos.forEach((p, i) => {
+    const baseRef = p.base === 'anterior' && anterior ? anterior : entrada;
+    const agendadoPara = calcularAgendadoPara(p, baseRef);
+    out.push({ agendadoPara, ordem: i });
+    anterior = new Date(agendadoPara);
+  });
+  return out;
+}
+
 /** Retorna true se o instante atual (fuso SP) cai num dos dias da semana permitidos. */
 export function diaSemanaPermitido(diasSemana: number[] | null | undefined, agora: Date = new Date()): boolean {
   if (!diasSemana || diasSemana.length === 0) return true;

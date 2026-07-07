@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  RefreshCw, BarChart3, Settings, Search, Plus, LayoutList, LayoutGrid,
+  RefreshCw, BarChart3, Settings, Search, Plus, LayoutList, LayoutGrid, Workflow,
   Bell, User, Calendar, DollarSign,
   CheckCircle2, Clock, MessageCircle, Mail, Send
 } from 'lucide-react'
@@ -21,6 +21,7 @@ import ContatosWhatsAppModal from '@/components/crm/ContatosWhatsAppModal'
 import { TourHelpButton } from '@/components/tour/TourHelpButton'
 import DisparoMensagemModal from '@/components/crm/DisparoMensagemModal'
 import DisparoEmailModal from '@/components/crm/DisparoEmailModal'
+import FluxoAutomacaoView from '@/components/crm/FluxoAutomacaoView'
 import type { Lead, EstagioFunil, Funil } from '@/types/crm'
 import type { FiltrosLead } from '@/api/crm'
 
@@ -174,7 +175,7 @@ export default function CRMFunilCX() {
   const [filtros, setFiltros] = useState<FiltrosLead>({})
   const [searchInput, setSearchInput] = useState('')
   const [selectedFunilId, setSelectedFunilId] = useState<number | undefined>()
-  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban')
+  const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'fluxo'>('kanban')
   const [showFunilFormModal, setShowFunilFormModal] = useState(false)
   const [editingFunil, setEditingFunil] = useState<Funil | null>(null)
 
@@ -399,6 +400,18 @@ export default function CRMFunilCX() {
                 <LayoutList size={15} />
                 <span className="hidden sm:inline text-xs">Lista</span>
               </button>
+              <button
+                onClick={() => setViewMode('fluxo')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-sm transition-colors ${
+                  viewMode === 'fluxo'
+                    ? 'bg-primary-500 text-white'
+                    : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                title="Visualização Fluxo de automações"
+              >
+                <Workflow size={15} />
+                <span className="hidden sm:inline text-xs">Fluxo</span>
+              </button>
             </div>
 
             {/* Busca */}
@@ -515,6 +528,10 @@ export default function CRMFunilCX() {
             onLoadMore={loadMore}
             loadingMore={loadingMore}
           />
+        </div>
+      ) : viewMode === 'fluxo' ? (
+        <div className="flex-1 overflow-auto p-6 bg-gray-50 dark:bg-gray-900">
+          <FluxoAutomacaoView variante="cx" funilId={funil?.id} />
         </div>
       ) : (
         <div className="flex-1 overflow-auto p-6 bg-gray-50 dark:bg-gray-900">

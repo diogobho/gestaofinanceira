@@ -15,8 +15,9 @@ export interface Funil {
   total_estagios?: number;
 }
 
-export interface EstagioFollowupConfig {
-  ativo: boolean;
+/** Um toque (mensagem agendada) da cadência de um estágio. */
+export interface PassoFollowupConfig {
+  base?: 'entrada' | 'anterior'; // 'entrada' = da entrada no estágio | 'anterior' = do passo anterior
   tipo: 'manual' | 'agente_ia';
   mensagem?: string;
   instrucao_ia?: string;
@@ -31,6 +32,26 @@ export interface EstagioFollowupConfig {
   data_fixa?: string | null;     // 'YYYY-MM-DD'
   hora_envio?: string | null;    // 'HH:MM'
   dias_semana?: number[] | null; // 0=Dom..6=Sáb, null = todos os dias
+}
+
+export interface EstagioFollowupConfig {
+  ativo: boolean;
+  // Cadência de vários toques. Configs antigas (campos no topo) continuam válidas
+  // e são lidas como um passo único.
+  passos?: PassoFollowupConfig[];
+  // --- Campos legados (passo único) ---
+  tipo?: 'manual' | 'agente_ia';
+  mensagem?: string;
+  instrucao_ia?: string;
+  media_url?: string | null;
+  media_mimetype?: string | null;
+  media_filename?: string | null;
+  modo?: 'dias' | 'data';
+  atraso_dias?: number | null;
+  atraso_unidade?: 'minuto' | 'hora' | 'dia';
+  data_fixa?: string | null;
+  hora_envio?: string | null;
+  dias_semana?: number[] | null;
 }
 
 export interface FollowupAgendado {

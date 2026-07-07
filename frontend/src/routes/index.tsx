@@ -17,7 +17,6 @@ import { UserProfile } from '@/pages/perfil/UserProfile'
 import { WhatsAppConfig } from '@/pages/whatsapp/WhatsAppConfig'
 import { CRMDashboard, CRMComAbas } from '@/pages/crm'
 import { AgenteFinanceiro } from '@/pages/agente/AgenteFinanceiro'
-import Automacoes from '@/pages/automacoes/Automacoes'
 import { EmailConfig } from '@/pages/configuracoes/EmailConfig'
 import { Planos } from '@/pages/planos/Planos'
 import { MinhaConta } from '@/pages/minha-conta/MinhaConta'
@@ -101,14 +100,6 @@ const AppRoutes: React.FC = () => {
           element={
             <PrivateRoute requiredPermission="whatsapp">
               <WhatsAppConfig />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/automacoes"
-          element={
-            <PrivateRoute requiredPermission="whatsapp">
-              <Automacoes />
             </PrivateRoute>
           }
         />

@@ -3,7 +3,13 @@ import { X, Trash2, MessageSquare, Send } from 'lucide-react'
 import { useUpdateEstagio, useDeleteEstagio, useCreateEstagio } from '@/hooks/useCRM'
 import { estagiosApi } from '@/api/crm'
 import type { EstagioFunil } from '@/types/crm'
-import AgendamentoConfig, { AgendamentoValue, agendamentoPadrao } from './AgendamentoConfig'
+import CadenciaConfig, {
+  CadenciaValue,
+  cadenciaPadrao,
+  passoNovo,
+  followupConfigParaCadencia,
+  cadenciaParaFollowupConfig,
+} from './CadenciaConfig'
 
 interface EstagioSettingsModalProps {
   isOpen: boolean
@@ -11,6 +17,8 @@ interface EstagioSettingsModalProps {
   estagio?: EstagioFunil | null
   funilId: number
   mode: 'edit' | 'create'
+  /** Ao abrir, já anexa um passo novo à cadência (nunca sobrescreve o existente). */
+  appendPassoOnOpen?: boolean
 }
 
 const coresPredefinidas = [
@@ -31,7 +39,8 @@ export default function EstagioSettingsModal({
   onClose,
   estagio,
   funilId,
-  mode
+  mode,
+  appendPassoOnOpen = false
 }: EstagioSettingsModalProps) {
   const [nome, setNome] = useState('')
   const [cor, setCor] = useState('#6366f1')
@@ -41,8 +50,8 @@ export default function EstagioSettingsModal({
   const [estagioAposRespostaId, setEstagioAposRespostaId] = useState<number | null>(null)
   const [estagioAposEnvioId, setEstagioAposEnvioId] = useState<number | null>(null)
   const [estagiosList, setEstagiosList] = useState<EstagioFunil[]>([])
-  // Follow-up automático por estágio (padrão único de agendamento)
-  const [agendamento, setAgendamento] = useState<AgendamentoValue>(agendamentoPadrao())
+  // Follow-up automático por estágio: cadência de vários toques
+  const [cadencia, setCadencia] = useState<CadenciaValue>(cadenciaPadrao())
 
   const updateEstagio = useUpdateEstagio()
   const deleteEstagio = useDeleteEstagio()
@@ -56,22 +65,17 @@ export default function EstagioSettingsModal({
       setIsPerdido(estagio.is_perdido || false)
       setEstagioAposRespostaId(estagio.estagio_apos_resposta_id ?? null)
       setEstagioAposEnvioId(estagio.estagio_apos_envio_id ?? null)
-      const fc = estagio.followup_config
-      setAgendamento({
-        ativo: fc?.ativo || false,
-        tipo: fc?.tipo || 'manual',
-        mensagem: fc?.mensagem || '',
-        instrucao_ia: fc?.instrucao_ia || '',
-        media_url: fc?.media_url ?? null,
-        media_mimetype: fc?.media_mimetype ?? null,
-        media_filename: fc?.media_filename ?? null,
-        modo: fc?.modo || 'dias',
-        atraso_dias: fc?.atraso_dias ?? 0,
-        atraso_unidade: fc?.atraso_unidade || 'dia',
-        data_fixa: fc?.data_fixa ?? null,
-        hora_envio: fc?.hora_envio || '09:00',
-        dias_semana: fc?.dias_semana ?? [1, 2, 3, 4, 5],
-      })
+      const base = followupConfigParaCadencia(estagio.followup_config)
+      if (appendPassoOnOpen) {
+        // "+ Adicionar passo" vindo do Fluxo: preserva os passos existentes e anexa um novo.
+        const jaTemAutomacao = !!estagio.followup_config?.ativo
+        const passos = jaTemAutomacao
+          ? [...base.passos, passoNovo(base.passos[base.passos.length - 1])]
+          : base.passos
+        setCadencia({ ...base, ativo: true, passos })
+      } else {
+        setCadencia(base)
+      }
     } else {
       setNome('')
       setCor('#6366f1')
@@ -79,10 +83,10 @@ export default function EstagioSettingsModal({
       setIsPerdido(false)
       setEstagioAposRespostaId(null)
       setEstagioAposEnvioId(null)
-      setAgendamento(agendamentoPadrao())
+      setCadencia(cadenciaPadrao())
     }
     setShowDeleteConfirm(false)
-  }, [estagio, mode, isOpen])
+  }, [estagio, mode, isOpen, appendPassoOnOpen])
 
   // Carregar estágios do funil para o seletor de automação
   useEffect(() => {
@@ -103,21 +107,7 @@ export default function EstagioSettingsModal({
           nome, cor, is_ganho: isGanho, is_perdido: isPerdido,
           estagio_apos_resposta_id: estagioAposRespostaId,
           estagio_apos_envio_id: estagioAposEnvioId,
-          followup_config: agendamento.ativo ? {
-            ativo: true,
-            tipo: agendamento.tipo,
-            mensagem: agendamento.tipo === 'manual' ? agendamento.mensagem : undefined,
-            instrucao_ia: agendamento.tipo === 'agente_ia' ? agendamento.instrucao_ia : undefined,
-            media_url: agendamento.tipo === 'manual' ? (agendamento.media_url ?? undefined) : undefined,
-            media_mimetype: agendamento.tipo === 'manual' ? (agendamento.media_mimetype ?? undefined) : undefined,
-            media_filename: agendamento.tipo === 'manual' ? (agendamento.media_filename ?? undefined) : undefined,
-            modo: agendamento.modo,
-            atraso_dias: agendamento.modo === 'dias' ? (agendamento.atraso_dias ?? 0) : undefined,
-            atraso_unidade: agendamento.modo === 'dias' ? (agendamento.atraso_unidade ?? 'dia') : undefined,
-            data_fixa: agendamento.modo === 'data' ? (agendamento.data_fixa || undefined) : undefined,
-            hora_envio: agendamento.hora_envio || undefined,
-            dias_semana: (agendamento.dias_semana?.length ?? 0) > 0 ? agendamento.dias_semana : undefined,
-          } : null,
+          followup_config: cadenciaParaFollowupConfig(cadencia),
         }
       })
     } else {
@@ -139,7 +129,7 @@ export default function EstagioSettingsModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
         {/* Header */}
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-800">
@@ -275,13 +265,12 @@ export default function EstagioSettingsModal({
             </div>
           )}
 
-          {/* Follow-up automático — padrão único de agendamento */}
+          {/* Follow-up automático — cadência de vários toques */}
           {mode === 'edit' && (
             <div className="pt-4 border-t">
-              <AgendamentoConfig
-                value={agendamento}
-                onChange={setAgendamento}
-                nivel="estagio"
+              <CadenciaConfig
+                value={cadencia}
+                onChange={setCadencia}
                 titulo="Follow-up automático"
               />
             </div>

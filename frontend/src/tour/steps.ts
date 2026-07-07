@@ -518,46 +518,6 @@ export const whatsappTour: Tour = {
   ],
 }
 
-/** Tour da tela de Automações. */
-export const automacoesTour: Tour = {
-  id: 'automacoes',
-  nome: 'Tutorial: Automações',
-  iniciarNaRota: '/automacoes',
-  passos: [
-    {
-      titulo: '⚡ Automações',
-      descricao: 'Centralize todas as automações de mensagens do sistema.',
-      rota: '/automacoes',
-      lado: 'over',
-      alinhamento: 'center',
-    },
-    {
-      element: '[data-tour="automacoes-nova"]',
-      titulo: 'Nova automação',
-      descricao: 'Crie uma automação de mensagem para grupos do WhatsApp.',
-      rota: '/automacoes',
-      lado: 'left',
-    },
-    {
-      element: '[data-tour="automacoes-disparos"]',
-      titulo: 'Disparos agendados',
-      descricao: 'Veja os disparos em massa já programados, com data e quantidade de leads.',
-      rota: '/automacoes',
-      lado: 'top',
-    },
-    {
-      element: '[data-tour="automacoes-lista"]',
-      titulo: 'Automações configuradas',
-      descricao:
-        'Aqui ficam follow-ups, agente IA por estágio e mensagens automáticas. Você pode ' +
-        'ativar/pausar ou remover cada uma.',
-      rota: '/automacoes',
-      lado: 'top',
-      alinhamento: 'center',
-    },
-  ],
-}
-
 /** Tour do Agente IA (Sexta-feira). */
 export const agenteTour: Tour = {
   id: 'agente',
@@ -740,7 +700,6 @@ export const tours: Tour[] = [
   parcelasTour,
   sessoesTour,
   whatsappTour,
-  automacoesTour,
   agenteTour,
   configEmailTour,
   adminTour,
