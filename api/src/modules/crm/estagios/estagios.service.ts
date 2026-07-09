@@ -56,6 +56,7 @@ export interface EstagioFunil {
   followup_config?: EstagioFollowupConfig | null;
   auto_criar_lead?: boolean;
   auto_criar_lead_usuarios?: number[] | null;
+  agente_ia_ativo?: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -83,6 +84,7 @@ export interface UpdateEstagioDto {
   followup_config?: EstagioFollowupConfig | null;
   auto_criar_lead?: boolean;
   auto_criar_lead_usuarios?: number[] | null;
+  agente_ia_ativo?: boolean;
 }
 
 export const estagiosService = {
@@ -229,6 +231,10 @@ export const estagiosService = {
       // Array vazio → NULL (= todos os números da empresa)
       const arr = data.auto_criar_lead_usuarios;
       values.push(arr && arr.length ? arr : null);
+    }
+    if (data.agente_ia_ativo !== undefined) {
+      fields.push(`agente_ia_ativo = $${paramCount++}`);
+      values.push(!!data.agente_ia_ativo);
     }
 
     if (fields.length === 0) return estagio;

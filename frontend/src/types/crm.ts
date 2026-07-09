@@ -110,6 +110,7 @@ export interface EstagioFunil {
   followup_config?: EstagioFollowupConfig | null;
   auto_criar_lead?: boolean;
   auto_criar_lead_usuarios?: number[] | null;
+  agente_ia_ativo?: boolean;
   created_at: string;
   updated_at: string;
   total_leads?: number;

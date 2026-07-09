@@ -64,7 +64,7 @@ export const estagiosController = {
       const empresaId = (req as any).user.empresa_id;
       const { id } = req.params;
       const { nome, descricao, cor, icone, is_entrada, is_ganho, is_perdido, estagio_apos_resposta_id, estagio_apos_envio_id, followup_config,
-              auto_criar_lead, auto_criar_lead_usuarios } = req.body;
+              auto_criar_lead, auto_criar_lead_usuarios, agente_ia_ativo } = req.body;
 
       const estagio = await estagiosService.update(parseInt(id), empresaId, {
         nome,
@@ -81,6 +81,7 @@ export const estagiosController = {
         auto_criar_lead_usuarios: auto_criar_lead_usuarios !== undefined
           ? (Array.isArray(auto_criar_lead_usuarios) ? auto_criar_lead_usuarios.map(Number) : null)
           : undefined,
+        agente_ia_ativo,
       });
 
       if (!estagio) {

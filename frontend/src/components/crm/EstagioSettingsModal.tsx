@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Trash2, MessageSquare, Send, UserPlus } from 'lucide-react'
+import { X, Trash2, MessageSquare, Send, UserPlus, Bot } from 'lucide-react'
 import { useUpdateEstagio, useDeleteEstagio, useCreateEstagio, useUsuariosEmpresa } from '@/hooks/useCRM'
 import { estagiosApi } from '@/api/crm'
 import type { EstagioFunil } from '@/types/crm'
@@ -55,6 +55,8 @@ export default function EstagioSettingsModal({
   // Criação automática de lead a partir de mensagens recebidas no WhatsApp
   const [autoCriarLead, setAutoCriarLead] = useState(false)
   const [autoCriarUsuarios, setAutoCriarUsuarios] = useState<number[]>([])
+  // Agente de IA reativo (responde às mensagens do lead neste estágio)
+  const [agenteIaAtivo, setAgenteIaAtivo] = useState(false)
 
   const updateEstagio = useUpdateEstagio()
   const deleteEstagio = useDeleteEstagio()
@@ -73,6 +75,7 @@ export default function EstagioSettingsModal({
       setEstagioAposEnvioId(estagio.estagio_apos_envio_id ?? null)
       setAutoCriarLead(estagio.auto_criar_lead ?? false)
       setAutoCriarUsuarios(estagio.auto_criar_lead_usuarios ?? [])
+      setAgenteIaAtivo(estagio.agente_ia_ativo ?? false)
       const base = followupConfigParaCadencia(estagio.followup_config)
       if (appendPassoOnOpen) {
         // "+ Adicionar passo" vindo do Fluxo: preserva os passos existentes e anexa um novo.
@@ -93,6 +96,7 @@ export default function EstagioSettingsModal({
       setEstagioAposEnvioId(null)
       setAutoCriarLead(false)
       setAutoCriarUsuarios([])
+      setAgenteIaAtivo(false)
       setCadencia(cadenciaPadrao())
     }
     setShowDeleteConfirm(false)
@@ -120,6 +124,7 @@ export default function EstagioSettingsModal({
           followup_config: cadenciaParaFollowupConfig(cadencia),
           auto_criar_lead: autoCriarLead,
           auto_criar_lead_usuarios: autoCriarLead ? autoCriarUsuarios : [],
+          agente_ia_ativo: agenteIaAtivo,
         }
       })
     } else {
@@ -274,6 +279,31 @@ export default function EstagioSettingsModal({
                   Após o envio do agendamento abaixo, o lead é movido automaticamente para este estágio.
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Agente de IA reativo — responde às mensagens do lead neste estágio */}
+          {mode === 'edit' && (
+            <div className="pt-4 border-t">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agenteIaAtivo}
+                  onChange={(e) => setAgenteIaAtivo(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 rounded text-primary-600 focus:ring-primary-500"
+                />
+                <span>
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                    <Bot size={15} className="text-primary-500" />
+                    Agente de IA reativo neste estágio
+                  </span>
+                  <span className="block text-xs text-gray-400 mt-0.5">
+                    Quando ligado, o agente <strong>responde</strong> às mensagens que o lead enviar enquanto estiver neste estágio,
+                    seguindo a orientação do passo atual da cadência abaixo. Independente do follow-up (que só envia as mensagens agendadas).
+                    Pode ser sobrescrito lead a lead na tela do lead.
+                  </span>
+                </span>
+              </label>
             </div>
           )}
 

@@ -567,7 +567,33 @@ export const agenteIaService = {
     );
   },
 
-  buildSystemPrompt(config: AgenteIAConfig, lead: any, estagio: any, estagiosDisponiveis: any[], anotacoes: any[] = [], tags: string[] = [], responsavelNome?: string): string {
+  /**
+   * Instrução do PASSO ATUAL da cadência do estágio em que o lead está.
+   * "Passo atual" = último passo de estágio já ENVIADO (o lead segue no contexto
+   * desse toque até o próximo passo disparar). Se nenhum foi enviado ainda, usa o
+   * primeiro passo. Retorna null se o estágio não tem cadência configurada.
+   * Usado para deixar o agente REATIVO ciente de onde a cadência está.
+   */
+  async getInstrucaoCadenciaAtual(leadId: number, estagioId: number): Promise<string | null> {
+    const est = await query(`SELECT followup_config FROM estagios_funil WHERE id = $1`, [estagioId]);
+    const passos = est.rows[0]?.followup_config?.passos;
+    if (!Array.isArray(passos) || passos.length === 0) return null;
+
+    const sent = await query(
+      `SELECT passo_ordem FROM followups_agendados
+        WHERE lead_id = $1 AND origem = 'estagio' AND status = 'enviado' AND passo_ordem IS NOT NULL
+        ORDER BY passo_ordem DESC LIMIT 1`,
+      [leadId]
+    );
+    let idx: number = sent.rows[0]?.passo_ordem ?? 0;
+    if (idx >= passos.length) idx = passos.length - 1;
+
+    const passo = passos[idx] || {};
+    const instrucao = String(passo.instrucao_ia || passo.mensagem || '').trim();
+    return instrucao || null;
+  },
+
+  buildSystemPrompt(config: AgenteIAConfig, lead: any, estagio: any, estagiosDisponiveis: any[], anotacoes: any[] = [], tags: string[] = [], responsavelNome?: string, instrucaoCadencia?: string | null): string {
     const tomMap: Record<string, string> = {
       formal: 'Use linguagem profissional e respeitosa. Trate pelo nome com "você".',
       casual: 'Seja descontraído, pode usar linguagem informal e gírias leves.',
@@ -609,7 +635,7 @@ SOBRE QUEM VOCÊ ESTÁ CONVERSANDO:
 ANOTAÇÕES DO LEAD (histórico registrado pelos vendedores):
 ${anotacoesStr}
 
-ESTÁGIOS DO FUNIL — apenas para uso nas ferramentas, nunca mencione ao lead:
+${instrucaoCadencia ? `FOCO DESTA ETAPA DA CONVERSA (o que você deve buscar agora, conforme o passo atual da cadência deste estágio — siga esta orientação ao responder, sem copiá-la literalmente):\n${instrucaoCadencia}\n\n` : ''}ESTÁGIOS DO FUNIL — apenas para uso nas ferramentas, nunca mencione ao lead:
 ${estagiosStr}
 
 ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.system_prompt_extra}\n\n` : ''}REGRAS QUE NUNCA PODEM SER QUEBRADAS:
@@ -721,7 +747,11 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     );
     const tags = tagsResult.rows.map((r: any) => r.nome);
 
-    // 6. Construir system prompt usando o nome do responsável atual do lead
+    // 6. Descobrir o passo atual da cadência do estágio (para o reativo seguir a
+    // orientação do toque em que o lead se encontra).
+    const instrucaoCadencia = await this.getInstrucaoCadenciaAtual(leadId, lead.estagio_id);
+
+    // Construir system prompt usando o nome do responsável atual do lead
     const systemPrompt = this.buildSystemPrompt(
       config,
       lead,
@@ -729,7 +759,8 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
       estagiosDisponiveis,
       anotacoes,
       tags,
-      lead.responsavel_nome || undefined
+      lead.responsavel_nome || undefined,
+      instrucaoCadencia
     );
 
     // 7. Resolver cliente vinculado ao lead (por telefone)
