@@ -88,7 +88,7 @@ export const useUpdateEstagio = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; estagio_apos_resposta_id?: number | null; estagio_apos_envio_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null }> }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; estagio_apos_resposta_id?: number | null; estagio_apos_envio_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null; auto_criar_lead?: boolean; auto_criar_lead_usuarios?: number[] | null }> }) =>
       estagiosApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'estagios'] })

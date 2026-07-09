@@ -63,7 +63,8 @@ export const estagiosController = {
     try {
       const empresaId = (req as any).user.empresa_id;
       const { id } = req.params;
-      const { nome, descricao, cor, icone, is_entrada, is_ganho, is_perdido, estagio_apos_resposta_id, estagio_apos_envio_id, followup_config } = req.body;
+      const { nome, descricao, cor, icone, is_entrada, is_ganho, is_perdido, estagio_apos_resposta_id, estagio_apos_envio_id, followup_config,
+              auto_criar_lead, auto_criar_lead_usuarios } = req.body;
 
       const estagio = await estagiosService.update(parseInt(id), empresaId, {
         nome,
@@ -75,7 +76,11 @@ export const estagiosController = {
         is_perdido,
         estagio_apos_resposta_id,
         estagio_apos_envio_id,
-        followup_config
+        followup_config,
+        auto_criar_lead,
+        auto_criar_lead_usuarios: auto_criar_lead_usuarios !== undefined
+          ? (Array.isArray(auto_criar_lead_usuarios) ? auto_criar_lead_usuarios.map(Number) : null)
+          : undefined,
       });
 
       if (!estagio) {

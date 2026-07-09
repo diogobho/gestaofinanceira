@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { followupsApi, tarefasApi } from '@/api/crm'
 import type { Followup } from '@/api/crm'
+import { IntervaloEnvioConfig } from './IntervaloEnvioConfig'
 import type { Tarefa } from '@/types/crm'
 
 type TarefaComExtra = Tarefa & { lead_nome?: string; responsavel_nome?: string; funil_tipo?: string }
@@ -126,6 +127,9 @@ export function AgendamentosSection({ funilTipo }: AgendamentosSectionProps) {
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
+
+      {/* Configuração global do intervalo anti-ban entre envios de follow-up */}
+      <IntervaloEnvioConfig />
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-gray-500 py-2">

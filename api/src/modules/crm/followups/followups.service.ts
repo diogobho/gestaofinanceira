@@ -201,6 +201,68 @@ export const followupsService = {
     return result.rows;
   },
 
+  /** Intervalo anti-ban (mín/máx em segundos) de follow-up de uma empresa. Default 45/90. */
+  async getConfigIntervalo(empresaId: number): Promise<{ min: number; max: number }> {
+    const result = await query(
+      `SELECT
+         COALESCE((config->>'followup_intervalo_min_seg')::int, 45) AS min,
+         COALESCE((config->>'followup_intervalo_max_seg')::int, 90) AS max
+       FROM empresas WHERE id = $1`,
+      [empresaId]
+    );
+    const r = result.rows[0];
+    return { min: r?.min ?? 45, max: r?.max ?? 90 };
+  },
+
+  /** Atualiza o intervalo anti-ban (mín/máx em segundos) em empresas.config. */
+  async setConfigIntervalo(empresaId: number, minSeg: number, maxSeg: number) {
+    let min = Math.max(10, Math.min(3600, Math.round(minSeg)));
+    let max = Math.max(10, Math.min(3600, Math.round(maxSeg)));
+    if (max < min) max = min;
+    await query(
+      `UPDATE empresas
+         SET config = COALESCE(config, '{}'::jsonb)
+                      || jsonb_build_object('followup_intervalo_min_seg', $2::int,
+                                            'followup_intervalo_max_seg', $3::int),
+             updated_at = NOW()
+       WHERE id = $1`,
+      [empresaId, min, max]
+    );
+    return { min, max };
+  },
+
+  /** Intervalo anti-ban (mín/máx em segundos) de follow-up, por empresa (para o scheduler). */
+  async intervalosFollowupPorEmpresa(): Promise<Record<number, { min: number; max: number }>> {
+    const result = await query(
+      `SELECT id,
+         COALESCE((config->>'followup_intervalo_min_seg')::int, 45) AS min,
+         COALESCE((config->>'followup_intervalo_max_seg')::int, 90) AS max
+       FROM empresas`,
+      []
+    );
+    const map: Record<number, { min: number; max: number }> = {};
+    for (const r of result.rows) {
+      map[r.id] = { min: r.min ?? 45, max: r.max ?? 90 };
+    }
+    return map;
+  },
+
+  /** Instante do último follow-up ENVIADO por empresa (para espaçar os próximos). */
+  async ultimoEnvioPorEmpresa(): Promise<Record<number, number>> {
+    const result = await query(
+      `SELECT empresa_id, MAX(enviado_at) AS ultimo
+       FROM followups_agendados
+       WHERE status = 'enviado' AND enviado_at IS NOT NULL
+       GROUP BY empresa_id`,
+      []
+    );
+    const map: Record<number, number> = {};
+    for (const r of result.rows) {
+      if (r.empresa_id != null && r.ultimo) map[r.empresa_id] = new Date(r.ultimo).getTime();
+    }
+    return map;
+  },
+
   async marcarEnviado(id: number) {
     await query(
       `UPDATE followups_agendados

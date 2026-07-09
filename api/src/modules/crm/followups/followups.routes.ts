@@ -36,6 +36,10 @@ router.get('/leads/:leadId/followups', followupsController.listar);
 router.get('/followups', followupsController.listarTodos);
 router.get('/followups/metricas', followupsController.metricas);
 
+// Config anti-ban (intervalo entre envios) — global por empresa
+router.get('/followups/config', followupsController.getConfig);
+router.put('/followups/config', followupsController.setConfig);
+
 // Por ID
 router.delete('/followups/:id', followupsController.cancelar);
 router.patch('/followups/:id/reagendar', followupsController.reagendar);

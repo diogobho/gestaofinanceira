@@ -585,6 +585,35 @@ export const webhookController = {
               .catch((err: any) => console.error(`[AgenteIA] Erro transcrição áudio lead #${lead.id}:`, err.message));
           }
         }
+
+        // Criação automática de lead: estágios com auto_criar_lead ativo cujo número
+        // (usuario_id) casa com o dono deste contato. Dedup por funil evita recriação.
+        if (direcao === 'entrada' && !isGroup) {
+          try {
+            const estagiosAuto = await query(
+              `SELECT ef.id AS estagio_id, ef.funil_id
+                 FROM estagios_funil ef
+                 JOIN funis f ON f.id = ef.funil_id
+                WHERE f.empresa_id = $1
+                  AND f.ativo = true
+                  AND ef.auto_criar_lead = true
+                  AND (ef.auto_criar_lead_usuarios IS NULL
+                       OR array_length(ef.auto_criar_lead_usuarios, 1) IS NULL
+                       OR $2 = ANY(ef.auto_criar_lead_usuarios))`,
+              [empresaId, usuarioId]
+            );
+            for (const est of estagiosAuto.rows) {
+              const novo = await leadsService.autoCriarLeadDoWhatsApp(
+                empresaId, usuarioId, contatoId, est.funil_id, est.estagio_id
+              );
+              if (novo) {
+                console.log(`[Webhook] Auto-lead criado #${novo.id} (contato ${contatoId}, número user #${usuarioId}) no funil ${est.funil_id}/estágio ${est.estagio_id}`);
+              }
+            }
+          } catch (autoErr: any) {
+            console.error(`[Webhook] Erro na criação automática de lead (contato ${contatoId}):`, autoErr.message);
+          }
+        }
       }
 
       res.json({ success: true, processed: true });

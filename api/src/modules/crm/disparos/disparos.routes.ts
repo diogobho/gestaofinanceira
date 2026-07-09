@@ -5,6 +5,7 @@ const router = Router();
 
 router.get('/disparos/leads', disparosController.listarLeads);
 router.get('/disparos/agendados', disparosController.listarAgendados);
+router.post('/disparos/preview', disparosController.preview);
 router.post('/disparos', disparosController.iniciar);
 router.get('/disparos', disparosController.listar);
 router.delete('/disparos/:id/cancelar', disparosController.cancelarAgendado);

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { X, Trash2, MessageSquare, Send } from 'lucide-react'
-import { useUpdateEstagio, useDeleteEstagio, useCreateEstagio } from '@/hooks/useCRM'
+import { X, Trash2, MessageSquare, Send, UserPlus } from 'lucide-react'
+import { useUpdateEstagio, useDeleteEstagio, useCreateEstagio, useUsuariosEmpresa } from '@/hooks/useCRM'
 import { estagiosApi } from '@/api/crm'
 import type { EstagioFunil } from '@/types/crm'
 import CadenciaConfig, {
@@ -52,10 +52,16 @@ export default function EstagioSettingsModal({
   const [estagiosList, setEstagiosList] = useState<EstagioFunil[]>([])
   // Follow-up automático por estágio: cadência de vários toques
   const [cadencia, setCadencia] = useState<CadenciaValue>(cadenciaPadrao())
+  // Criação automática de lead a partir de mensagens recebidas no WhatsApp
+  const [autoCriarLead, setAutoCriarLead] = useState(false)
+  const [autoCriarUsuarios, setAutoCriarUsuarios] = useState<number[]>([])
 
   const updateEstagio = useUpdateEstagio()
   const deleteEstagio = useDeleteEstagio()
   const createEstagio = useCreateEstagio()
+  const { data: usuariosEmpresa = [] } = useUsuariosEmpresa()
+  // Só usuários com número WhatsApp configurado podem disparar criação automática.
+  const usuariosComNumero = usuariosEmpresa.filter(u => u.whatsapp_porta != null)
 
   useEffect(() => {
     if (mode === 'edit' && estagio) {
@@ -65,6 +71,8 @@ export default function EstagioSettingsModal({
       setIsPerdido(estagio.is_perdido || false)
       setEstagioAposRespostaId(estagio.estagio_apos_resposta_id ?? null)
       setEstagioAposEnvioId(estagio.estagio_apos_envio_id ?? null)
+      setAutoCriarLead(estagio.auto_criar_lead ?? false)
+      setAutoCriarUsuarios(estagio.auto_criar_lead_usuarios ?? [])
       const base = followupConfigParaCadencia(estagio.followup_config)
       if (appendPassoOnOpen) {
         // "+ Adicionar passo" vindo do Fluxo: preserva os passos existentes e anexa um novo.
@@ -83,6 +91,8 @@ export default function EstagioSettingsModal({
       setIsPerdido(false)
       setEstagioAposRespostaId(null)
       setEstagioAposEnvioId(null)
+      setAutoCriarLead(false)
+      setAutoCriarUsuarios([])
       setCadencia(cadenciaPadrao())
     }
     setShowDeleteConfirm(false)
@@ -108,6 +118,8 @@ export default function EstagioSettingsModal({
           estagio_apos_resposta_id: estagioAposRespostaId,
           estagio_apos_envio_id: estagioAposEnvioId,
           followup_config: cadenciaParaFollowupConfig(cadencia),
+          auto_criar_lead: autoCriarLead,
+          auto_criar_lead_usuarios: autoCriarLead ? autoCriarUsuarios : [],
         }
       })
     } else {
@@ -262,6 +274,66 @@ export default function EstagioSettingsModal({
                   Após o envio do agendamento abaixo, o lead é movido automaticamente para este estágio.
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Criação automática de lead a partir de mensagens recebidas */}
+          {mode === 'edit' && (
+            <div className="pt-4 border-t space-y-3">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoCriarLead}
+                  onChange={e => setAutoCriarLead(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                    <UserPlus size={15} className="text-emerald-500" />
+                    Criar lead automaticamente
+                  </span>
+                  <span className="block text-xs text-gray-400 mt-0.5">
+                    Quando um contato mandar mensagem no WhatsApp, cria um lead neste estágio.
+                    Respeita a regra de duplicidade: não cria se já existir lead do contato neste funil.
+                  </span>
+                </span>
+              </label>
+
+              {autoCriarLead && (
+                <div className="pl-6 space-y-2">
+                  <p className="text-xs font-medium text-gray-600">Para quais números?</p>
+                  {usuariosComNumero.length === 0 ? (
+                    <p className="text-xs text-amber-600">
+                      Nenhum número de WhatsApp configurado nos usuários da empresa.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="space-y-1.5">
+                        {usuariosComNumero.map(u => (
+                          <label key={u.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                            <input
+                              type="checkbox"
+                              checked={autoCriarUsuarios.includes(u.id)}
+                              onChange={e => {
+                                setAutoCriarUsuarios(prev =>
+                                  e.target.checked ? [...prev, u.id] : prev.filter(x => x !== u.id)
+                                )
+                              }}
+                              className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <span className="text-gray-700">{u.nome}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400">
+                        {autoCriarUsuarios.length === 0
+                          ? 'Nenhum selecionado = vale para TODOS os números da empresa.'
+                          : `${autoCriarUsuarios.length} número(s) selecionado(s).`}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

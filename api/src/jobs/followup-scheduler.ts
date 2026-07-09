@@ -55,16 +55,53 @@ async function moverLeadAposEnvio(followup: any): Promise<void> {
 // O scheduler deve rodar apenas na instância 0 para evitar processamento duplicado.
 const isMainInstance = !process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0';
 
+const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+// Impede que um ciclo lento se sobreponha ao próximo (evita envio duplicado).
+let processando = false;
+
 if (isMainInstance) {
   cron.schedule('* * * * *', async () => {
+    if (processando) {
+      console.log('[FollowUp Scheduler] Ciclo anterior ainda em andamento — pulando.');
+      return;
+    }
+    processando = true;
     try {
       const pendentes = await followupsService.buscarPendentes();
       if (pendentes.length === 0) return;
 
       console.log(`[FollowUp Scheduler] ${pendentes.length} follow-up(s) para processar`);
 
+      // Anti-ban global por empresa: no máximo UM envio por empresa por ciclo,
+      // respeitando o intervalo (mín/máx, aleatório) desde o último follow-up
+      // enviado daquela empresa.
+      const intervalos = await followupsService.intervalosFollowupPorEmpresa();
+      const ultimoEnvio = await followupsService.ultimoEnvioPorEmpresa();
+      const enviadoNesteCiclo = new Set<number>(); // empresa_id que já enviou neste ciclo
+
       for (const followup of pendentes) {
         try {
+          const empresaId: number | null = followup.empresa_id ?? null;
+
+          // Já enviou para esta empresa neste ciclo → espera o próximo ciclo.
+          if (empresaId != null && enviadoNesteCiclo.has(empresaId)) {
+            continue;
+          }
+
+          // Espaçamento: se o último envio desta empresa foi há menos que o intervalo
+          // sorteado, adia este follow-up para um próximo ciclo.
+          if (empresaId != null) {
+            const iv = intervalos[empresaId] || { min: 45, max: 90 };
+            const ult = ultimoEnvio[empresaId];
+            if (ult) {
+              const alvoMs = randInt(iv.min, iv.max) * 1000;
+              if (Date.now() - ult < alvoMs) {
+                continue;
+              }
+            }
+          }
+
           // Segurança: se atrasado e o dia atual não é permitido, aguarda o próximo dia válido.
           if (!diaSemanaPermitido(followup.dias_semana)) {
             console.log(`[FollowUp Scheduler] #${followup.id} fora dos dias permitidos — aguardando próximo dia válido`);
@@ -117,6 +154,7 @@ if (isMainInstance) {
             }
             await followupsService.marcarEnviado(followup.id);
             await moverLeadAposEnvio(followup);
+            if (empresaId != null) { enviadoNesteCiclo.add(empresaId); ultimoEnvio[empresaId] = Date.now(); }
             console.log(`[FollowUp Scheduler] Manual enviado: follow-up #${followup.id} → lead #${followup.lead_id} (remetente user #${remetenteId})${followup.media_url ? ' (com mídia)' : ''}`);
           } else {
             // agente_ia
@@ -128,6 +166,7 @@ if (isMainInstance) {
             if (resultado === 'enviado') {
               await followupsService.marcarEnviado(followup.id);
               await moverLeadAposEnvio(followup);
+              if (empresaId != null) { enviadoNesteCiclo.add(empresaId); ultimoEnvio[empresaId] = Date.now(); }
               console.log(`[FollowUp Scheduler] IA enviado: follow-up #${followup.id} → lead #${followup.lead_id}`);
             } else if (resultado === 'cancelado') {
               await followupsService.cancelar(followup.id, followup.empresa_id);
@@ -144,6 +183,8 @@ if (isMainInstance) {
       }
     } catch (err: any) {
       console.error('[FollowUp Scheduler] Erro no cron:', err.message);
+    } finally {
+      processando = false;
     }
   });
   console.log('[FollowUp Scheduler] Cron registrado (a cada 1 min).');

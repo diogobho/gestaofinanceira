@@ -395,7 +395,7 @@ export const agenteIaApi = {
 }
 
 export const usuariosEmpresaApi = {
-  list: () => api.get<{ id: number; nome: string; email: string }[]>('/crm/usuarios').then(r => r.data),
+  list: () => api.get<{ id: number; nome: string; email: string; whatsapp_porta?: number | null }[]>('/crm/usuarios').then(r => r.data),
 }
 
 export interface Followup {
@@ -474,6 +474,13 @@ export const followupsApi = {
 
   metricas: () =>
     api.get<FollowupMetricas>('/crm/followups/metricas').then(r => r.data),
+
+  // Intervalo anti-ban (global por empresa) entre envios de follow-up
+  getConfig: () =>
+    api.get<{ intervalo_min_seg: number; intervalo_max_seg: number }>('/crm/followups/config').then(r => r.data),
+
+  setConfig: (data: { intervalo_min_seg: number; intervalo_max_seg: number }) =>
+    api.put<{ intervalo_min_seg: number; intervalo_max_seg: number }>('/crm/followups/config', data).then(r => r.data),
 
   cancelar: (id: number) =>
     api.delete<Followup>(`/crm/followups/${id}`).then(r => r.data),

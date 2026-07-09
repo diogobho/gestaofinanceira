@@ -130,4 +130,34 @@ export const followupsController = {
       return res.status(500).json({ error: 'Erro ao buscar métricas' });
     }
   },
+
+  /** Retorna o intervalo anti-ban (mín/máx em segundos) da empresa. */
+  async getConfig(req: Request, res: Response) {
+    try {
+      const empresaId = (req as any).user?.empresa_id;
+      const cfg = await followupsService.getConfigIntervalo(empresaId);
+      return res.json({ intervalo_min_seg: cfg.min, intervalo_max_seg: cfg.max });
+    } catch (err: any) {
+      console.error('Erro ao buscar config de follow-ups:', err);
+      return res.status(500).json({ error: 'Erro ao buscar configuração' });
+    }
+  },
+
+  /** Atualiza o intervalo anti-ban (mín/máx em segundos) da empresa. */
+  async setConfig(req: Request, res: Response) {
+    try {
+      const empresaId = (req as any).user?.empresa_id;
+      const { intervalo_min_seg, intervalo_max_seg } = req.body;
+      if (intervalo_min_seg == null || intervalo_max_seg == null) {
+        return res.status(400).json({ error: 'intervalo_min_seg e intervalo_max_seg são obrigatórios' });
+      }
+      const cfg = await followupsService.setConfigIntervalo(
+        empresaId, Number(intervalo_min_seg), Number(intervalo_max_seg)
+      );
+      return res.json({ intervalo_min_seg: cfg.min, intervalo_max_seg: cfg.max });
+    } catch (err: any) {
+      console.error('Erro ao salvar config de follow-ups:', err);
+      return res.status(500).json({ error: 'Erro ao salvar configuração' });
+    }
+  },
 };

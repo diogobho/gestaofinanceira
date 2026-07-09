@@ -36,6 +36,9 @@ export interface IniciarDisparoDto {
   funil_id?: number;
   estagio_pos_disparo_id?: number; // após envio, mover lead para este estágio
   agendado_para?: string; // ISO datetime — se no futuro, agenda em vez de disparar agora
+  // Anti-ban: intervalo (segundos) entre um envio e o próximo. Aleatório entre min e max.
+  intervalo_min_seg?: number;
+  intervalo_max_seg?: number;
   // Filtros adicionais aplicados ao modo 'todos'
   estagio_id?: number;
   responsavel_id?: number;
@@ -51,9 +54,26 @@ function aplicarVariaveis(template: string, lead: DisparoLead): string {
   return aplicarVariaveisLead(template, lead as Record<string, any>);
 }
 
-// Anti-ban: intervalo aleatório 45–90s entre mensagens (diferente por lead)
+// Anti-ban: intervalo aleatório padrão 45–90s entre mensagens (configurável por disparo)
 const DELAY_MIN_MS = 45_000;
 const DELAY_MAX_MS = 90_000;
+
+// Limites de segurança para o intervalo configurável (em segundos).
+const INTERVALO_MIN_SEG = 10;
+const INTERVALO_MAX_SEG = 600;
+
+// Normaliza o par (min,max) em segundos vindo do usuário para milissegundos, com clamps.
+function resolverIntervaloMs(minSeg?: number | null, maxSeg?: number | null): { minMs: number; maxMs: number } {
+  if (minSeg == null && maxSeg == null) return { minMs: DELAY_MIN_MS, maxMs: DELAY_MAX_MS };
+  let min = Math.round(Number(minSeg ?? maxSeg ?? 45));
+  let max = Math.round(Number(maxSeg ?? minSeg ?? 90));
+  if (!Number.isFinite(min)) min = 45;
+  if (!Number.isFinite(max)) max = 90;
+  min = Math.max(INTERVALO_MIN_SEG, Math.min(INTERVALO_MAX_SEG, min));
+  max = Math.max(INTERVALO_MIN_SEG, Math.min(INTERVALO_MAX_SEG, max));
+  if (max < min) max = min;
+  return { minMs: min * 1000, maxMs: max * 1000 };
+}
 
 // Limite diário de mensagens por conta WhatsApp (por usuário)
 const LIMITE_DIARIO = 100;
@@ -175,7 +195,9 @@ async function _processarEnviosWA(
   grupos: DisparoLead[],
   porta: string | undefined,
   template: string,
-  estagioPosDeparoId: number | undefined
+  estagioPosDeparoId: number | undefined,
+  delayMinMs: number = DELAY_MIN_MS,
+  delayMaxMs: number = DELAY_MAX_MS
 ): Promise<void> {
   let enviados = 0;
   let falhas = 0;
@@ -294,7 +316,7 @@ async function _processarEnviosWA(
     }
 
     if (i < leads.length - 1) {
-      await sleepRandom(DELAY_MIN_MS, DELAY_MAX_MS);
+      await sleepRandom(delayMinMs, delayMaxMs);
     }
   }
 
@@ -381,6 +403,57 @@ export const disparosService = {
     };
   },
 
+  /**
+   * Pré-visualização dos destinatários de um disparo (antes de confirmar).
+   * Resolve a lista final (mesma lógica do envio) e marca quem já está em um
+   * disparo AGENDADO pendente — ajuda a não repetir contatos ao programar disparos.
+   */
+  async preverDestinatarios(empresaId: number, dto: IniciarDisparoDto) {
+    let leads = await _buscarLeadsPorConfig(empresaId, {
+      todos: dto.todos,
+      funil_id: dto.funil_id,
+      lead_ids: dto.lead_ids,
+      estagio_id: dto.estagio_id,
+      responsavel_id: dto.responsavel_id,
+      temperatura: dto.temperatura,
+      origem: dto.origem,
+      sem_tarefa: dto.sem_tarefa,
+      com_tarefa_hoje: dto.com_tarefa_hoje,
+      com_tarefa_atrasada: dto.com_tarefa_atrasada,
+    });
+
+    // Grupos não recebem disparo individual — sinalizados à parte.
+    const grupos = leads.filter(l => l.whatsapp_id?.endsWith('@g.us'));
+    leads = leads.filter(l => !l.whatsapp_id?.endsWith('@g.us'));
+
+    // Leads já presentes em disparos AGENDADOS pendentes (por lead_ids na config).
+    const agendadosRes = await query(
+      `SELECT jsonb_array_elements_text(
+                COALESCE(configuracao_json->'lead_ids', '[]'::jsonb)
+              )::int AS lead_id
+       FROM disparos_crm
+       WHERE empresa_id = $1 AND status = 'agendado'`,
+      [empresaId]
+    );
+    const jaAgendados = new Set<number>(agendadosRes.rows.map((r: any) => r.lead_id));
+
+    const destinatarios = leads.map(l => ({
+      id: l.id,
+      nome: l.nome,
+      telefone: (l.whatsapp_id || l.telefone || '').replace(/@.*$/, ''),
+      empresa: l.empresa || null,
+      estagio_nome: l.estagio_nome || null,
+      ja_agendado: jaAgendados.has(l.id),
+    }));
+
+    return {
+      total: destinatarios.length,
+      total_ja_agendados: destinatarios.filter(d => d.ja_agendado).length,
+      total_grupos_ignorados: grupos.length,
+      destinatarios,
+    };
+  },
+
   async iniciar(
     empresaId: number,
     usuarioId: number,
@@ -430,10 +503,15 @@ export const disparosService = {
 
     const total = leads.length;
 
+    const { minMs, maxMs } = resolverIntervaloMs(dto.intervalo_min_seg, dto.intervalo_max_seg);
+
     const configuracaoJson = {
       todos: dto.todos || false,
       funil_id: dto.funil_id || null,
       lead_ids: dto.todos ? null : (dto.lead_ids || null),
+      // Intervalo anti-ban (ms) — persistido para o disparo agendado reaplicá-lo.
+      intervalo_min_ms: minMs,
+      intervalo_max_ms: maxMs,
       // Filtros do modo 'todos' — precisam persistir para o disparo agendado reaplicá-los.
       estagio_id: dto.estagio_id || null,
       responsavel_id: dto.responsavel_id || null,
@@ -481,7 +559,7 @@ export const disparosService = {
     setImmediate(async () => {
       await _processarEnviosWA(
         disparoId, empresaId, usuarioId, leads, grupos, porta,
-        dto.template, dto.estagio_pos_disparo_id
+        dto.template, dto.estagio_pos_disparo_id, minMs, maxMs
       );
     });
 
@@ -524,9 +602,12 @@ export const disparosService = {
     );
     const porta = configResult.rows[0]?.whatsapp_porta;
 
+    const delayMinMs = config.intervalo_min_ms ?? DELAY_MIN_MS;
+    const delayMaxMs = config.intervalo_max_ms ?? DELAY_MAX_MS;
+
     await _processarEnviosWA(
       disparoId, empresaId, usuarioId, leads, grupos, porta,
-      disparo.template, disparo.estagio_pos_disparo_id
+      disparo.template, disparo.estagio_pos_disparo_id, delayMinMs, delayMaxMs
     );
   },
 

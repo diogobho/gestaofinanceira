@@ -45,7 +45,7 @@ router.get('/usuarios', async (req: Request, res: Response) => {
   try {
     const empresaId = (req as any).user?.empresa_id;
     const result = await query(
-      'SELECT id, nome, email FROM usuarios WHERE empresa_id = $1 AND ativo = true ORDER BY nome',
+      'SELECT id, nome, email, whatsapp_porta FROM usuarios WHERE empresa_id = $1 AND ativo = true ORDER BY nome',
       [empresaId]
     );
     return res.json(result.rows);

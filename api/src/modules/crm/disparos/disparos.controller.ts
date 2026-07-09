@@ -41,6 +41,7 @@ export const disparosController = {
       const empresaId = req.user!.empresa_id;
       const usuarioId = req.user!.id;
       const { lead_ids, todos, template, funil_id, estagio_pos_disparo_id, agendado_para,
+              intervalo_min_seg, intervalo_max_seg,
               estagio_id, responsavel_id, temperatura, origem,
               sem_tarefa, com_tarefa_hoje, com_tarefa_atrasada } = req.body;
 
@@ -68,6 +69,8 @@ export const disparosController = {
         funil_id,
         estagio_pos_disparo_id: estagio_pos_disparo_id || undefined,
         agendado_para: agendado_para || undefined,
+        intervalo_min_seg: intervalo_min_seg != null ? Number(intervalo_min_seg) : undefined,
+        intervalo_max_seg: intervalo_max_seg != null ? Number(intervalo_max_seg) : undefined,
         estagio_id: estagio_id ? Number(estagio_id) : undefined,
         responsavel_id: responsavel_id ? Number(responsavel_id) : undefined,
         temperatura: temperatura || undefined,
@@ -78,6 +81,39 @@ export const disparosController = {
       });
 
       res.json({ disparo_id: disparoId });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async preview(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const empresaId = req.user!.empresa_id;
+      const { lead_ids, todos, funil_id, estagio_id, responsavel_id, temperatura, origem,
+              sem_tarefa, com_tarefa_hoje, com_tarefa_atrasada } = req.body;
+
+      if (todos && !funil_id) {
+        return res.status(400).json({ message: 'funil_id é obrigatório para pré-visualizar todos' });
+      }
+      if (!todos && (!Array.isArray(lead_ids) || lead_ids.length === 0)) {
+        return res.status(400).json({ message: 'lead_ids é obrigatório' });
+      }
+
+      const resultado = await disparosService.preverDestinatarios(empresaId, {
+        lead_ids: todos ? undefined : lead_ids,
+        todos: todos || false,
+        template: '',
+        funil_id,
+        estagio_id: estagio_id ? Number(estagio_id) : undefined,
+        responsavel_id: responsavel_id ? Number(responsavel_id) : undefined,
+        temperatura: temperatura || undefined,
+        origem: origem || undefined,
+        sem_tarefa: sem_tarefa === true,
+        com_tarefa_hoje: com_tarefa_hoje === true,
+        com_tarefa_atrasada: com_tarefa_atrasada === true,
+      });
+
+      res.json(resultado);
     } catch (error) {
       next(error);
     }

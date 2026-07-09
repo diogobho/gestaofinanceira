@@ -657,6 +657,56 @@ export const leadsService = {
     }, false); // requireTarefa = false para leads de WhatsApp
   },
 
+  /**
+   * Criação AUTOMÁTICA de lead a partir de um contato do WhatsApp (gatilho: mensagem
+   * recebida). Diferente de createFromWhatsApp: aceita um estágio-alvo e é silenciosa —
+   * se já existe lead do contato naquele funil (regra de duplicidade por funil),
+   * retorna null em vez de lançar erro.
+   */
+  async autoCriarLeadDoWhatsApp(
+    empresaId: number, usuarioId: number, contatoId: number, funilId: number, estagioId?: number
+  ): Promise<Lead | null> {
+    const contatoResult = await query(
+      `SELECT * FROM contatos_whatsapp WHERE id = $1 AND empresa_id = $2`,
+      [contatoId, empresaId]
+    );
+    const contato = contatoResult.rows[0];
+    if (!contato) return null;
+
+    // Duplicidade é POR FUNIL — o mesmo contato pode existir em funis diferentes.
+    const numerosVariantes = [contato.numero];
+    if (contato.numero.startsWith('55') && contato.numero.length >= 12) {
+      numerosVariantes.push(contato.numero.slice(2));
+    } else if (contato.numero.length >= 8) {
+      numerosVariantes.push('55' + contato.numero);
+    }
+
+    const leadExistente = await query(
+      `SELECT l.id FROM leads l
+       LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
+       WHERE l.empresa_id = $1
+         AND l.funil_id = $4
+         AND l.arquivado = false
+         AND (
+           l.contato_whatsapp_id = $2
+           OR cw.numero = ANY($3::text[])
+           OR REGEXP_REPLACE(COALESCE(l.telefone, ''), '[^0-9]', '', 'g') = ANY($3::text[])
+         )
+       LIMIT 1`,
+      [empresaId, contatoId, numerosVariantes, funilId]
+    );
+    if (leadExistente.rows[0]) return null; // já existe neste funil → não recria
+
+    return this.create(empresaId, usuarioId, {
+      funil_id: funilId,
+      estagio_id: estagioId,
+      contato_whatsapp_id: contatoId,
+      nome: contato.nome || contato.nome_push || contato.numero,
+      telefone: contato.numero,
+      origem: 'whatsapp',
+    }, false); // requireTarefa = false
+  },
+
   async update(id: number, empresaId: number, usuarioId: number, data: UpdateLeadDto): Promise<Lead | null> {
     const lead = await this.getById(id, empresaId);
     if (!lead) return null;
