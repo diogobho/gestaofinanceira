@@ -17,7 +17,9 @@ import {
   useLeadEnviarMensagem, useLeadEnviarMedia, useLeadHistoricoWhatsApp, useLeadMarcarLido,
   useUsuariosEmpresa, useFunis, useTransferirFunil,
   useFollowupsLead, useCreateFollowup, useCancelarFollowup,
+  useOrigensCatalogo,
 } from '@/hooks/useCRM'
+import GerenciarOrigensModal from './GerenciarOrigensModal'
 import ChatBubble, { ChatDateSeparator } from './ChatBubble'
 import AgenteIALeadToggle from './AgenteIALeadToggle'
 import { WhatsAppFormatToolbar } from '@/components/ui/WhatsAppFormatToolbar'
@@ -48,17 +50,6 @@ const origemConfig: Record<string, { label: string; color: string }> = {
   forms: { label: 'Forms', color: 'bg-teal-100 text-teal-700' },
 }
 
-const origemOptions: { value: LeadOrigem; label: string }[] = [
-  { value: 'manual', label: 'Manual' },
-  { value: 'indicacao', label: 'Indicacao' },
-  { value: 'networking', label: 'Networking' },
-  { value: 'parceria', label: 'Parceria' },
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'lancamento', label: 'Lancamento' },
-  { value: 'forms', label: 'Forms' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'importacao', label: 'Importacao' },
-]
 
 export default function LeadDetailsModal({ lead, estagios, isOpen, onClose }: LeadDetailsModalProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'tarefas' | 'anotacoes' | 'atividades' | 'mensagem'>('info')
@@ -94,6 +85,8 @@ export default function LeadDetailsModal({ lead, estagios, isOpen, onClose }: Le
   useEffect(() => {
     setLeadOrigem(lead?.origem || 'manual')
   }, [lead?.id, lead?.origem])
+  const [showGerenciarOrigens, setShowGerenciarOrigens] = useState(false)
+  const { data: origens = [] } = useOrigensCatalogo()
 
   // Anotacoes state
   const [anotacaoConteudo, setAnotacaoConteudo] = useState('')
@@ -299,7 +292,10 @@ const handleArquivar = async () => {
         {/* Header */}
         <div className="p-4 border-b flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">{lead.titulo || lead.nome}</h2>
+            <h2 className="text-lg font-semibold text-gray-800">{lead.nome}</h2>
+            {lead.titulo && lead.titulo !== lead.nome && (
+              <p className="text-sm text-gray-500">{lead.titulo}</p>
+            )}
             {estagioAtual && (
               <span
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium mt-1"
@@ -454,24 +450,38 @@ const handleArquivar = async () => {
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Globe size={16} className="text-gray-400" />
-                    <select
-                      value={leadOrigem}
-                      onChange={(e) => {
-                        const nova = e.target.value as LeadOrigem
-                        setLeadOrigem(nova)
-                        updateLead.mutate({ id: lead.id, data: { origem: nova } })
-                      }}
-                      className={`px-2 py-0.5 rounded text-xs font-medium border-0 cursor-pointer ${
-                        origemConfig[leadOrigem]?.color || 'bg-gray-100 text-gray-700'
-                      }`}
+                    {(() => {
+                      const origemAtual = origens.find(o => o.nome === leadOrigem)
+                      const corHex = origemAtual?.cor
+                      return (
+                        <select
+                          value={leadOrigem}
+                          onChange={(e) => {
+                            const nova = e.target.value as LeadOrigem
+                            setLeadOrigem(nova)
+                            updateLead.mutate({ id: lead.id, data: { origem: nova } })
+                          }}
+                          style={corHex ? { backgroundColor: `${corHex}22`, color: corHex } : undefined}
+                          className={`px-2 py-0.5 rounded text-xs font-medium border-0 cursor-pointer ${
+                            corHex ? '' : (origemConfig[leadOrigem]?.color || 'bg-gray-100 text-gray-700')
+                          }`}
+                        >
+                          {leadOrigem && !origens.some(o => o.nome === leadOrigem) && (
+                            <option value={leadOrigem}>{leadOrigem}</option>
+                          )}
+                          {origens.map((o) => (
+                            <option key={o.id} value={o.nome}>{o.nome}</option>
+                          ))}
+                        </select>
+                      )
+                    })()}
+                    <button
+                      type="button"
+                      onClick={() => setShowGerenciarOrigens(true)}
+                      className="text-xs text-primary-600 hover:text-primary-700 hover:underline"
                     >
-                      {!origemOptions.some(o => o.value === leadOrigem) && (
-                        <option value={leadOrigem}>{leadOrigem}</option>
-                      )}
-                      {origemOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                      Gerenciar
+                    </button>
                   </div>
                   {usuariosEmpresa.length > 0 && (
                     <div className="flex items-center gap-2 text-sm">
@@ -1203,6 +1213,13 @@ const handleArquivar = async () => {
           mode="edit"
           initialLead={lead}
           onUpdate={() => setShowEditModal(false)}
+        />
+      )}
+
+      {showGerenciarOrigens && (
+        <GerenciarOrigensModal
+          isOpen={showGerenciarOrigens}
+          onClose={() => setShowGerenciarOrigens(false)}
         />
       )}
     </div>

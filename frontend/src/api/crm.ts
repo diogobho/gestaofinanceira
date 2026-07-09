@@ -8,6 +8,8 @@ import type {
   ParticipanteGrupo,
   ImportarParticipantesResult,
   Tag,
+  Origem,
+  CreateOrigemDto,
   AtividadeLead,
   CreateLeadDto,
   UpdateLeadDto,
@@ -267,6 +269,20 @@ export const tagsApi = {
   delete: (id: number) => api.delete(`/crm/tags/${id}`),
 }
 
+// Origens
+export const origensApi = {
+  list: () =>
+    api.get<Origem[]>('/crm/origens').then(r => r.data),
+
+  create: (data: CreateOrigemDto) =>
+    api.post<Origem>('/crm/origens', data).then(r => r.data),
+
+  update: (id: number, data: Partial<CreateOrigemDto>) =>
+    api.put<Origem>(`/crm/origens/${id}`, data).then(r => r.data),
+
+  delete: (id: number) => api.delete(`/crm/origens/${id}`),
+}
+
 // Importacao
 export interface MapeamentoColunas {
   nome: string
@@ -499,6 +515,7 @@ export default {
   leads: leadsApi,
   contatos: contatosApi,
   tags: tagsApi,
+  origens: origensApi,
   tarefas: tarefasApi,
   anotacoes: anotacoesApi,
   importacao: importacaoApi,

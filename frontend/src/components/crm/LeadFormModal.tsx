@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, User, Phone, Mail, Building, DollarSign, Thermometer, Calendar, ListTodo, AlertCircle, FileText, Globe, UserCheck } from 'lucide-react'
-import { useCreateLead, useUpdateLead, useUsuariosEmpresa } from '@/hooks/useCRM'
-import type { CreateLeadDto, UpdateLeadDto, TarefaTipo, LeadOrigem, Lead } from '@/types/crm'
+import { useCreateLead, useUpdateLead, useUsuariosEmpresa, useOrigensCatalogo } from '@/hooks/useCRM'
+import type { CreateLeadDto, UpdateLeadDto, TarefaTipo, Lead } from '@/types/crm'
 
 interface LeadFormModalProps {
   isOpen: boolean
@@ -19,17 +19,6 @@ const temperaturaOptions = [
   { value: 'quente' as const, label: 'Quente' },
 ]
 
-const origemOptions: { value: LeadOrigem; label: string }[] = [
-  { value: 'manual', label: 'Manual' },
-  { value: 'indicacao', label: 'Indicacao' },
-  { value: 'networking', label: 'Networking' },
-  { value: 'parceria', label: 'Parceria' },
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'lancamento', label: 'Lancamento' },
-  { value: 'forms', label: 'Forms' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'importacao', label: 'Importacao' },
-]
 
 const PAISES = [
   { code: '55',  flag: '🇧🇷', label: '+55 Brasil' },
@@ -106,6 +95,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
   })
 
   const { data: usuariosEmpresa = [] } = useUsuariosEmpresa()
+  const { data: origens = [] } = useOrigensCatalogo()
 
   const [tarefaData, setTarefaData] = useState<TarefaFormData>({
     tipo: 'follow_up',
@@ -448,12 +438,12 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
                 onChange={handleChange}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none"
               >
-                {formData.origem && !origemOptions.some(o => o.value === formData.origem) && (
+                {formData.origem && !origens.some(o => o.nome === formData.origem) && (
                   <option value={formData.origem}>{formData.origem}</option>
                 )}
-                {origemOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
+                {origens.map((o) => (
+                  <option key={o.id} value={o.nome}>
+                    {o.nome}
                   </option>
                 ))}
               </select>

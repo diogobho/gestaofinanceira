@@ -197,6 +197,20 @@ export interface Tag {
   created_at: string;
 }
 
+export interface Origem {
+  id: number;
+  empresa_id: number;
+  nome: string;
+  cor: string | null;
+  created_at: string;
+  total_leads?: number;
+}
+
+export interface CreateOrigemDto {
+  nome: string;
+  cor?: string;
+}
+
 export interface AtividadeLead {
   id: number;
   lead_id: number;

@@ -67,15 +67,15 @@ export default function KanbanCard({ lead, index, onClick }: KanbanCardProps) {
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
                 <h4 className="font-medium text-gray-900 text-sm leading-tight truncate flex-1">
-                  {lead.titulo || lead.nome}
+                  {lead.nome}
                 </h4>
                 <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${temp.color}`}>
                   {temp.label}
                 </span>
               </div>
-              {/* Nome do contato */}
-              {lead.titulo && (
-                <p className="text-xs text-gray-600 truncate">{lead.nome}</p>
+              {/* Título / empresa / profissão do lead */}
+              {lead.titulo && lead.titulo !== lead.nome && (
+                <p className="text-xs text-gray-600 truncate">{lead.titulo}</p>
               )}
             </div>
           </div>

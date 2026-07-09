@@ -7,6 +7,7 @@ import estagiosRoutes from './estagios/estagios.routes';
 import leadsRoutes from './leads/leads.routes';
 import contatosRoutes from './contatos/contatos.routes';
 import tagsRoutes from './tags/tags.routes';
+import origensRoutes from './origens/origens.routes';
 import tarefasRoutes from './tarefas/tarefas.routes';
 import anotacoesRoutes from './anotacoes/anotacoes.routes';
 import importacaoRoutes from './importacao/importacao.routes';
@@ -29,6 +30,7 @@ router.use(estagiosRoutes);  // Já tem /funis/:funilId/estagios
 router.use(leadsRoutes);     // Já tem /funis/:funilId/leads e /leads
 router.use(contatosRoutes);  // Já tem /contatos
 router.use(tagsRoutes);      // Já tem /tags
+router.use(origensRoutes);   // Já tem /origens
 router.use(tarefasRoutes);   // /tarefas e /leads/:leadId/tarefas
 router.use(anotacoesRoutes); // /anotacoes e /leads/:leadId/anotacoes
 router.use(importacaoRoutes); // /importacao/preview e /importacao/importar

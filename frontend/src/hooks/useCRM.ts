@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useCallback } from 'react'
 import toast from 'react-hot-toast'
-import { funisApi, estagiosApi, leadsApi, contatosApi, tagsApi, tarefasApi, anotacoesApi, dashboardApi, agenteIaApi, usuariosEmpresaApi, followupsApi, FiltrosLead } from '@/api/crm'
-import type { CreateLeadDto, UpdateLeadDto, MoverLeadDto, CreateTagDto, CreateTarefaDto, UpdateTarefaDto, CreateAnotacaoDto, Lead, EstagioFunil, AgenteIAConfig } from '@/types/crm'
+import { funisApi, estagiosApi, leadsApi, contatosApi, tagsApi, origensApi, tarefasApi, anotacoesApi, dashboardApi, agenteIaApi, usuariosEmpresaApi, followupsApi, FiltrosLead } from '@/api/crm'
+import type { CreateLeadDto, UpdateLeadDto, MoverLeadDto, CreateTagDto, CreateOrigemDto, CreateTarefaDto, UpdateTarefaDto, CreateAnotacaoDto, Lead, EstagioFunil, AgenteIAConfig } from '@/types/crm'
 
 // ========== FUNIS ==========
 
@@ -465,6 +465,62 @@ export const useDeleteTag = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'tags'] })
       toast.success('Tag deletada!')
+    },
+  })
+}
+
+// ===== Origens (catálogo gerenciável) =====
+export const useOrigensCatalogo = () => {
+  return useQuery({
+    queryKey: ['crm', 'origens'],
+    queryFn: () => origensApi.list(),
+  })
+}
+
+export const useCreateOrigem = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: CreateOrigemDto) => origensApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'origens'] })
+      toast.success('Origem criada!')
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message || 'Erro ao criar origem')
+    },
+  })
+}
+
+export const useUpdateOrigem = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<CreateOrigemDto> }) =>
+      origensApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'origens'] })
+      queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
+      toast.success('Origem atualizada!')
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message || 'Erro ao atualizar origem')
+    },
+  })
+}
+
+export const useDeleteOrigem = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) => origensApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'origens'] })
+      queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
+      toast.success('Origem removida!')
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message || 'Erro ao remover origem')
     },
   })
 }
