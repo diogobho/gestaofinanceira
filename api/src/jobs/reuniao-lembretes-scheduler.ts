@@ -1,0 +1,136 @@
+/**
+ * Job: Lembretes de Reunião Agendada
+ *
+ * Roda a cada minuto. Para cada estágio com `reuniao_lembretes.ativo = true`, olha os
+ * leads que estão no estágio e têm uma tarefa de reunião (tarefas_lead.tipo='reuniao').
+ * A data/hora da reunião é a `data_vencimento` da tarefa mais recente do lead.
+ *
+ * Cada "marco" tem um offset em minutos relativo ao início da reunião:
+ *   - offset < 0  → lembrete ANTES (ex.: -1440 = 24h antes, -60 = 1h antes)
+ *   - offset >= 0 → NO-SHOW depois (ex.: 60 = 1h depois, 1440 = D+1, 4320 = D+3)
+ * Só dispara se agora ∈ [reuniao+offset, reuniao+offset+tolerancia_min) — assim um
+ * lembrete perdido (downtime) ou fora de hora não é enviado atrasado/errado.
+ *
+ * O no-show é "detectado" naturalmente: só chega aqui quem AINDA está no estágio. Se o
+ * vendedor mover o lead para "Reunião Realizada" após a reunião, ele sai da régua.
+ *
+ * Envio via WhatsApp do RESPONSÁVEL do lead. Idempotência garantida pela tabela
+ * reuniao_lembretes_enviados (UNIQUE tarefa_id+marco): o marco é "reivindicado" com
+ * INSERT ... ON CONFLICT DO NOTHING antes do envio.
+ */
+
+import cron from 'node-cron';
+import { query } from '../config/database';
+import { contatosService } from '../modules/crm/contatos/contatos.service';
+import { aplicarVariaveisLead } from '../modules/crm/_shared/agendamento';
+
+const TOLERANCIA_PADRAO_MIN = 120;
+
+// Só a instância 0 do cluster PM2 processa, evitando execução duplicada.
+const isMainInstance = !process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0';
+
+// Impede que um ciclo lento se sobreponha ao próximo.
+let processando = false;
+
+interface Marco {
+  marco: string;
+  offset_min: number;
+  tolerancia_min?: number;
+  grupo?: string;
+  mensagem: string;
+}
+
+async function processar(): Promise<void> {
+  // Candidatos: 1 linha por lead (a reunião mais recente), já com a distância em minutos
+  // entre agora e a reunião calculada pelo Postgres (mesma convenção do resto do sistema:
+  // data_vencimento comparado direto com NOW()).
+  const { rows: candidatos } = await query(
+    `SELECT DISTINCT ON (l.id)
+        l.id  AS lead_id, l.nome, l.telefone, l.email, l.empresa, l.cargo, l.origem,
+        l.temperatura, l.valor_potencial, l.moeda, l.cpf_cnpj,
+        l.contato_whatsapp_id, l.responsavel_id, l.empresa_id,
+        t.id AS tarefa_id, t.responsavel_id AS tarefa_responsavel_id,
+        to_char(t.data_vencimento, 'HH24:MI') AS reuniao_hora,
+        to_char(t.data_vencimento, 'DD/MM')   AS reuniao_data,
+        EXTRACT(EPOCH FROM (NOW() - t.data_vencimento)) / 60.0 AS min_desde,
+        ef.reuniao_lembretes AS cfg
+     FROM estagios_funil ef
+     JOIN leads l        ON l.estagio_id = ef.id AND l.arquivado = false
+     JOIN tarefas_lead t ON t.lead_id = l.id AND t.tipo = 'reuniao'
+     WHERE ef.reuniao_lembretes IS NOT NULL
+       AND (ef.reuniao_lembretes->>'ativo') = 'true'
+     ORDER BY l.id, t.data_vencimento DESC`,
+    []
+  );
+
+  if (candidatos.length === 0) return;
+
+  for (const c of candidatos) {
+    const marcos: Marco[] = Array.isArray(c.cfg?.marcos) ? c.cfg.marcos : [];
+    const minDesde = Number(c.min_desde); // >0 se a reunião já passou; <0 se ainda vai acontecer
+
+    for (const m of marcos) {
+      const tol = m.tolerancia_min ?? TOLERANCIA_PADRAO_MIN;
+      const dentroDaJanela = minDesde >= m.offset_min && minDesde < m.offset_min + tol;
+      if (!dentroDaJanela) continue;
+
+      // Sem contato de WhatsApp não há como enviar — não reivindica o marco (tenta de novo
+      // num próximo ciclo, caso o contato seja vinculado).
+      if (!c.contato_whatsapp_id) {
+        console.log(`[ReuniaoLembretes] Lead #${c.lead_id} sem contato WhatsApp — marco ${m.marco} adiado`);
+        break;
+      }
+
+      // Reivindica o marco (idempotência). Se já foi enviado, rowCount = 0.
+      const claim = await query(
+        `INSERT INTO reuniao_lembretes_enviados (tarefa_id, lead_id, empresa_id, marco)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (tarefa_id, marco) DO NOTHING
+         RETURNING id`,
+        [c.tarefa_id, c.lead_id, c.empresa_id, m.marco]
+      );
+      if (claim.rowCount === 0) continue; // já enviado antes
+
+      const remetenteId = c.responsavel_id || c.tarefa_responsavel_id;
+      const texto = aplicarVariaveisLead(
+        (m.mensagem || '')
+          .replace(/\[Horario\]/gi, c.reuniao_hora || '')
+          .replace(/\[Data\]/gi, c.reuniao_data || ''),
+        c
+      );
+
+      try {
+        await contatosService.enviarMensagem(remetenteId, c.empresa_id, c.contato_whatsapp_id, texto, c.lead_id);
+        console.log(`[ReuniaoLembretes] Enviado ${m.marco} → lead #${c.lead_id} (remetente user #${remetenteId})`);
+      } catch (err: any) {
+        // Falhou o envio: libera o marco para nova tentativa no próximo ciclo.
+        await query(`DELETE FROM reuniao_lembretes_enviados WHERE tarefa_id = $1 AND marco = $2`, [c.tarefa_id, m.marco]);
+        console.error(`[ReuniaoLembretes] Erro ao enviar ${m.marco} p/ lead #${c.lead_id}:`, err.message);
+      }
+
+      // No máximo um marco por lead por ciclo (as janelas são disjuntas, então na prática
+      // só um casa mesmo).
+      break;
+    }
+  }
+}
+
+if (isMainInstance) {
+  cron.schedule('* * * * *', async () => {
+    if (processando) {
+      console.log('[ReuniaoLembretes] Ciclo anterior ainda em andamento — pulando.');
+      return;
+    }
+    processando = true;
+    try {
+      await processar();
+    } catch (err: any) {
+      console.error('[ReuniaoLembretes] Erro no cron:', err.message);
+    } finally {
+      processando = false;
+    }
+  });
+  console.log('[ReuniaoLembretes] Cron registrado (a cada 1 min).');
+} else {
+  console.log(`[ReuniaoLembretes] Instância #${process.env.NODE_APP_INSTANCE} — cron desativado (apenas instância 0 processa).`);
+}

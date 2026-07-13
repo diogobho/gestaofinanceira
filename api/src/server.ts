@@ -38,6 +38,9 @@ import './jobs/followup-scheduler';
 // Disparo scheduler (WhatsApp + e-mail agendados)
 import './jobs/disparo-scheduler';
 
+// Lembretes de reunião agendada (-24h/-1h + no-show)
+import './jobs/reuniao-lembretes-scheduler';
+
 // Agente IA — worker BullMQ
 import { iniciarWorkerAgente } from './modules/agente-ia/agente-ia.queue';
 
