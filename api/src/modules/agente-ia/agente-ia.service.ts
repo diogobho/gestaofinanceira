@@ -1073,13 +1073,22 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
 
     let texto = '';
 
+    // A conversa enviada ao modelo precisa terminar com um turno do usuário. Num
+    // follow-up a última mensagem costuma ser a nossa (saída = 'assistant'), pois o
+    // follow-up dispara justamente quando o lead ficou em silêncio. Modelos recentes
+    // não aceitam "prefill" de assistant, então anexamos um turno de usuário pedindo
+    // a mensagem — vale para Claude e Gemini.
+    const conversa: { role: 'user' | 'assistant'; content: string }[] =
+      contexto.length > 0 ? [...contexto] : [];
+    if (conversa.length === 0 || conversa[conversa.length - 1].role === 'assistant') {
+      conversa.push({ role: 'user', content: '(Escreva agora a mensagem de follow-up para este lead.)' });
+    }
+
     if (config.provider === 'gemini' && config.gemini_api_key) {
-      const contents = contexto.length > 0
-        ? contexto.map((m: any) => ({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }],
-          }))
-        : [{ role: 'user', parts: [{ text: '(sem histórico de conversa ainda)' }] }];
+      const contents = conversa.map((m: any) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      }));
       const geminiResp = await axios.post(
         `https://generativelanguage.googleapis.com/v1beta/models/${config.modelo || 'gemini-2.5-flash'}:generateContent?key=${config.gemini_api_key}`,
         {
@@ -1096,7 +1105,7 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
         model: config.modelo || 'claude-sonnet-4-6',
         max_tokens: Math.min(config.max_tokens, 512),
         system: systemPrompt,
-        messages: contexto.length > 0 ? contexto : [{ role: 'user', content: '(sem histórico de conversa ainda)' }],
+        messages: conversa,
       });
       texto = response.content
         .filter((b: any) => b.type === 'text')
