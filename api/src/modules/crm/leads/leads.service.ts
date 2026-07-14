@@ -606,6 +606,63 @@ export const leadsService = {
     }
   },
 
+  /**
+   * Mudança de estágio disparada por AUTOMAÇÃO (resposta do lead, "mover após envio").
+   * Além de atualizar o lead, encerra a cadência pendente do estágio anterior e inicia
+   * a do novo — mesmos efeitos colaterais do mover() manual, exceto a conversão de
+   * ganho (cliente/receita), que exige dados humanos e fica só no fluxo manual.
+   * Retorna true se o lead foi de fato movido.
+   */
+  async moverPorAutomacao(
+    id: number,
+    empresaId: number,
+    usuarioId: number,
+    novoEstagioId: number,
+    descricao: string,
+    dados: Record<string, any> = {}
+  ): Promise<boolean> {
+    const leadRes = await query(
+      `SELECT estagio_id FROM leads WHERE id = $1 AND empresa_id = $2`,
+      [id, empresaId]
+    );
+    const atual = leadRes.rows[0];
+    if (!atual || atual.estagio_id === novoEstagioId) return false;
+
+    const destinoRes = await query(
+      `SELECT id, is_ganho, is_perdido FROM estagios_funil WHERE id = $1`,
+      [novoEstagioId]
+    );
+    const destino = destinoRes.rows[0];
+    if (!destino) return false;
+
+    const ordemRes = await query(
+      `SELECT COALESCE(MAX(ordem_estagio), 0) + 1 AS nova_ordem
+       FROM leads WHERE estagio_id = $1 AND arquivado = false`,
+      [novoEstagioId]
+    );
+    await query(
+      `UPDATE leads SET estagio_id = $1, ordem_estagio = $2, data_ultimo_contato = CURRENT_TIMESTAMP
+       WHERE id = $3 AND empresa_id = $4`,
+      [novoEstagioId, ordemRes.rows[0].nova_ordem, id, empresaId]
+    );
+    if (destino.is_ganho || destino.is_perdido) {
+      await query(`UPDATE leads SET data_ganho_perdido = CURRENT_TIMESTAMP WHERE id = $1`, [id]);
+    }
+
+    // Encerra a cadência do estágio anterior e inicia a do novo (a ordem importa:
+    // cancelar antes de criar, senão a cadência nova seria cancelada junto).
+    await followupsService.cancelarEstagiosPorLead(id);
+    await this._criarFollowupEstagio(novoEstagioId, id, usuarioId, empresaId);
+
+    await this.registrarAtividade(id, usuarioId, empresaId, 'mudanca_estagio', descricao, {
+      automatico: true,
+      estagio_anterior_id: atual.estagio_id,
+      novo_estagio_id: novoEstagioId,
+      ...dados,
+    });
+    return true;
+  },
+
   async createFromWhatsApp(empresaId: number, usuarioId: number, contatoId: number, funilId: number): Promise<Lead> {
     // Buscar contato
     const contatoResult = await query(

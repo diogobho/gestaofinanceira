@@ -17,12 +17,14 @@ import cron from 'node-cron';
 import { followupsService } from '../modules/crm/followups/followups.service';
 import { agenteIaService } from '../modules/agente-ia/agente-ia.service';
 import { contatosService } from '../modules/crm/contatos/contatos.service';
+import { leadsService } from '../modules/crm/leads/leads.service';
 import { query } from '../config/database';
 import { aplicarVariaveisLead, diaSemanaPermitido } from '../modules/crm/_shared/agendamento';
 
 /**
  * Após enviar um follow-up de origem 'estagio', move o lead para o estágio
  * configurado em estagios_funil.estagio_apos_envio_id (se houver e for diferente do atual).
+ * O moverPorAutomacao também encerra a cadência antiga e inicia a do estágio destino.
  */
 async function moverLeadAposEnvio(followup: any): Promise<void> {
   if (followup.origem !== 'estagio') return;
@@ -38,17 +40,14 @@ async function moverLeadAposEnvio(followup: any): Promise<void> {
   const info = r.rows[0];
   if (!info?.estagio_apos_envio_id || info.estagio_apos_envio_id === followup.estagio_id) return;
 
-  await query(`UPDATE leads SET estagio_id = $1 WHERE id = $2`, [info.estagio_apos_envio_id, followup.lead_id]);
-  await query(
-    `INSERT INTO atividades_lead (lead_id, usuario_id, empresa_id, tipo, descricao, dados)
-     VALUES ($1, $2, $3, 'mudanca_estagio', $4, $5::jsonb)`,
-    [
-      followup.lead_id, followup.usuario_id, followup.empresa_id,
-      `Movido automaticamente para "${info.destino_nome || '?'}" após envio da mensagem agendada`,
-      JSON.stringify({ automatico: true, trigger: 'apos_envio', novo_estagio_id: info.estagio_apos_envio_id }),
-    ]
+  const moveu = await leadsService.moverPorAutomacao(
+    followup.lead_id, followup.empresa_id, followup.usuario_id, info.estagio_apos_envio_id,
+    `Movido automaticamente para "${info.destino_nome || '?'}" após envio da mensagem agendada`,
+    { trigger: 'apos_envio' }
   );
-  console.log(`[FollowUp Scheduler] Lead #${followup.lead_id} movido para estágio #${info.estagio_apos_envio_id} após envio`);
+  if (moveu) {
+    console.log(`[FollowUp Scheduler] Lead #${followup.lead_id} movido para estágio #${info.estagio_apos_envio_id} após envio (cadência do destino iniciada)`);
+  }
 }
 
 // Em cluster PM2 cada instância recebe NODE_APP_INSTANCE (0, 1, 2...).
@@ -109,6 +108,19 @@ if (isMainInstance) {
           }
 
           if (followup.tipo === 'manual') {
+            // Conversa viva: se o LEAD mandou mensagem nos últimos 60min, não atropela
+            // com mensagem de script — fica pendente e tenta no próximo ciclo.
+            const respostaRecente = await query(
+              `SELECT 1 FROM historico_mensagens
+               WHERE lead_id = $1 AND direcao = 'entrada'
+                 AND created_at > NOW() - INTERVAL '60 minutes'
+               LIMIT 1`,
+              [followup.lead_id]
+            );
+            if (respostaRecente.rows.length > 0) {
+              console.log(`[FollowUp Scheduler] Manual adiado: follow-up #${followup.id} → lead #${followup.lead_id} respondeu há <60min`);
+              continue;
+            }
             const leadRow = (await query(`SELECT * FROM leads WHERE id = $1`, [followup.lead_id])).rows[0];
             if (!leadRow) {
               await followupsService.marcarFalhou(followup.id, 'Lead não encontrado');

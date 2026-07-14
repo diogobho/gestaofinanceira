@@ -1022,15 +1022,17 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
       throw new Error(`Agente IA inativo ou sem API key para empresa ${empresaId}`);
     }
 
-    // Guard anti-duplicação: se houve mensagem de saída nos últimos 60min, adiar sem falhar
+    // Guard anti-atropelo: se houve QUALQUER mensagem (nossa ou do lead) nos últimos
+    // 60min, a conversa está viva — adiar sem falhar. Cobre tanto o empilhamento de
+    // envios quanto interromper um lead que acabou de responder.
     const msgRecente = await query(
       `SELECT id FROM historico_mensagens
-       WHERE lead_id = $1 AND direcao = 'saida' AND created_at > NOW() - INTERVAL '60 minutes'
+       WHERE lead_id = $1 AND created_at > NOW() - INTERVAL '60 minutes'
        LIMIT 1`,
       [leadId]
     );
     if (msgRecente.rows.length > 0) {
-      console.log(`[AgenteIA] Follow-up #${followup.id}: mensagem enviada nos últimos 60min — adiado`);
+      console.log(`[AgenteIA] Follow-up #${followup.id}: conversa ativa nos últimos 60min — adiado`);
       return 'adiado';
     }
 

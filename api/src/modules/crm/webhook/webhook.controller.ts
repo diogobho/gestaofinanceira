@@ -509,24 +509,16 @@ export const webhookController = {
               const estagioInfo = estagioResult.rows[0];
               if (estagioInfo?.estagio_apos_resposta_id &&
                   estagioInfo.estagio_id !== estagioInfo.estagio_apos_resposta_id) {
-                await query(
-                  `UPDATE leads SET estagio_id = $1 WHERE id = $2`,
-                  [estagioInfo.estagio_apos_resposta_id, lead.id]
-                );
-                await query(
-                  `INSERT INTO atividades_lead (lead_id, usuario_id, empresa_id, tipo, descricao, dados)
-                   VALUES ($1, $2, $3, 'mudanca_estagio', $4, $5::jsonb)`,
-                  [
-                    lead.id, usuarioId, contato.empresa_id,
-                    `Movido automaticamente para "${estagioInfo.estagio_destino_nome || '?'}" após resposta do lead`,
-                    JSON.stringify({
-                      automatico: true,
-                      trigger: 'resposta_lead',
-                      estagio_anterior_id: estagioInfo.estagio_id,
-                      estagio_anterior_nome: estagioInfo.estagio_nome,
-                      novo_estagio_id: estagioInfo.estagio_apos_resposta_id,
-                    }),
-                  ]
+                // moverPorAutomacao também encerra a cadência pendente do estágio
+                // anterior e inicia a do novo (antes o UPDATE cru deixava a cadência
+                // antiga ativa e a nova nunca começava).
+                await leadsService.moverPorAutomacao(
+                  lead.id, contato.empresa_id, usuarioId, estagioInfo.estagio_apos_resposta_id,
+                  `Movido automaticamente para "${estagioInfo.estagio_destino_nome || '?'}" após resposta do lead`,
+                  {
+                    trigger: 'resposta_lead',
+                    estagio_anterior_nome: estagioInfo.estagio_nome,
+                  }
                 );
                 console.log(`[Webhook] Lead #${lead.id} migrado para estágio #${estagioInfo.estagio_apos_resposta_id} (${estagioInfo.estagio_destino_nome}) por resposta`);
               }
