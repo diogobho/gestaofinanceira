@@ -63,6 +63,8 @@ export const Calendar: React.FC<CalendarProps> = ({ events, onDateClick, onEvent
   const previousPeriod = () => {
     const newDate = new Date(currentDate)
     if (view === 'month') {
+      // Dia 1 antes de mudar o mês: com dia 31 o setMonth "cru" pula/trava meses (31/jan → 3/mar)
+      newDate.setDate(1)
       newDate.setMonth(currentDate.getMonth() - 1)
     } else {
       newDate.setDate(currentDate.getDate() - 7)
@@ -73,6 +75,7 @@ export const Calendar: React.FC<CalendarProps> = ({ events, onDateClick, onEvent
   const nextPeriod = () => {
     const newDate = new Date(currentDate)
     if (view === 'month') {
+      newDate.setDate(1)
       newDate.setMonth(currentDate.getMonth() + 1)
     } else {
       newDate.setDate(currentDate.getDate() + 7)

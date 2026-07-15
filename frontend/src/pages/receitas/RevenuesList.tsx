@@ -6,6 +6,7 @@ import { Button, MetricCard, Card, Modal, ModalFooter, Input, Select, Spinner, B
 import { Plus, Edit, Trash2, CreditCard, Calendar, Filter, TrendingUp, DollarSign, CheckCircle, Clock } from 'lucide-react'
 import { revenuesApi, categoriasReceitasApi, clientsApi } from '@/api'
 import type { Revenue, CreateRevenueRequest, CreateCategoriaRequest } from '@/types'
+import { formatDate as formatDateUtil } from '@/utils/format'
 
 export const RevenuesList: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -203,9 +204,9 @@ export const RevenuesList: React.FC = () => {
     }).format(value)
   }
 
-  const formatDate = (date: Date | string) => {
-    return new Date(date).toLocaleDateString('pt-BR')
-  }
+  // Delegar ao util: datas puras (DATE) não podem ser convertidas pelo fuso local,
+  // senão exibem o dia anterior no Brasil (UTC-3).
+  const formatDate = (date: Date | string) => formatDateUtil(date)
 
   if (isLoading) {
     return (

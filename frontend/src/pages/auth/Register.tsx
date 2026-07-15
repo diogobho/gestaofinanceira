@@ -85,6 +85,7 @@ export const Register: React.FC = () => {
   const [erroPlanos, setErroPlanos] = useState(false)
   const [paymentUrl, setPaymentUrl] = useState<string | undefined>()
   const [pixQrCode, setPixQrCode] = useState<string | undefined>()
+  const [aceiteTermos, setAceiteTermos] = useState(false)
 
   const { register, handleSubmit, getValues, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -110,6 +111,10 @@ export const Register: React.FC = () => {
 
   const handleRegistrar = async () => {
     if (!selectedPlano) return
+    if (!aceiteTermos) {
+      toast.error('É necessário aceitar os Termos de Uso e a Política de Privacidade')
+      return
+    }
     setLoading(true)
     try {
       const form = getValues()
@@ -121,6 +126,7 @@ export const Register: React.FC = () => {
         plano_id: selectedPlano.id,
         billing_type: billingType,
         cpf_cnpj: form.cpf_cnpj,
+        aceite_termos: aceiteTermos,
       })
 
       setPaymentUrl(result.paymentUrl)
@@ -319,15 +325,28 @@ export const Register: React.FC = () => {
                 ))}
               </div>
 
-              <Button onClick={handleRegistrar} disabled={loading} variant="primary" className="w-full">
+              <label className="flex items-start gap-2.5 text-left cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={aceiteTermos}
+                  onChange={(e) => setAceiteTermos(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 shrink-0"
+                />
+                <span className="text-xs text-gray-600 leading-relaxed">
+                  Li e aceito os{' '}
+                  <a href="https://duofuturo.tech/termos.html" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline font-medium">Termos de Uso</a>
+                  {' '}e a{' '}
+                  <a href="https://duofuturo.tech/privacidade.html" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline font-medium">Política de Privacidade</a>,
+                  e autorizo o tratamento dos meus dados conforme a LGPD.
+                </span>
+              </label>
+
+              <Button onClick={handleRegistrar} disabled={loading || !aceiteTermos} variant="primary" className="w-full">
                 {loading
                   ? <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Criando sua conta...</>
                   : 'Criar minha conta'
                 }
               </Button>
-              <p className="text-xs text-center text-gray-400">
-                Ao criar sua conta você concorda com os termos de uso.
-              </p>
               <button onClick={() => setStep('plano')}
                 className="text-sm text-gray-400 hover:text-gray-600 w-full text-center">
                 ← Voltar

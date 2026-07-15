@@ -195,6 +195,7 @@ export const followupsService = {
        LEFT JOIN estagios_funil ef ON ef.id = l.estagio_id
        WHERE f.status = 'pendente'
          AND f.agendado_para <= NOW()
+         AND l.arquivado = false
        ORDER BY f.agendado_para ASC`,
       []
     );
@@ -247,12 +248,18 @@ export const followupsService = {
     return map;
   },
 
-  /** Instante do último follow-up ENVIADO por empresa (para espaçar os próximos). */
+  /**
+   * Instante da última mensagem ENVIADA por empresa (para espaçar os próximos follow-ups).
+   * Considera QUALQUER saída no WhatsApp (follow-up, disparo em massa, lembrete de reunião,
+   * agente IA, chat manual) — não só follow-ups —, senão o anti-ban seria parcial.
+   * Janela de 1h: o intervalo máximo configurável é 3600s e o filtro usa idx_historico_enviado.
+   */
   async ultimoEnvioPorEmpresa(): Promise<Record<number, number>> {
     const result = await query(
       `SELECT empresa_id, MAX(enviado_at) AS ultimo
-       FROM followups_agendados
-       WHERE status = 'enviado' AND enviado_at IS NOT NULL
+       FROM historico_mensagens
+       WHERE direcao = 'saida' AND erro IS NULL
+         AND enviado_at > NOW() - INTERVAL '1 hour'
        GROUP BY empresa_id`,
       []
     );
@@ -269,6 +276,19 @@ export const followupsService = {
        SET status = 'enviado', enviado_at = NOW(), updated_at = NOW()
        WHERE id = $1`,
       [id]
+    );
+  },
+
+  /**
+   * Empurra um follow-up pendente para daqui a N minutos (conversa viva / adiado),
+   * evitando que o scheduler re-tente a cada 1 minuto.
+   */
+  async adiar(id: number, minutos: number) {
+    await query(
+      `UPDATE followups_agendados
+       SET agendado_para = NOW() + ($2 || ' minutes')::interval, updated_at = NOW()
+       WHERE id = $1 AND status = 'pendente'`,
+      [id, String(Math.max(1, Math.round(minutos)))]
     );
   },
 

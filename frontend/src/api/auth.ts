@@ -33,6 +33,7 @@ export const authApi = {
     plano_id: number;
     billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
     cpf_cnpj?: string;
+    aceite_termos: boolean;
   }): Promise<{ token: string; user: any; paymentUrl?: string; pixQrCode?: string }> => {
     const { data } = await api.post('/auth/registrar', payload)
     return data

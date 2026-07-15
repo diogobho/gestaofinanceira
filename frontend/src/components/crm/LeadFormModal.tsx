@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { X, User, Phone, Mail, Building, DollarSign, Thermometer, Calendar, ListTodo, AlertCircle, FileText, Globe, UserCheck } from 'lucide-react'
 import { useCreateLead, useUpdateLead, useUsuariosEmpresa, useOrigensCatalogo } from '@/hooks/useCRM'
 import type { CreateLeadDto, UpdateLeadDto, TarefaTipo, Lead } from '@/types/crm'
+import { toInputDate } from '@/utils'
 
 interface LeadFormModalProps {
   isOpen: boolean
@@ -547,7 +548,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
                     value={tarefaData.data_vencimento}
                     onChange={handleTarefaChange}
                     required
-                    min={new Date().toISOString().split('T')[0]}
+                    min={toInputDate()}
                     className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   />
                 </div>

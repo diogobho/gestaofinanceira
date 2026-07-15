@@ -9,9 +9,8 @@ import cron from 'node-cron';
 import { query } from '../config/database';
 import { disparosService } from '../modules/crm/disparos/disparos.service';
 import { disparosEmailService } from '../modules/crm/disparos-email/disparos-email.service';
+import { isMainInstance } from '../shared/utils';
 
-// Só a instância 0 do cluster PM2 processa, evitando execução duplicada
-const isMainInstance = !process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0';
 
 if (!isMainInstance) {
   console.log(`[DisparoScheduler] Instância #${process.env.NODE_APP_INSTANCE} — cron desativado (apenas instância 0 processa).`);

@@ -28,7 +28,8 @@ import logo from '/logo.png'
 // Navegação com permissões associadas
 const navigationItems = [
   { name: 'Dashboard',     href: '/dashboard',         icon: LayoutDashboard, iconHover: LayoutGrid,        permissao: 'dashboard', tour: 'nav-dashboard'      },
-  { name: 'CRM / Funil',  href: '/crm',               icon: Kanban,          iconHover: KanbanSquare,      permissao: 'crm',       tour: 'nav-crm'            },
+  // `end: true` — sem isso o NavLink de /crm também fica ativo em /crm/dashboard (match por prefixo)
+  { name: 'CRM / Funil',  href: '/crm',               icon: Kanban,          iconHover: KanbanSquare,      permissao: 'crm',       tour: 'nav-crm',           end: true },
   { name: 'CRM Dashboard', href: '/crm/dashboard',     icon: BarChart3,       iconHover: ChartArea,         permissao: 'crm',       tour: 'nav-crm-dashboard'  },
   { name: 'CRM CX',       href: '/crm-cx',            icon: HeartHandshake,  iconHover: Handshake,         permissao: 'crm',       tour: 'nav-crm-cx'         },
   { name: 'Clientes',     href: '/clientes',           icon: Users,           iconHover: UserCheck,         permissao: 'clientes',  tour: 'nav-clientes'       },
@@ -160,6 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           <NavLink
             key={item.name}
             to={item.href}
+            end={'end' in item ? item.end : false}
             onClick={handleNavClick}
             data-tour={item.tour}
             className={({ isActive }) =>

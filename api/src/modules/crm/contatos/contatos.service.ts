@@ -333,6 +333,25 @@ export const contatosService = {
     }
   },
 
+  /**
+   * Variante de enviarMensagem que LANÇA em falha de envio. Use em jobs/automações
+   * (follow-up, lembretes, agente IA) onde uma falha silenciosa marcaria a mensagem
+   * como enviada sem ela ter saído.
+   */
+  async enviarMensagemOuFalhar(
+    usuarioId: number,
+    empresaId: number,
+    contatoId: number,
+    mensagem: string,
+    leadId?: number
+  ): Promise<{ success: true; messageId?: string }> {
+    const envio = await this.enviarMensagem(usuarioId, empresaId, contatoId, mensagem, leadId);
+    if (!envio.success) {
+      throw new Error(envio.error || 'Falha no envio via WhatsApp');
+    }
+    return { success: true, messageId: envio.messageId };
+  },
+
   async getHistoricoMensagens(contatoId: number, empresaId: number, limit = 50): Promise<any[]> {
     const result = await query(
       `SELECT hm.*, u.nome as usuario_nome

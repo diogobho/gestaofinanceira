@@ -23,11 +23,10 @@ import cron from 'node-cron';
 import { query } from '../config/database';
 import { contatosService } from '../modules/crm/contatos/contatos.service';
 import { aplicarVariaveisLead } from '../modules/crm/_shared/agendamento';
+import { isMainInstance } from '../shared/utils';
 
 const TOLERANCIA_PADRAO_MIN = 120;
 
-// Só a instância 0 do cluster PM2 processa, evitando execução duplicada.
-const isMainInstance = !process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0';
 
 // Impede que um ciclo lento se sobreponha ao próximo.
 let processando = false;
@@ -100,7 +99,8 @@ async function processar(): Promise<void> {
       );
 
       try {
-        await contatosService.enviarMensagem(remetenteId, c.empresa_id, c.contato_whatsapp_id, texto, c.lead_id);
+        // Lança em falha de envio → cai no catch e o marco é liberado para retry.
+        await contatosService.enviarMensagemOuFalhar(remetenteId, c.empresa_id, c.contato_whatsapp_id, texto, c.lead_id);
         console.log(`[ReuniaoLembretes] Enviado ${m.marco} → lead #${c.lead_id} (remetente user #${remetenteId})`);
       } catch (err: any) {
         // Falhou o envio: libera o marco para nova tentativa no próximo ciclo.

@@ -358,6 +358,9 @@ async function sincronizarAutomacaoFollowupEstagio(
 
     // Leads elegíveis capturados ANTES de inserir, para que todos os passos apliquem
     // ao mesmo conjunto (o guard NOT EXISTS deixaria de valer após o 1º insert).
+    // O 2º NOT EXISTS evita re-disparar para quem já recebeu a cadência deste estágio:
+    // exclui leads com follow-up de estágio ENVIADO desde que entraram no estágio atual
+    // (última mudança de estágio/funil registrada; fallback = criação do lead).
     const elegiveis = await query(
       `SELECT l.id, l.usuario_id
        FROM leads l
@@ -367,6 +370,16 @@ async function sincronizarAutomacaoFollowupEstagio(
          AND NOT EXISTS (
            SELECT 1 FROM followups_agendados fa
            WHERE fa.lead_id = l.id AND fa.origem = 'estagio' AND fa.status = 'pendente'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM followups_agendados fa2
+           WHERE fa2.lead_id = l.id AND fa2.origem = 'estagio' AND fa2.status = 'enviado'
+             AND COALESCE(fa2.enviado_at, fa2.updated_at) >= COALESCE(
+               (SELECT MAX(a.created_at) FROM atividades_lead a
+                WHERE a.lead_id = l.id
+                  AND a.tipo IN ('mudanca_estagio', 'transferencia_funil', 'transferencia_automatica')),
+               l.created_at
+             )
          )`,
       [estagioId, empresaId]
     );

@@ -960,6 +960,10 @@ export const leadsService = {
       [novoFunilId, novoEstagio.id, novaOrdem, id, empresaId]
     );
 
+    // Encerra a cadência pendente do funil/estágio anterior e inicia a do estágio de entrada do novo funil
+    await followupsService.cancelarEstagiosPorLead(id);
+    await this._criarFollowupEstagio(novoEstagio.id, id, usuarioId, empresaId);
+
     // Registrar atividade
     const funilAnteriorResult = await query(`SELECT nome FROM funis WHERE id = $1`, [lead.funil_id]);
     const estagioAnteriorResult = await query(`SELECT nome FROM estagios_funil WHERE id = $1`, [lead.estagio_id]);
@@ -1255,6 +1259,9 @@ export const leadsService = {
       `UPDATE leads SET arquivado = true WHERE id = $1 AND empresa_id = $2`,
       [id, empresaId]
     );
+
+    // Lead arquivado não deve continuar recebendo a cadência do estágio
+    await followupsService.cancelarEstagiosPorLead(id);
 
     await this.registrarAtividade(id, usuarioId, empresaId, 'arquivado', 'Lead arquivado', {});
 

@@ -1,5 +1,6 @@
 import { query } from '../../config/database';
 import { asaasService } from '../../services/asaas.service';
+import { addMonthsClamped } from '../../shared/utils';
 
 export interface Plano {
   id: number;
@@ -167,9 +168,7 @@ export const assinaturasService = {
     // Cartão de crédito: ativa imediatamente (pagamento síncrono)
     // PIX / Boleto: aguarda confirmação via webhook
     const statusInicial = params.billingType === 'CREDIT_CARD' ? 'ativa' : 'aguardando_pagamento';
-    const planoAtivate = params.billingType === 'CREDIT_CARD' ? (() => {
-      const d = new Date(); d.setMonth(d.getMonth() + 1); return d;
-    })() : null;
+    const planoAtivate = params.billingType === 'CREDIT_CARD' ? addMonthsClamped(new Date(), 1) : null;
 
     await query(`
       INSERT INTO assinaturas (empresa_id, plano_id, status, asaas_customer_id, asaas_subscription_id, asaas_next_due_date, plano_ativo_ate, updated_at)
@@ -263,8 +262,7 @@ export const assinaturasService = {
       case 'PAYMENT_CONFIRMED':
       case 'PAYMENT_RECEIVED': {
         // Pagamento confirmado → ativa por mais 1 mês
-        const novoVencimento = new Date();
-        novoVencimento.setMonth(novoVencimento.getMonth() + 1);
+        const novoVencimento = addMonthsClamped(new Date(), 1);
         await query(`
           UPDATE assinaturas
           SET status = 'ativa', plano_ativo_ate = $2, asaas_next_due_date = $3, updated_at = now()

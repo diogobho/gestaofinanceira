@@ -7,6 +7,7 @@ import { Table, TableHead, TableBody, TableRow, TableHeaderCell, TableCell } fro
 import { Edit, Filter, X, Calendar, CreditCard, DollarSign, CheckCircle, Clock } from 'lucide-react'
 import { parcelasApi, clientsApi } from '@/api'
 import type { ParcelaReceita, ParcelaDespesa } from '@/types'
+import { formatDate as formatDateUtil } from '@/utils/format'
 
 type TabType = 'receitas' | 'despesas'
 
@@ -269,9 +270,9 @@ export const ParcelasList: React.FC = () => {
     }).format(value)
   }
 
-  const formatDate = (date: Date | string) => {
-    return new Date(date).toLocaleDateString('pt-BR')
-  }
+  // Delegar ao util: datas puras (DATE) não podem ser convertidas pelo fuso local,
+  // senão exibem o dia anterior no Brasil (UTC-3).
+  const formatDate = (date: Date | string) => formatDateUtil(date)
 
   const getStatusColor = (status: string) => {
     if (status === 'PAGO') return 'success'

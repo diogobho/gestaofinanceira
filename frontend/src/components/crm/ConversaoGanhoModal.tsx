@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { X, Trophy, Package, DollarSign, Calendar, CreditCard, AlertCircle, Percent, FileText } from 'lucide-react'
 import { categoriasReceitasApi } from '@/api'
+import { toInputDate } from '@/utils'
 import type { Lead } from '@/types/crm'
 
 export interface ConversaoGanhoData {
@@ -46,7 +47,8 @@ export default function ConversaoGanhoModal({
 
   useEffect(() => {
     if (!isOpen || !lead) return
-    const hojeIso = new Date().toISOString().split('T')[0]
+    // Data LOCAL (não toISOString/UTC): à noite no Brasil (UTC-3) o ISO já é o dia seguinte
+    const hojeIso = toInputDate()
     setDescricao('')
     setValorVenda(lead.valor_potencial != null ? String(lead.valor_potencial) : '')
     setTaxaServico('')

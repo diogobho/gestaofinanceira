@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { Header } from '@/components/layout'
 import { Card, Spinner, DateRangePresets } from '@/components/ui'
-import { formatCurrency } from '@/utils'
+import { formatCurrency, toInputDate } from '@/utils'
 import {
   TrendingUp,
   TrendingDown,
@@ -22,12 +22,11 @@ import { dashboardApi, clientsApi, parcelasApi } from '@/api'
 export const Dashboard: React.FC = () => {
   // Calcular data padrão: hoje e 3 meses atrás
   const hoje = new Date()
-  const tresMesesAtras = new Date()
-  tresMesesAtras.setMonth(hoje.getMonth() - 3)
+  // Dia limitado a 28 ao voltar meses: com dia 31 o setMonth "cru" cai no mês errado (31/05 − 3 meses = 03/03)
+  const tresMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 3, Math.min(hoje.getDate(), 28))
 
-  const formatDateForInput = (date: Date) => {
-    return date.toISOString().split('T')[0]
-  }
+  // Data LOCAL (não toISOString/UTC): à noite no Brasil (UTC-3) o ISO já é o dia seguinte
+  const formatDateForInput = (date: Date) => toInputDate(date)
 
   // Formata valores compactos para labels de gráfico (evita overflow)
   const formatCompact = (value: number) => {

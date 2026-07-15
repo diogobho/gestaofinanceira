@@ -27,10 +27,15 @@ export const Layout: React.FC = () => {
     return () => window.removeEventListener(TOUR_SIDEBAR_EVENT, handler)
   }, [])
 
+  // Largura da faixa na borda esquerda que aceita o swipe de abrir a sidebar (padrão de drawer)
+  const SWIPE_EDGE_PX = 40
+
   // Gestos de swipe (apenas em mobile)
   const swipeHandlers = useSwipeable({
-    onSwipedRight: () => {
-      if (window.innerWidth < 768) {
+    onSwipedRight: ({ initial }) => {
+      // Só abre se o gesto começou na borda esquerda — senão qualquer scroll
+      // horizontal (kanban, tabelas) abriria a sidebar sem querer.
+      if (window.innerWidth < 768 && initial[0] <= SWIPE_EDGE_PX) {
         setIsSidebarOpen(true)
       }
     },

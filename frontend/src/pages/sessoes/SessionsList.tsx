@@ -7,6 +7,7 @@ import { Plus, Edit, Trash2, Video, MapPin, Calendar as CalendarIcon, List } fro
 import { sessionsApi, clientsApi } from '@/api'
 import { useAuth } from '@/contexts/AuthContext'
 import type { Session, CreateSessionRequest } from '@/types'
+import { formatDate as formatDateUtil } from '@/utils/format'
 
 export const SessionsList: React.FC = () => {
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
@@ -118,9 +119,9 @@ export const SessionsList: React.FC = () => {
     setIsModalOpen(true)
   }
 
-  const formatDate = (date: Date | string) => {
-    return new Date(date).toLocaleDateString('pt-BR')
-  }
+  // Delegar ao util: datas puras (DATE) não podem ser convertidas pelo fuso local,
+  // senão exibem o dia anterior no Brasil (UTC-3).
+  const formatDate = (date: Date | string) => formatDateUtil(date)
 
   const formatDateTime = (date: Date | string, horario: string) => {
     return `${formatDate(date)} às ${horario.substring(0, 5)}`

@@ -51,10 +51,16 @@ export const authController = {
 
   async registrar(req: Request, res: Response) {
     try {
-      const { nome_empresa, nome_usuario, email, senha, plano_id, billing_type, cpf_cnpj } = req.body;
+      const { nome_empresa, nome_usuario, email, senha, plano_id, billing_type, cpf_cnpj, aceite_termos } = req.body;
       if (!nome_empresa || !nome_usuario || !email || !senha || !plano_id || !billing_type) {
         return res.status(400).json({ code: 'MISSING_FIELDS', message: 'Todos os campos são obrigatórios' });
       }
+      // LGPD: aceite explícito dos Termos de Uso / Política de Privacidade é obrigatório.
+      if (aceite_termos !== true && aceite_termos !== 'true') {
+        return res.status(400).json({ code: 'TERMS_NOT_ACCEPTED', message: 'É necessário aceitar os Termos de Uso e a Política de Privacidade' });
+      }
+      // IP de origem para evidência do consentimento (respeita o proxy do nginx).
+      const ip = ((req.headers['x-forwarded-for'] as string) || '').split(',')[0].trim() || req.ip || '';
       const result = await authService.registrar({
         nomeEmpresa: nome_empresa,
         nomeUsuario: nome_usuario,
@@ -63,6 +69,7 @@ export const authController = {
         planoId: Number(plano_id),
         billingType: billing_type,
         cpfCnpj: cpf_cnpj,
+        aceiteIp: ip,
       });
       return res.status(201).json(result);
     } catch (error: any) {

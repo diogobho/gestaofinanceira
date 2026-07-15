@@ -3,6 +3,10 @@ import { query } from '../../config/database';
 import { signAccessToken } from '../../config/jwt';
 import { assinaturasService } from '../assinaturas/assinaturas.service';
 import { asaasService } from '../../services/asaas.service';
+import { addMonthsClamped } from '../../shared/utils';
+
+// Versão vigente dos Termos de Uso / Política de Privacidade (atualize ao publicar nova versão).
+export const TERMOS_VERSAO = '1.0';
 
 export const authService = {
   async login(email: string, senha: string) {
@@ -97,6 +101,7 @@ export const authService = {
     planoId: number;
     billingType: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
     cpfCnpj?: string;
+    aceiteIp?: string;
   }): Promise<{ token: string; user: any; paymentUrl?: string; pixQrCode?: string }> {
     // Validar senha
     if (data.senha.length < 8) throw new Error('A senha deve ter no mínimo 8 caracteres');
@@ -125,12 +130,14 @@ export const authService = {
     const empresaId: number = empresaResult.rows[0].id;
 
     try {
-      // 2. Criar usuário master da empresa
+      // 2. Criar usuário master da empresa (com o aceite dos Termos/Política — LGPD)
       const hash = await bcrypt.hash(data.senha, 10);
       const userResult = await query(
-        `INSERT INTO usuarios (nome, email, senha, nivel, tipo_usuario, empresa_id, created_at)
-         VALUES ($1, $2, $3, 'admin_empresa', 'master', $4, now()) RETURNING id`,
-        [data.nomeUsuario, data.email, hash, empresaId]
+        `INSERT INTO usuarios
+           (nome, email, senha, nivel, tipo_usuario, empresa_id, created_at,
+            aceite_termos_versao, aceite_termos_em, aceite_termos_ip)
+         VALUES ($1, $2, $3, 'admin_empresa', 'master', $4, now(), $5, now(), $6) RETURNING id`,
+        [data.nomeUsuario, data.email, hash, empresaId, TERMOS_VERSAO, data.aceiteIp || null]
       );
       const userId: number = userResult.rows[0].id;
 
@@ -165,8 +172,7 @@ export const authService = {
         });
 
         // 6. Salvar assinatura como aguardando_pagamento
-        const planoAtivate = new Date();
-        planoAtivate.setMonth(planoAtivate.getMonth() + 1);
+        const planoAtivate = addMonthsClamped(new Date(), 1);
         await query(
           `INSERT INTO assinaturas (empresa_id, plano_id, status, asaas_customer_id, asaas_subscription_id, asaas_next_due_date, plano_ativo_ate, updated_at)
            VALUES ($1, $2, 'aguardando_pagamento', $3, $4, $5, $6, now())

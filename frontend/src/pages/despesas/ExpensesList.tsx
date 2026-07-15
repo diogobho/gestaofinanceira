@@ -9,6 +9,7 @@ import { pluggyApi } from '@/api/pluggy'
 import { PluggyConnect } from 'react-pluggy-connect'
 import { PluggyConnectionsModal } from './PluggyConnectionsModal'
 import type { Expense, CreateExpenseRequest, CreateCategoriaRequest } from '@/types'
+import { formatDate as formatDateUtil } from '@/utils/format'
 
 export const ExpensesList: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -211,9 +212,9 @@ export const ExpensesList: React.FC = () => {
     }).format(value)
   }
 
-  const formatDate = (date: Date | string) => {
-    return new Date(date).toLocaleDateString('pt-BR')
-  }
+  // Delegar ao util: datas puras (DATE) não podem ser convertidas pelo fuso local,
+  // senão exibem o dia anterior no Brasil (UTC-3).
+  const formatDate = (date: Date | string) => formatDateUtil(date)
 
   if (isLoading) {
     return (

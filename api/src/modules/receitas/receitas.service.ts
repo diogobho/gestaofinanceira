@@ -1,5 +1,5 @@
 import { query } from '../../config/database';
-import { buildPaginationQuery, buildPaginatedResponse } from '../../shared/utils';
+import { buildPaginationQuery, buildPaginatedResponse, addMonthsClamped, dividirEmParcelas } from '../../shared/utils';
 
 export const receitasService = {
   async list(filters: any, page: number, pageSize: number) {
@@ -161,14 +161,13 @@ export const receitasService = {
 
     const receita = receitaPrincipal.rows[0];
     const receita_id = receita.id;
-    const valorParcela = parseFloat(data.valor) / parseInt(data.numero_parcelas);
+    const valoresParcelas = dividirEmParcelas(parseFloat(data.valor), parseInt(data.numero_parcelas));
     const dataBase = new Date(data.data);
 
     // Criar parcelas na tabela parcelas_receitas
     const parcelas = [];
     for (let i = 1; i <= data.numero_parcelas; i++) {
-      const dataVencimento = new Date(dataBase);
-      dataVencimento.setMonth(dataVencimento.getMonth() + (i - 1));
+      const dataVencimento = addMonthsClamped(dataBase, i - 1);
 
       const parcela = await query(
         `INSERT INTO parcelas_receitas (
@@ -178,7 +177,7 @@ export const receitasService = {
           receita_id,
           i,
           data.numero_parcelas,
-          valorParcela.toFixed(2),
+          valoresParcelas[i - 1].toFixed(2),
           dataVencimento.toISOString().split('T')[0],
           'PENDENTE'
         ]
@@ -385,12 +384,11 @@ export const receitasService = {
 
     // Se a despesa for parcelada, criar parcelas automáticas
     if (despesaData.tipo_pagamento === 'parcelado' && despesaData.numero_parcelas > 1) {
-      const valorParcela = valorTaxa / despesaData.numero_parcelas;
+      const valoresParcelas = dividirEmParcelas(valorTaxa, despesaData.numero_parcelas);
       const dataBase = new Date(despesaData.data);
 
       for (let i = 1; i <= despesaData.numero_parcelas; i++) {
-        const dataVencimento = new Date(dataBase);
-        dataVencimento.setMonth(dataVencimento.getMonth() + (i - 1));
+        const dataVencimento = addMonthsClamped(dataBase, i - 1);
 
         await query(
           `INSERT INTO parcelas_despesas (
@@ -400,7 +398,7 @@ export const receitasService = {
             despesa.id,
             i,
             despesaData.numero_parcelas,
-            valorParcela.toFixed(2),
+            valoresParcelas[i - 1].toFixed(2),
             dataVencimento.toISOString().split('T')[0],
             'PENDENTE'
           ]
