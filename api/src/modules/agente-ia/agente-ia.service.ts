@@ -539,8 +539,18 @@ export const agenteIaService = {
   // Contexto real do histórico WhatsApp — fonte única para ambos os fluxos.
   // Se upToDate é passado, lê apenas mensagens anteriores (usado no reativo para
   // não duplicar a mensagem que disparou o job — a aggregation adiciona ela depois).
-  async getContextoHistorico(leadId: number, limit: number, upToDate?: Date): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
+  // IMPORTANTE: a conversa pertence ao CONTATO, não ao lead. Um contato pode ter
+  // leads em mais de um funil e o webhook grava a entrada em apenas um deles —
+  // ler só por lead_id perdia metade da conversa (IA repetia perguntas). Por isso,
+  // quando o contato é conhecido, lê por contato_whatsapp_id (OR lead_id cobre
+  // mensagens antigas sem contato), excluindo mensagens de grupo.
+  async getContextoHistorico(leadId: number, limit: number, upToDate?: Date, contatoId?: number | null): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
     const params: any[] = [leadId];
+    let matchFilter = 'lead_id = $1';
+    if (contatoId) {
+      params.push(contatoId);
+      matchFilter = `(contato_whatsapp_id = $${params.length} OR lead_id = $1)`;
+    }
     let dateFilter = '';
     if (upToDate) {
       params.push(upToDate);
@@ -549,7 +559,8 @@ export const agenteIaService = {
     params.push(limit);
     const result = await query(
       `SELECT direcao, conteudo FROM historico_mensagens
-       WHERE lead_id = $1 AND tipo = 'texto' AND conteudo IS NOT NULL AND conteudo != ''
+       WHERE ${matchFilter} AND grupo_whatsapp_id IS NULL
+         AND tipo = 'texto' AND conteudo IS NOT NULL AND conteudo != ''
          ${dateFilter}
        ORDER BY enviado_at DESC LIMIT $${params.length}`,
       params
@@ -579,9 +590,16 @@ export const agenteIaService = {
     const passos = est.rows[0]?.followup_config?.passos;
     if (!Array.isArray(passos) || passos.length === 0) return null;
 
+    // Só passos enviados DESDE que o lead entrou no estágio atual — envios da cadência
+    // do estágio anterior não contam (senão o índice apontaria para o passo errado).
     const sent = await query(
       `SELECT passo_ordem FROM followups_agendados
         WHERE lead_id = $1 AND origem = 'estagio' AND status = 'enviado' AND passo_ordem IS NOT NULL
+          AND COALESCE(enviado_at, updated_at) >= COALESCE(
+            (SELECT MAX(a.created_at) FROM atividades_lead a
+              WHERE a.lead_id = $1
+                AND a.tipo IN ('mudanca_estagio', 'transferencia_funil', 'transferencia_automatica')),
+            '-infinity'::timestamptz)
         ORDER BY passo_ordem DESC LIMIT 1`,
       [leadId]
     );
@@ -728,7 +746,7 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     const effectiveTriggerAt = triggerAt ?? new Date(Date.now() - 1000);
 
     // 5.1. Contexto real da conversa WhatsApp (anterior ao triggerAt — aggregation adiciona o restante)
-    const contexto = await this.getContextoHistorico(leadId, config.contexto_mensagens, effectiveTriggerAt);
+    const contexto = await this.getContextoHistorico(leadId, config.contexto_mensagens, effectiveTriggerAt, contatoId);
 
     // 5.2. Anotações do lead
     const anotacoesResult = await query(
@@ -785,13 +803,16 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     };
 
     // 9. Após o delay, coletar TODAS as mensagens que chegaram desde triggerAt e unificá-las
+    // (por CONTATO: a entrada pode estar gravada no lead de outro funil do mesmo contato)
     const msgsPendentes = await query(
       `SELECT conteudo FROM historico_mensagens
-       WHERE lead_id = $1 AND direcao = 'entrada' AND tipo = 'texto'
+       WHERE (contato_whatsapp_id = $3 OR lead_id = $1)
+         AND grupo_whatsapp_id IS NULL
+         AND direcao = 'entrada' AND tipo = 'texto'
          AND conteudo IS NOT NULL AND conteudo != ''
          AND created_at >= $2
        ORDER BY created_at ASC`,
-      [leadId, effectiveTriggerAt]
+      [leadId, effectiveTriggerAt, contatoId]
     );
     const mensagemFinal = msgsPendentes.rows.length > 0
       ? msgsPendentes.rows.map((r: any) => r.conteudo).join('\n\n')
@@ -804,8 +825,9 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     // durante a janela do delay, abortar para evitar dupla resposta.
     const respHumanoCheck = await query(
       `SELECT id FROM historico_mensagens
-       WHERE lead_id = $1 AND direcao = 'saida' AND created_at > $2 LIMIT 1`,
-      [leadId, effectiveTriggerAt]
+       WHERE (contato_whatsapp_id = $3 OR lead_id = $1)
+         AND direcao = 'saida' AND created_at > $2 LIMIT 1`,
+      [leadId, effectiveTriggerAt, contatoId]
     );
     if (respHumanoCheck.rows.length > 0) {
       console.log(`[AgenteIA] Lead #${leadId}: já houve resposta saída durante o delay — agente abortado para evitar duplicação`);
@@ -937,7 +959,13 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     if (!finalText.trim()) {
       console.warn(`[AgenteIA] Lead #${leadId}: ${config.provider || 'IA'} não retornou texto final. Mensagem recebida: "${mensagemFinal.substring(0, 80)}".`);
     } else {
-      await contatosService.enviarMensagem(usuarioId, empresaId, contatoId, finalText, leadId);
+      try {
+        // Lança em falha de envio — senão a ação seria logada como sucesso com o WhatsApp falhando.
+        await contatosService.enviarMensagemOuFalhar(usuarioId, empresaId, contatoId, finalText, leadId);
+      } catch (err: any) {
+        await this.logarAcao(leadId, empresaId, 'responder', { mensagem: finalText }, false, err.message);
+        throw err;
+      }
       await this.logarAcao(leadId, empresaId, 'responder', { mensagem: finalText }, true);
     }
   },
@@ -1024,12 +1052,14 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
 
     // Guard anti-atropelo: se houve QUALQUER mensagem (nossa ou do lead) nos últimos
     // 60min, a conversa está viva — adiar sem falhar. Cobre tanto o empilhamento de
-    // envios quanto interromper um lead que acabou de responder.
+    // envios quanto interromper um lead que acabou de responder. Checa por CONTATO:
+    // a entrada pode estar gravada no lead de outro funil do mesmo contato.
     const msgRecente = await query(
       `SELECT id FROM historico_mensagens
-       WHERE lead_id = $1 AND created_at > NOW() - INTERVAL '60 minutes'
+       WHERE (lead_id = $1 OR ($2::int IS NOT NULL AND contato_whatsapp_id = $2))
+         AND created_at > NOW() - INTERVAL '60 minutes'
        LIMIT 1`,
-      [leadId]
+      [leadId, followup.contato_whatsapp_id ?? null]
     );
     if (msgRecente.rows.length > 0) {
       console.log(`[AgenteIA] Follow-up #${followup.id}: conversa ativa nos últimos 60min — adiado`);
@@ -1037,7 +1067,7 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
     }
 
     // Contexto real da conversa via historico_mensagens (inclui tudo antes da ativação do agente)
-    const contexto = await this.getContextoHistorico(leadId, config.contexto_mensagens);
+    const contexto = await this.getContextoHistorico(leadId, config.contexto_mensagens, undefined, followup.contato_whatsapp_id ?? null);
 
     // Buscar anotações do lead
     const anotacoesResult = await query(
@@ -1120,7 +1150,8 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
 
     // Enviar a mensagem — não salva em agente_ia_contexto pois o histórico já fica em
     // historico_mensagens e o próximo follow-up/reativo lê de lá via getContextoHistorico.
-    await contatosService.enviarMensagem(
+    // Lança em falha de envio — senão o follow-up seria marcado como enviado com o WhatsApp falhando.
+    await contatosService.enviarMensagemOuFalhar(
       remetenteId, empresaId, followup.contato_whatsapp_id, texto, leadId
     );
     await this.logarAcao(leadId, empresaId, 'followup_ia', { texto, followup_id: followup.id }, true);

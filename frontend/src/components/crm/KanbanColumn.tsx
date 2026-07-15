@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Droppable } from '@hello-pangea/dnd'
-import { Plus, MoreVertical, Settings, GripVertical, ChevronDown, Loader2, Bell } from 'lucide-react'
+import { Plus, MoreVertical, Settings, GripVertical, ChevronDown, Loader2, Bell, Bot } from 'lucide-react'
 import type { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd'
 import KanbanCard from './KanbanCard'
 import type { EstagioFunil, Lead } from '@/types/crm'
@@ -72,6 +72,12 @@ export default function KanbanColumn({
             </span>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
+            {/* Badge agente IA reativo ativo no estágio */}
+            {estagio.agente_ia_ativo && (
+              <span title="Agente de IA reativo ativo neste estágio" className="flex items-center">
+                <Bot size={14} className="text-emerald-500" />
+              </span>
+            )}
             {/* Badge follow-up configurado no estágio */}
             {estagio.followup_config?.ativo && (
               <span title="Follow-up automático ativo neste estágio" className="flex items-center">

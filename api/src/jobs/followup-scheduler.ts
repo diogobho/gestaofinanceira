@@ -20,6 +20,7 @@ import { contatosService } from '../modules/crm/contatos/contatos.service';
 import { leadsService } from '../modules/crm/leads/leads.service';
 import { query } from '../config/database';
 import { aplicarVariaveisLead, diaSemanaPermitido } from '../modules/crm/_shared/agendamento';
+import { isMainInstance } from '../shared/utils';
 
 /**
  * Após enviar um follow-up de origem 'estagio', move o lead para o estágio
@@ -50,11 +51,11 @@ async function moverLeadAposEnvio(followup: any): Promise<void> {
   }
 }
 
-// Em cluster PM2 cada instância recebe NODE_APP_INSTANCE (0, 1, 2...).
-// O scheduler deve rodar apenas na instância 0 para evitar processamento duplicado.
-const isMainInstance = !process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0';
 
 const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+// Quanto empurrar pra frente um follow-up com conversa viva (evita retry/log a cada 1min).
+const ADIAR_CONVERSA_ATIVA_MIN = 15;
 
 // Impede que um ciclo lento se sobreponha ao próximo (evita envio duplicado).
 let processando = false;
@@ -110,15 +111,18 @@ if (isMainInstance) {
           if (followup.tipo === 'manual') {
             // Conversa viva: se o LEAD mandou mensagem nos últimos 60min, não atropela
             // com mensagem de script — fica pendente e tenta no próximo ciclo.
+            // Checa por CONTATO: a entrada pode estar gravada no lead de outro funil.
             const respostaRecente = await query(
               `SELECT 1 FROM historico_mensagens
-               WHERE lead_id = $1 AND direcao = 'entrada'
+               WHERE (lead_id = $1 OR ($2::int IS NOT NULL AND contato_whatsapp_id = $2))
+                 AND direcao = 'entrada'
                  AND created_at > NOW() - INTERVAL '60 minutes'
                LIMIT 1`,
-              [followup.lead_id]
+              [followup.lead_id, followup.contato_whatsapp_id ?? null]
             );
             if (respostaRecente.rows.length > 0) {
-              console.log(`[FollowUp Scheduler] Manual adiado: follow-up #${followup.id} → lead #${followup.lead_id} respondeu há <60min`);
+              await followupsService.adiar(followup.id, ADIAR_CONVERSA_ATIVA_MIN);
+              console.log(`[FollowUp Scheduler] Manual adiado ${ADIAR_CONVERSA_ATIVA_MIN}min: follow-up #${followup.id} → lead #${followup.lead_id} respondeu há <60min`);
               continue;
             }
             const leadRow = (await query(`SELECT * FROM leads WHERE id = $1`, [followup.lead_id])).rows[0];
@@ -143,6 +147,11 @@ if (isMainInstance) {
             }
             // Personalização: substitui [Nome], [Telefone] e demais atributos do lead.
             const texto = aplicarVariaveisLead(followup.mensagem || '', leadRow);
+            // Sem texto e sem mídia não há o que enviar (mandaria mensagem vazia no WhatsApp).
+            if (!texto.trim() && !followup.media_url) {
+              await followupsService.marcarFalhou(followup.id, 'Mensagem vazia — follow-up sem texto e sem mídia');
+              continue;
+            }
             if (followup.media_url) {
               // Anexo: envia a mídia via /send-media; o texto (com variáveis) vira a legenda.
               await contatosService.enviarMediaArmazenada(
@@ -156,7 +165,8 @@ if (isMainInstance) {
                 followup.lead_id
               );
             } else {
-              await contatosService.enviarMensagem(
+              // Lança em falha de envio → cai no catch e o follow-up é marcado como falhou.
+              await contatosService.enviarMensagemOuFalhar(
                 remetenteId,
                 followup.empresa_id,
                 contatoId,
@@ -184,8 +194,9 @@ if (isMainInstance) {
               await followupsService.cancelar(followup.id, followup.empresa_id);
               console.log(`[FollowUp Scheduler] IA cancelado: follow-up #${followup.id} → agente inativo para lead #${followup.lead_id}`);
             } else {
-              // 'adiado': conversa ativa, deixar pendente e tentar no próximo ciclo
-              console.log(`[FollowUp Scheduler] IA adiado: follow-up #${followup.id} → tentará novamente em 1min`);
+              // 'adiado': conversa ativa — empurra pra frente em vez de re-tentar a cada 1min
+              await followupsService.adiar(followup.id, ADIAR_CONVERSA_ATIVA_MIN);
+              console.log(`[FollowUp Scheduler] IA adiado ${ADIAR_CONVERSA_ATIVA_MIN}min: follow-up #${followup.id} → conversa ativa`);
             }
           }
         } catch (err: any) {

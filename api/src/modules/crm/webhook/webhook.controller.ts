@@ -476,11 +476,22 @@ export const webhookController = {
           );
         }
 
-        // Buscar lead(s) vinculados a este contato
+        // Buscar lead(s) vinculados a este contato. Um contato pode ter leads em mais
+        // de um funil — ordena para eleger um lead PRINCIPAL determinístico (primeiro
+        // com agente IA ativo; desempate pela atividade mais recente), que recebe o
+        // vínculo da mensagem e o job do agente. Antes, o lead_id do histórico ficava
+        // com o último do loop (aleatório) e o agente era enfileirado para TODOS os
+        // leads, podendo responder em dobro.
         const leadsResult = await query(
-          `SELECT id FROM leads WHERE contato_whatsapp_id = $1 AND arquivado = false`,
+          `SELECT l.id, COALESCE(l.agente_ia_ativo, ef.agente_ia_ativo, false) AS agente_ativo
+           FROM leads l
+           LEFT JOIN estagios_funil ef ON ef.id = l.estagio_id
+           WHERE l.contato_whatsapp_id = $1 AND l.arquivado = false
+           ORDER BY COALESCE(l.agente_ia_ativo, ef.agente_ia_ativo, false) DESC,
+                    l.data_ultimo_contato DESC NULLS LAST, l.id DESC`,
           [contatoId]
         );
+        const leadPrincipal = leadsResult.rows[0] || null;
 
         for (const lead of leadsResult.rows) {
           if (direcao === 'entrada') {
@@ -536,13 +547,6 @@ export const webhookController = {
             );
           }
 
-          // Vincular mensagem ao lead
-          await query(
-            `UPDATE historico_mensagens SET lead_id = $1
-             WHERE contato_whatsapp_id = $2 AND whatsapp_message_id = $3`,
-            [lead.id, contatoId, messageId]
-          );
-
           // Registrar atividade
           const tipoAtividade = direcao === 'entrada' ? 'mensagem_recebida' : 'mensagem_enviada';
           const descricao = direcao === 'entrada'
@@ -566,15 +570,26 @@ export const webhookController = {
             ]
           );
 
-          // Enfileirar mensagem no BullMQ para processamento pelo agente IA
+        }
+
+        if (leadPrincipal) {
+          // Vincular mensagem ao lead PRINCIPAL (uma vez, fora do loop)
+          await query(
+            `UPDATE historico_mensagens SET lead_id = $1
+             WHERE contato_whatsapp_id = $2 AND whatsapp_message_id = $3`,
+            [leadPrincipal.id, contatoId, messageId]
+          );
+
+          // Enfileirar agente IA apenas para o lead principal — no máximo UMA resposta
+          // por mensagem recebida, mesmo com o contato em vários funis.
           if (direcao === 'entrada' && tipo === 'texto' && body && !isGroup) {
-            adicionarJobAgente(contatoId, lead.id, body, usuarioId, contato.empresa_id)
-              .catch((err: any) => console.error(`[AgenteIA] Erro ao enfileirar job para lead #${lead.id}:`, err.message));
+            adicionarJobAgente(contatoId, leadPrincipal.id, body, usuarioId, contato.empresa_id)
+              .catch((err: any) => console.error(`[AgenteIA] Erro ao enfileirar job para lead #${leadPrincipal.id}:`, err.message));
           }
           // Áudio: transcreve via Gemini e enfileira (requer gemini_api_key na config do agente)
           if (direcao === 'entrada' && tipo === 'audio' && mediaData && !isGroup) {
-            transcreverEEnfileirar(contatoId, lead.id, usuarioId, contato.empresa_id, mediaData, mimetype)
-              .catch((err: any) => console.error(`[AgenteIA] Erro transcrição áudio lead #${lead.id}:`, err.message));
+            transcreverEEnfileirar(contatoId, leadPrincipal.id, usuarioId, contato.empresa_id, mediaData, mimetype)
+              .catch((err: any) => console.error(`[AgenteIA] Erro transcrição áudio lead #${leadPrincipal.id}:`, err.message));
           }
         }
 
