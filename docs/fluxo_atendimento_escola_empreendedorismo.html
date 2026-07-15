@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fluxo de Atendimento — CRM Escola Empreendedorismo</title>
+<style>
+  :root {
+    --navy:   #13264C;
+    --navy-2: #1d3766;
+    --gold:   #D2B773;
+    --gold-2: #b89a4e;
+    --green:  #10b981;
+    --red:    #ef4444;
+    --orange: #f59e0b;
+    --blue:   #3b82f6;
+    --gray:   #64748b;
+    --bg:     #f6f7fb;
+    --card:   #ffffff;
+    --border: #e3e7f0;
+    --text:   #1e293b;
+    --muted:  #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5;
+    padding-bottom: 60px;
+  }
+
+  header {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+    color: #fff; padding: 36px 20px 30px; text-align: center;
+    border-bottom: 4px solid var(--gold);
+  }
+  header h1 { font-size: 1.5rem; letter-spacing: .3px; }
+  header h1 span { color: var(--gold); }
+  header p  { color: #c7d2e6; font-size: .9rem; margin-top: 6px; max-width: 720px; margin-left: auto; margin-right: auto; }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 16px; }
+
+  /* ── LEGENDA / MECANISMOS ── */
+  .mecanismos { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 24px 0; }
+  .mec {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; box-shadow: 0 1px 3px rgba(19,38,76,.06);
+  }
+  .mec h3 { font-size: .85rem; color: var(--navy); display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .mec p  { font-size: .8rem; color: var(--muted); }
+  .mec .emoji { font-size: 1.1rem; }
+
+  h2.secao {
+    color: var(--navy); font-size: 1.05rem; margin: 30px 0 4px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h2.secao::after { content: ''; flex: 1; height: 2px; background: linear-gradient(90deg, var(--gold), transparent); border-radius: 2px; }
+  p.secao-sub { font-size: .82rem; color: var(--muted); margin-bottom: 16px; }
+
+  /* ── FLUXO ── */
+  .fluxo { display: flex; flex-direction: column; align-items: stretch; }
+
+  .estagio {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(19,38,76,.07); overflow: hidden;
+  }
+  .estagio-head {
+    display: flex; align-items: center; gap: 10px; padding: 13px 16px;
+    border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  .estagio-head .num {
+    width: 30px; height: 30px; border-radius: 50%; background: var(--navy); color: var(--gold);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .85rem; flex-shrink: 0;
+  }
+  .estagio-head .nome { font-weight: 700; color: var(--navy); font-size: 1rem; }
+  .estagio-head .objetivo { width: 100%; font-size: .78rem; color: var(--muted); margin-top: 2px; }
+
+  .badges { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+  .badge {
+    font-size: .68rem; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  }
+  .b-robo     { background: #d1fae5; color: #047857; }
+  .b-cadencia { background: #fef3c7; color: #b45309; }
+  .b-manual   { background: #e2e8f0; color: #334155; }
+  .b-lembrete { background: #dbeafe; color: #1d4ed8; }
+
+  .estagio-body { padding: 12px 16px 14px; }
+  .passos { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .passos li {
+    font-size: .82rem; display: flex; gap: 8px; align-items: baseline;
+    padding: 7px 10px; background: var(--bg); border-radius: 8px; border-left: 3px solid var(--gold);
+  }
+  .passos li.robo   { border-left-color: var(--green); }
+  .passos li.manual { border-left-color: var(--gray); }
+  .passos li .quando { font-weight: 700; color: var(--navy); white-space: nowrap; min-width: 86px; }
+  .passos li .oque   { color: var(--text); }
+  .passos li .oque small { color: var(--muted); display: block; }
+
+  .nota { font-size: .76rem; color: var(--muted); margin-top: 9px; padding-left: 2px; }
+  .nota b { color: var(--navy); }
+
+  /* ── CONECTORES ── */
+  .conector { display: flex; flex-direction: column; align-items: center; padding: 4px 0; }
+  .conector .linha { width: 2px; height: 14px; background: var(--navy); opacity: .35; }
+  .conector .seta  { color: var(--navy); opacity: .55; font-size: .9rem; line-height: .6; }
+  .rotulos { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; padding: 5px 0 6px; }
+  .rotulo {
+    font-size: .72rem; font-weight: 600; padding: 4px 12px; border-radius: 999px; border: 1.5px solid;
+    background: var(--card);
+  }
+  .r-verde    { color: #047857; border-color: #34d399; }
+  .r-vermelho { color: #b91c1c; border-color: #f87171; }
+  .r-azul     { color: #1d4ed8; border-color: #93c5fd; }
+  .r-cinza    { color: #475569; border-color: #cbd5e1; }
+
+  /* Desvios (saídas laterais: Nutrição / Perda) */
+  .desvios { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 26px; }
+  @media (max-width: 640px) { .desvios { grid-template-columns: 1fr; } }
+  .desvio-card { border-radius: 14px; overflow: hidden; border: 1px solid var(--border); background: var(--card); box-shadow: 0 2px 8px rgba(19,38,76,.07); }
+  .desvio-card.nutricao { border-top: 4px solid var(--green); }
+  .desvio-card.perda    { border-top: 4px solid var(--red); }
+  .desvio-card.ganho    { border-top: 4px solid var(--gold); }
+
+  /* Finais lado a lado */
+  .finais { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .finais { grid-template-columns: 1fr; } }
+
+  /* ── REGRAS ── */
+  .regras { background: var(--navy); border-radius: 14px; padding: 18px 20px; margin-top: 34px; color: #dbe4f5; }
+  .regras h2 { color: var(--gold); font-size: 1rem; margin-bottom: 10px; }
+  .regras ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .regras li { font-size: .82rem; display: flex; gap: 8px; }
+  .regras li::before { content: '🛡️'; }
+  .regras b { color: #fff; }
+
+  footer { text-align: center; font-size: .72rem; color: var(--muted); margin-top: 28px; }
+
+  @media print {
+    body { background: #fff; }
+    .estagio, .mec, .desvio-card { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Fluxo de Atendimento — <span>Escola Empreendedorismo</span></h1>
+  <p>Como um lead percorre o funil no CRM: automações, cadências de follow-up e onde o Agente de IA atua. Do primeiro contato ao fechamento.</p>
+</header>
+
+<div class="wrap">
+
+  <h2 class="secao">Como funciona a máquina</h2>
+  <p class="secao-sub">Três mecanismos trabalham juntos em cada estágio:</p>
+  <div class="mecanismos">
+    <div class="mec">
+      <h3><span class="emoji">🤖</span> Agente de IA reativo</h3>
+      <p>Quando o lead manda mensagem, o agente responde na hora, lendo a <b>conversa completa do contato</b> e seguindo o foco do passo atual da cadência. Nos estágios com o robô 🤖 aceso na coluna do kanban.</p>
+    </div>
+    <div class="mec">
+      <h3><span class="emoji">📨</span> Cadência de follow-up</h3>
+      <p>Se o lead <b>fica em silêncio</b>, mensagens agendadas (fixas ou geradas pela IA) são disparadas passo a passo. Responder interrompe o silêncio e pode mover o lead de estágio automaticamente.</p>
+    </div>
+    <div class="mec">
+      <h3><span class="emoji">⏰</span> Lembretes de reunião</h3>
+      <p>Com reunião marcada, o sistema lembra o lead <b>24h e 1h antes</b> — e corre atrás em caso de não comparecimento (no-show) em 3 tentativas.</p>
+    </div>
+  </div>
+
+  <h2 class="secao">O funil, passo a passo</h2>
+  <p class="secao-sub">Legenda dos passos: <span class="badge b-robo">🤖 IA</span> mensagem gerada pela IA com base na conversa &nbsp;·&nbsp; <span class="badge b-manual">📝 Fixa</span> mensagem pré-escrita (script) &nbsp;·&nbsp; "D+2" = dias após entrar no estágio</p>
+
+  <div class="fluxo">
+
+    <!-- 1. ENTRADA -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">1</div>
+        <div class="nome">📥 Entrada de Leads</div>
+        <div class="badges"><span class="badge b-manual">👤 Ação do comercial</span></div>
+        <div class="objetivo">Lead chega (site, formulário, indicação, tráfego, Hotmart…) e é registrado com a origem identificada.</div>
+      </div>
+      <div class="estagio-body">
+        <p class="nota"><b>O que fazer:</b> conferir origem e dados do lead e mover para <b>Tentativa de Contato</b>. Aqui ainda não há automação — o primeiro toque é humano e personalizado.</p>
+      </div>
+    </div>
+
+    <div class="conector">
+      <div class="linha"></div>
+      <div class="rotulos"><span class="rotulo r-cinza">👤 comercial move manualmente</span></div>
+      <div class="seta">▼</div>
+    </div>
+
+    <!-- 2. TENTATIVA DE CONTATO -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">2</div>
+        <div class="nome">📲 Tentativa de Contato</div>
+        <div class="badges">
+          <span class="badge b-robo">🤖 IA reativa</span>
+          <span class="badge b-cadencia">📨 Cadência</span>
+        </div>
+        <div class="objetivo">Fazer o lead responder e abrir conversa. Ainda não é hora de vender.</div>
+      </div>
+      <div class="estagio-body">
+        <ul class="passos">
+          <li class="manual"><span class="quando">D+1</span><span class="oque">📝 Follow-up leve <small>"Só passando pra ver se viu minha mensagem…" — lembrete amigável, nunca cobrança.</small></span></li>
+          <li class="robo"><span class="quando">D+4</span><span class="oque">🤖 Convite para evento ou conteúdo <small>A IA escolhe o gancho com base no perfil e na conversa.</small></span></li>
+          <li class="robo"><span class="quando">D+16</span><span class="oque">🤖 Encerramento do ciclo ativo <small>Tom de transição (não de "tchau"): prepara o lead para a Nutrição.</small></span></li>
+        </ul>
+        <p class="nota"><b>Qualquer resposta</b> (mensagem, emoji, áudio) já conta — o robô responde e o lead avança sozinho.</p>
+      </div>
+    </div>
+
+    <div class="conector">
+      <div class="linha"></div>
+      <div class="rotulos">
+        <span class="rotulo r-verde">✅ respondeu → Qualificação (automático)</span>
+        <span class="rotulo r-vermelho">🔕 terminou a cadência sem resposta → Nutrição</span>
+      </div>
+      <div class="seta">▼</div>
+    </div>
+
+    <!-- 3. QUALIFICAÇÃO -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">3</div>
+        <div class="nome">📞 Qualificação</div>
+        <div class="badges">
+          <span class="badge b-robo">🤖 IA reativa</span>
+          <span class="badge b-cadencia">📨 Cadência</span>
+        </div>
+        <div class="objetivo">Entender quem é o lead, dores, objetivos e urgência (roteiro SPIN) — e levar ao agendamento da reunião.</div>
+      </div>
+      <div class="estagio-body">
+        <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>Enquanto o lead responde:</b> a conversa flui com o vendedor e/ou o agente de IA, seguindo o SPIN — Situação ("o que você faz hoje?"), Problema ("qual o maior desafio?"), Implicação ("o que acontece se continuar assim?") e Necessidade (convite para a reunião).</p>
+        <ul class="passos">
+          <li class="robo"><span class="quando">D+2</span><span class="oque">🤖 Retomada de conversa <small>Se o lead silenciar: a IA retoma citando o contexto que ele mesmo trouxe.</small></span></li>
+          <li class="robo"><span class="quando">+1 dia</span><span class="oque">🤖 Segundo toque <small>Entrega de valor / pergunta sobre o momento, com base no histórico.</small></span></li>
+        </ul>
+        <p class="nota"><b>Agendou reunião →</b> o lead vai para <b>Reunião Agendada</b> (o próprio agente move ao confirmar o horário).</p>
+      </div>
+    </div>
+
+    <div class="conector">
+      <div class="linha"></div>
+      <div class="rotulos">
+        <span class="rotulo r-verde">📅 reunião marcada</span>
+        <span class="rotulo r-vermelho">🔕 sem resposta ao fim da cadência → Nutrição</span>
+      </div>
+      <div class="seta">▼</div>
+    </div>
+
+    <!-- 4. REUNIÃO AGENDADA -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">4</div>
+        <div class="nome">📅 Reunião Agendada</div>
+        <div class="badges"><span class="badge b-lembrete">⏰ Lembretes</span></div>
+        <div class="objetivo">Garantir o comparecimento — e reagir rápido se o lead não aparecer.</div>
+      </div>
+      <div class="estagio-body">
+        <ul class="passos">
+          <li><span class="quando">−24h</span><span class="oque">📝 Lembrete de véspera <small>"Nossa conversa é amanhã às [horário], confirma que está tudo certo?"</small></span></li>
+          <li><span class="quando">−1h</span><span class="oque">📝 Lembrete de última hora <small>"Faltando 1 hora para a nossa conversa 🙌"</small></span></li>
+          <li><span class="quando">+1h</span><span class="oque">📝 No-show, tentativa 1 <small>"Aguardei você hoje… podemos remarcar?"</small></span></li>
+          <li><span class="quando">+1 dia</span><span class="oque">📝 No-show, tentativa 2 <small>Oferece novo horário.</small></span></li>
+          <li><span class="quando">+3 dias</span><span class="oque">📝 No-show, tentativa 3 <small>Última tentativa, com porta aberta.</small></span></li>
+        </ul>
+        <p class="nota"><b>Importante:</b> assim que a reunião acontecer, mover o lead para <b>Reunião Realizada</b> — é isso que desliga a régua de no-show.</p>
+      </div>
+    </div>
+
+    <div class="conector">
+      <div class="linha"></div>
+      <div class="rotulos"><span class="rotulo r-cinza">👤 reunião feita → comercial move</span></div>
+      <div class="seta">▼</div>
+    </div>
+
+    <!-- 5. REUNIÃO REALIZADA -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">5</div>
+        <div class="nome">🤝 Reunião Realizada</div>
+        <div class="badges">
+          <span class="badge b-robo">🤖 IA reativa</span>
+          <span class="badge b-cadencia">📨 Cadência</span>
+        </div>
+        <div class="objetivo">Aproveitar o calor da reunião para encaminhar a decisão.</div>
+      </div>
+      <div class="estagio-body">
+        <ul class="passos">
+          <li class="robo"><span class="quando">+1h</span><span class="oque">🤖 Pós-reunião <small>Agradece, retoma o que foi combinado e conduz ao próximo passo.</small></span></li>
+        </ul>
+        <p class="nota">Daqui o lead segue para <b>Fechamento</b> (quer avançar) ou <b>Objeção</b> (travou em preço, tempo, prioridade…).</p>
+      </div>
+    </div>
+
+    <div class="conector">
+      <div class="linha"></div>
+      <div class="rotulos">
+        <span class="rotulo r-verde">👍 pronto pra fechar → Fechamento</span>
+        <span class="rotulo r-azul">🤔 travou → Objeção</span>
+      </div>
+      <div class="seta">▼</div>
+    </div>
+
+    <!-- 6. OBJEÇÃO -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">6</div>
+        <div class="nome">🛡️ Objeção</div>
+        <div class="badges">
+          <span class="badge b-robo">🤖 IA reativa</span>
+          <span class="badge b-cadencia">📨 Cadência</span>
+        </div>
+        <div class="objetivo">Trabalhar a objeção com empatia e reconectar o lead à dor e ao objetivo dele.</div>
+      </div>
+      <div class="estagio-body">
+        <ul class="passos">
+          <li class="robo"><span class="quando">na hora</span><span class="oque">🤖 Resposta à objeção <small>A IA acolhe e endereça a objeção específica que o lead trouxe.</small></span></li>
+          <li class="robo"><span class="quando">D+1</span><span class="oque">🤖 Toque 2 — prova social / caso real</span></li>
+          <li class="robo"><span class="quando">D+3</span><span class="oque">🤖 Toque 3 — reconexão com a dor/objetivo</span></li>
+          <li class="robo"><span class="quando">D+5</span><span class="oque">🤖 Toque 4 — senso de urgência com leveza</span></li>
+          <li class="manual"><span class="quando">D+7</span><span class="oque">📝 Encerramento respeitoso <small>Script fixo de última tentativa.</small></span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="conector">
+      <div class="linha"></div>
+      <div class="rotulos">
+        <span class="rotulo r-verde">✅ respondeu → Fechamento (automático)</span>
+        <span class="rotulo r-vermelho">🔕 fim da cadência sem resposta → Perda</span>
+      </div>
+      <div class="seta">▼</div>
+    </div>
+
+    <!-- 7. FECHAMENTO -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">7</div>
+        <div class="nome">💰 Fechamento</div>
+        <div class="badges">
+          <span class="badge b-robo">🤖 IA reativa</span>
+          <span class="badge b-cadencia">📨 Cadência</span>
+        </div>
+        <div class="objetivo">Conduzir à decisão: proposta, condições e o "sim".</div>
+      </div>
+      <div class="estagio-body">
+        <ul class="passos">
+          <li class="robo"><span class="quando">na hora</span><span class="oque">🤖 Encaminhamento do fechamento <small>Resume o combinado e facilita o próximo passo.</small></span></li>
+          <li class="robo"><span class="quando">D+1 · D+3 · D+5</span><span class="oque">🤖 Toques de acompanhamento <small>Espaçados, sempre com contexto — nunca "e aí, viu minha proposta?" seco.</small></span></li>
+          <li class="robo"><span class="quando">D+7</span><span class="oque">🤖 Última mensagem do ciclo <small>Encerra com respeito e porta aberta.</small></span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="conector">
+      <div class="linha"></div>
+      <div class="rotulos">
+        <span class="rotulo r-verde">🏆 fechou → Ganho</span>
+        <span class="rotulo r-vermelho">🔕 fim da cadência sem resposta → Perda</span>
+      </div>
+      <div class="seta">▼</div>
+    </div>
+
+    <!-- FINAIS -->
+    <div class="finais">
+      <div class="desvio-card ganho">
+        <div class="estagio-head">
+          <div class="nome">🏆 Ganho</div>
+          <div class="badges"><span class="badge b-robo">🤖 IA reativa</span></div>
+          <div class="objetivo">Cliente fechado! O registro de ganho gera a receita no financeiro.</div>
+        </div>
+        <div class="estagio-body">
+          <ul class="passos">
+            <li class="robo"><span class="quando">na hora</span><span class="oque">🤖 Boas-vindas <small>Celebra e orienta os primeiros passos do cliente.</small></span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="desvio-card perda">
+        <div class="estagio-head">
+          <div class="nome">❌ Perda</div>
+          <div class="badges"><span class="badge b-manual">sem automação</span></div>
+          <div class="objetivo">Fim de linha do ciclo ativo — sem novas mensagens automáticas.</div>
+        </div>
+        <div class="estagio-body">
+          <p class="nota">Registrar o motivo da perda no lead ajuda a melhorar o funil. Um lead perdido pode ser reativado manualmente a qualquer momento.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- NUTRIÇÃO -->
+    <div class="desvios" style="grid-template-columns: 1fr;">
+      <div class="desvio-card nutricao">
+        <div class="estagio-head">
+          <div class="nome">🌱 Nutrição <span style="font-size:.72rem; color:var(--muted); font-weight:400;">(estacionamento inteligente)</span></div>
+          <div class="badges">
+            <span class="badge b-robo">🤖 IA reativa</span>
+            <span class="badge b-cadencia">📨 Cadência</span>
+          </div>
+          <div class="objetivo">Para onde vão os leads que silenciaram em Tentativa de Contato ou Qualificação. Mantém o relacionamento vivo, sem pressão.</div>
+        </div>
+        <div class="estagio-body">
+          <ul class="passos">
+            <li class="robo"><span class="quando">a cada ~20 dias</span><span class="oque">🤖 Conteúdo de valor <small>Dica, insight ou convite leve, personalizado pelo histórico — sem loop de cobrança.</small></span></li>
+          </ul>
+          <p class="nota"><b>✅ Se o lead responder aqui, volta automaticamente para Qualificação</b> — a conversa recomeça de onde parou, porque a IA lê todo o histórico.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- REGRAS DE PROTEÇÃO -->
+  <div class="regras">
+    <h2>Regras de proteção (valem para o funil inteiro)</h2>
+    <ul>
+      <li><b>Conversa viva tem prioridade:</b> nenhum follow-up automático é disparado se houve mensagem (do lead ou nossa) nos últimos 60 minutos — o passo é adiado, não perdido.</li>
+      <li><b>Responder interrompe o script:</b> quando o lead responde, o agente reativo assume e as automações de movimento (ex.: → Qualificação, → Fechamento) acontecem sozinhas.</li>
+      <li><b>Mudou de estágio, mudou de régua:</b> a cadência antiga é cancelada e a do novo estágio começa do zero. Arquivar o lead cancela tudo.</li>
+      <li><b>Anti-ban do WhatsApp:</b> envios automáticos saem espaçados com intervalo aleatório por empresa — no máximo um por ciclo — para proteger o número.</li>
+      <li><b>Memória completa:</b> a IA lê a conversa inteira do contato (não só do lead) e as anotações do CRM antes de escrever qualquer mensagem.</li>
+      <li><b>Remetente certo:</b> as mensagens sempre saem pelo WhatsApp do responsável do lead — o dono da relação.</li>
+    </ul>
+  </div>
+
+  <footer>
+    CRM DuoFuturo · Funil Escola Empreendedorismo · Documento gerado em 15/07/2026 a partir da configuração real dos estágios.<br>
+    Ícones no kanban: 🤖 = agente de IA reativo ativo no estágio · 🔔 = cadência de follow-up ativa.
+  </footer>
+
+</div>
+
+</body>
+</html>
