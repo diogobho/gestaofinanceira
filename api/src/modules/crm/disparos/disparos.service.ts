@@ -378,7 +378,7 @@ export const disparosService = {
     const baseWhere = `WHERE l.empresa_id = $1 AND l.funil_id = $2 AND l.arquivado = false
       AND l.telefone IS NOT NULL AND l.telefone != ''${whereExtra}`;
 
-    const [dataResult, countResult] = await Promise.all([
+    const [dataResult, countResult, agendadosResult] = await Promise.all([
       query(
         `SELECT
            l.id, l.nome, l.telefone, l.empresa,
@@ -393,11 +393,22 @@ export const disparosService = {
         params
       ),
       query(`SELECT COUNT(*) as total FROM leads l ${baseWhere}`, params),
+      // Leads já selecionados em disparos AGENDADOS pendentes (mesma lógica do preview) —
+      // marca na lista de seleção para o operador não repetir o contato.
+      query(
+        `SELECT jsonb_array_elements_text(
+                  COALESCE(configuracao_json->'lead_ids', '[]'::jsonb)
+                )::int AS lead_id
+         FROM disparos_crm
+         WHERE empresa_id = $1 AND status = 'agendado'`,
+        [empresaId]
+      ),
     ]);
 
+    const jaAgendados = new Set<number>(agendadosResult.rows.map((r: any) => r.lead_id));
     const total = parseInt(countResult.rows[0].total);
     return {
-      leads: dataResult.rows,
+      leads: dataResult.rows.map((l: any) => ({ ...l, ja_agendado: jaAgendados.has(l.id) })),
       total,
       paginas: Math.ceil(total / perPage) || 1,
     };

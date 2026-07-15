@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   X, Send, ChevronRight, ChevronLeft, AlertCircle, CheckCircle,
-  Loader2, MessageSquare, Users, Eye, Clock, Zap, Search, ArrowRight, Calendar
+  Loader2, MessageSquare, Users, Eye, Clock, Zap, Search, ArrowRight, Calendar, CalendarClock
 } from 'lucide-react'
 import api from '@/api/client'
 import { estagiosApi } from '@/api/crm'
@@ -16,6 +16,8 @@ interface LeadDisparo {
   empresa: string | null
   total_disparos?: number
   ultimo_estagio_disparo?: string | null
+  /** Já está na lista de um disparo PROGRAMADO pendente — sinalizado p/ não repetir */
+  ja_agendado?: boolean
 }
 
 interface DestinatarioPreview {
@@ -497,6 +499,14 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                     <span className="text-xs text-gray-400">{selectedIds.size} selecionados</span>
                   </div>
 
+                  {/* Aviso: leads que já estão em disparo programado pendente */}
+                  {leads.some(l => l.ja_agendado) && (
+                    <p className="text-xs text-violet-600 flex items-center gap-1">
+                      <CalendarClock size={11} className="shrink-0" />
+                      Leads com o selo "programado" já estão em um disparo agendado — selecione de novo só se quiser repetir.
+                    </p>
+                  )}
+
                   {/* Lista */}
                   <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
                     {leads.length === 0 && !loadingLeads && (
@@ -524,6 +534,15 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                         </div>
                         {lead.empresa && (
                           <span className="text-xs text-gray-400 truncate max-w-[80px]">{lead.empresa}</span>
+                        )}
+                        {lead.ja_agendado && (
+                          <span
+                            title="Este lead já está selecionado em um disparo programado (pendente)"
+                            className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-semibold bg-violet-100 text-violet-700"
+                          >
+                            <CalendarClock size={11} />
+                            programado
+                          </span>
                         )}
                         {(lead.total_disparos || 0) > 0 && (
                           <span
