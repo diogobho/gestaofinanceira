@@ -382,7 +382,7 @@ function ConfigurarAgente() {
 
       <>
           {/* Toggle ativo */}
-          <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border">
+          <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border" data-tour="agcfg-ativo">
             <div>
               <p className="font-medium text-gray-900">Agente ativo</p>
               <p className="text-xs text-gray-500 mt-0.5">Liga ou desliga o agente globalmente para toda a empresa</p>
@@ -396,7 +396,7 @@ function ConfigurarAgente() {
           </div>
 
           {/* Provedor */}
-          <div>
+          <div data-tour="agcfg-provider">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Provedor de IA</label>
             <div className="flex gap-2">
               {[
@@ -544,7 +544,7 @@ function ConfigurarAgente() {
           </div>
 
           {/* System prompt extra */}
-          <div>
+          <div data-tour="agcfg-instrucoes">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Instruções adicionais
               <span className="ml-1.5 text-xs font-normal text-gray-400">(system prompt)</span>
@@ -1383,6 +1383,7 @@ export const AgenteFinanceiro: React.FC = () => {
           <button
             key={tab.key}
             onClick={() => setAba(tab.key)}
+            data-tour={`agente-tab-${tab.key}`}
             className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
               aba === tab.key
                 ? 'border-primary-600 text-primary-600'

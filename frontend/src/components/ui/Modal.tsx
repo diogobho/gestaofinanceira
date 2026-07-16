@@ -45,6 +45,7 @@ export const Modal: React.FC<ModalProps> = ({
           {showCloseButton && (
             <button
               onClick={onClose}
+              data-tour="modal-fechar"
               className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors p-1"
             >
               <X size={20} className="sm:w-6 sm:h-6" />
@@ -53,7 +54,8 @@ export const Modal: React.FC<ModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1">{children}</div>
+        {/* data-tour: âncora universal p/ tutoriais destacarem o conteúdo do modal aberto */}
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1" data-tour="modal-conteudo">{children}</div>
       </div>
     </div>
   )

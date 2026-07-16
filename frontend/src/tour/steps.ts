@@ -390,17 +390,12 @@ export const clientesTour: Tour = {
   passos: [
     {
       titulo: '👥 Gestão de Clientes',
-      descricao: 'Aqui ficam todos os seus clientes cadastrados. Veja o que dá para fazer.',
+      descricao:
+        'Aqui ficam todos os seus clientes cadastrados — a base para receitas, sessões e ' +
+        'cobranças. Vamos abrir o cadastro de verdade, sem salvar nada.',
       rota: '/clientes',
       lado: 'over',
       alinhamento: 'center',
-    },
-    {
-      element: '[data-tour="clientes-novo"]',
-      titulo: 'Cadastrar cliente',
-      descricao: 'Adicione um novo cliente com nome, contato, documento e data de aniversário.',
-      rota: '/clientes',
-      lado: 'left',
     },
     {
       element: '[data-tour="clientes-lista"]',
@@ -410,6 +405,25 @@ export const clientesTour: Tour = {
       rota: '/clientes',
       lado: 'top',
       alinhamento: 'center',
+    },
+    {
+      element: '[data-tour="clientes-novo"]',
+      titulo: '👉 Clique em "Novo Cliente"',
+      descricao: 'Vamos abrir o formulário de cadastro para você conhecer os campos.',
+      rota: '/clientes',
+      lado: 'left',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="modal-conteudo"]',
+      titulo: 'Cadastro do cliente',
+      descricao:
+        'Nome, e-mail, telefone, documento e <b>aniversário</b> (usado em automações de ' +
+        'felicitação). Ao concluir, eu fecho sem salvar — este foi só o passeio. ✅',
+      rota: '/clientes',
+      lado: 'left',
+      semVoltar: true,
+      cliqueAoSair: '[data-tour="modal-fechar"]',
     },
   ],
 }
@@ -428,15 +442,6 @@ export const receitasTour: Tour = {
       alinhamento: 'center',
     },
     {
-      element: '[data-tour="receitas-nova"]',
-      titulo: 'Nova receita',
-      descricao:
-        'Registre uma receita à vista ou parcelada. Ao parcelar, o sistema cria as parcelas ' +
-        'automaticamente.',
-      rota: '/receitas',
-      lado: 'left',
-    },
-    {
       element: '[data-tour="receitas-filtros"]',
       titulo: 'Filtrar receitas',
       descricao:
@@ -444,6 +449,26 @@ export const receitasTour: Tour = {
         'Cada lançamento na lista abaixo pode ser editado ou removido.',
       rota: '/receitas',
       lado: 'top',
+    },
+    {
+      element: '[data-tour="receitas-nova"]',
+      titulo: '👉 Clique em "Nova Receita"',
+      descricao: 'Vamos abrir o lançamento para você conhecer os campos — sem salvar nada.',
+      rota: '/receitas',
+      lado: 'left',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="modal-conteudo"]',
+      titulo: 'Lançando uma receita',
+      descricao:
+        'Cliente, categoria, valor e a forma: <b>à vista</b> ou <b>parcelado</b> — ao parcelar, o ' +
+        'sistema cria as parcelas automaticamente (com os centavos certinhos) e elas aparecem na ' +
+        'tela de Parcelas. Ao concluir, eu fecho sem salvar. ✅',
+      rota: '/receitas',
+      lado: 'left',
+      semVoltar: true,
+      cliqueAoSair: '[data-tour="modal-fechar"]',
     },
   ],
 }
@@ -462,18 +487,11 @@ export const despesasTour: Tour = {
       alinhamento: 'center',
     },
     {
-      element: '[data-tour="despesas-nova"]',
-      titulo: 'Nova despesa',
-      descricao: 'Lance uma despesa à vista ou parcelada, com categoria e tipo de pagamento.',
-      rota: '/despesas',
-      lado: 'left',
-    },
-    {
       element: '[data-tour="despesas-banco"]',
       titulo: 'Conectar banco (Open Finance)',
       descricao:
-        'Conecte sua conta para importar despesas automaticamente. Em "Bancos conectados" você ' +
-        'gerencia as conexões.',
+        'Conecte sua conta para importar despesas automaticamente do extrato. Em "Bancos ' +
+        'conectados" você gerencia as conexões e força uma sincronização.',
       rota: '/despesas',
       lado: 'bottom',
     },
@@ -483,6 +501,25 @@ export const despesasTour: Tour = {
       descricao: 'Filtre por período, categoria e tipo de pagamento.',
       rota: '/despesas',
       lado: 'top',
+    },
+    {
+      element: '[data-tour="despesas-nova"]',
+      titulo: '👉 Clique em "Nova Despesa"',
+      descricao: 'Vamos abrir o lançamento para você conhecer os campos — sem salvar nada.',
+      rota: '/despesas',
+      lado: 'left',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="modal-conteudo"]',
+      titulo: 'Lançando uma despesa',
+      descricao:
+        'Descrição, categoria, valor e pagamento <b>à vista</b> ou <b>parcelado</b> (as parcelas ' +
+        'vão para a tela de Parcelas). Ao concluir, eu fecho sem salvar. ✅',
+      rota: '/despesas',
+      lado: 'left',
+      semVoltar: true,
+      cliqueAoSair: '[data-tour="modal-fechar"]',
     },
   ],
 }
@@ -519,10 +556,20 @@ export const parcelasTour: Tour = {
       element: '[data-tour="parcelas-cobranca"]',
       titulo: 'Cobrança em massa',
       descricao:
-        'Selecione parcelas e envie a cobrança por <b>e-mail</b> ou <b>WhatsApp</b>. Use o ' +
-        '"Preview do E-mail" para revisar antes de enviar.',
+        'Marque as parcelas na lista e envie a cobrança por <b>e-mail</b> ou <b>WhatsApp</b> de ' +
+        'uma vez. Use o "Preview do E-mail" para revisar antes de enviar.',
       rota: '/parcelas',
       lado: 'bottom',
+    },
+    {
+      titulo: 'Editar e dar baixa ✅',
+      descricao:
+        'Na lista, o lápis de cada parcela abre a edição: mude o vencimento, o valor ou marque ' +
+        'como <b>PAGO</b> informando a data de pagamento. Parcelas vencidas viram ATRASADO ' +
+        'automaticamente todo dia.',
+      rota: '/parcelas',
+      lado: 'over',
+      alinhamento: 'center',
     },
   ],
 }
@@ -549,10 +596,22 @@ export const sessoesTour: Tour = {
     },
     {
       element: '[data-tour="sessoes-nova"]',
-      titulo: 'Nova sessão',
-      descricao: 'Agende uma sessão online ou presencial, com cliente, data e horário.',
+      titulo: '👉 Clique em "Nova Sessão"',
+      descricao: 'Vamos abrir o agendamento para você conhecer os campos — sem salvar nada.',
       rota: '/sessoes',
       lado: 'left',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="modal-conteudo"]',
+      titulo: 'Agendando uma sessão',
+      descricao:
+        'Cliente, data, horário e formato (<b>online</b> com link ou <b>presencial</b> com ' +
+        'endereço). A sessão aparece no calendário e na lista. Ao concluir, eu fecho sem salvar. ✅',
+      rota: '/sessoes',
+      lado: 'left',
+      semVoltar: true,
+      cliqueAoSair: '[data-tour="modal-fechar"]',
     },
   ],
 }
@@ -580,24 +639,6 @@ export const crmCxTour: Tour = {
       lado: 'bottom',
     },
     {
-      element: '[data-tour="cx-contatos"]',
-      titulo: 'Contatos do WhatsApp',
-      descricao:
-        'Traga um contato do WhatsApp para o funil de pós-venda. Funciona igual ao CRM — o ' +
-        'tutorial do CRM / Funil mostra a ferramenta por dentro.',
-      rota: '/crm-cx',
-      lado: 'bottom',
-    },
-    {
-      element: '[data-tour="cx-disparar"]',
-      titulo: 'Disparo por WhatsApp',
-      descricao:
-        'Envie mensagens em massa para os clientes filtrados — com agendamento, variáveis e ' +
-        'intervalo anti-bloqueio (veja o passo a passo no tutorial do CRM / Funil).',
-      rota: '/crm-cx',
-      lado: 'bottom',
-    },
-    {
       element: '[data-tour="cx-email"]',
       titulo: 'Disparo por e-mail',
       descricao: 'Envie e-mails em massa para os clientes do pós-venda.',
@@ -614,10 +655,89 @@ export const crmCxTour: Tour = {
     {
       element: '[data-tour="cx-kanban"]',
       titulo: 'Mover entre estágios',
-      descricao: 'Arraste os cartões conforme o cliente avança no pós-venda.',
+      descricao:
+        'Arraste os cartões conforme o cliente avança no pós-venda. No topo de cada coluna: ' +
+        '🤖 = Agente IA reativo · 🔔 = cadência de follow-up ativa.',
       rota: '/crm-cx',
       lado: 'top',
       alinhamento: 'center',
+    },
+
+    // ── Contatos WhatsApp — interativo (mesmo modal do CRM) ──
+    {
+      element: '[data-tour="cx-contatos"]',
+      titulo: '👉 Clique em "Contatos"',
+      descricao:
+        'Traga uma conversa do WhatsApp para o pós-venda. <b>Clique para abrir</b> e eu mostro ' +
+        'por dentro.',
+      rota: '/crm-cx',
+      lado: 'bottom',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="cw-lista"]',
+      titulo: 'Adicionar ao Funil',
+      descricao:
+        'Use <b>Sincronizar</b> para trazer conversas novas e o botão <b>"Adicionar ao Funil"</b> ' +
+        'para transformar o contato em cliente do pós-venda. A aba <b>Grupos</b> importa ' +
+        'participantes de grupos. Vamos fechar e ver o disparo.',
+      rota: '/crm-cx',
+      lado: 'top',
+      alinhamento: 'center',
+      semVoltar: true,
+      cliqueAoSair: '[data-tour="cw-fechar"]',
+    },
+
+    // ── Disparo em massa — interativo (sem enviar nada) ──
+    {
+      element: '[data-tour="cx-disparar"]',
+      titulo: '👉 Clique em "Disparar"',
+      descricao:
+        'Mensagem em massa para os clientes filtrados. <b>Clique para abrir</b> — não vamos ' +
+        'enviar nada.',
+      rota: '/crm-cx',
+      lado: 'bottom',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="disp-modo"]',
+      titulo: 'Quem vai receber',
+      descricao:
+        '<b>Todos do funil</b> (usa os filtros) ou <b>Selecionar leads</b> um a um — quem já está ' +
+        'em outro disparo programado aparece com o selo "programado".',
+      rota: '/crm-cx',
+      lado: 'bottom',
+      semVoltar: true,
+    },
+    {
+      element: '[data-tour="disp-continuar"]',
+      titulo: '👉 Clique em "Continuar"',
+      descricao: 'Vamos para a etapa da mensagem.',
+      rota: '/crm-cx',
+      lado: 'top',
+      alinhamento: 'end',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="disp-mensagem"]',
+      titulo: 'A mensagem',
+      descricao:
+        'Escreva usando as variáveis ([PrimeiroNome]…), defina agendamento, estágio pós-envio ' +
+        'e intervalo anti-bloqueio — tudo igual ao CRM de vendas.',
+      rota: '/crm-cx',
+      lado: 'top',
+      semVoltar: true,
+    },
+    {
+      element: '[data-tour="disp-enviar"]',
+      titulo: 'O botão final — sem enviar! 🎉',
+      descricao:
+        'É este botão que dispara (ou agenda) de verdade. <b>Agora não vamos enviar</b> — ao ' +
+        'concluir, eu fecho a janela. Fim do tour do CX!',
+      rota: '/crm-cx',
+      lado: 'top',
+      alinhamento: 'end',
+      cliqueAoSair: '[data-tour="disp-fechar"]',
     },
   ],
 }
@@ -737,10 +857,72 @@ export const agenteTour: Tour = {
       titulo: 'Converse',
       descricao:
         'Faça perguntas como "resumo do mês" ou "parcelas a vencer". Use as sugestões rápidas ' +
-        'para começar.',
+        'para começar. Ela também sabe explicar o sistema e sugerir abordagens de venda.',
       rota: '/agente-sexta-feira',
       lado: 'top',
       alinhamento: 'center',
+    },
+
+    // ── Configurar Agente — interativo (só admin/master) ──
+    {
+      element: '[data-tour="agente-tab-configurar"]',
+      titulo: '👉 Clique em "Configurar Agente"',
+      descricao: 'Vamos conhecer as configurações do agente de IA que atende no WhatsApp.',
+      rota: '/agente-sexta-feira',
+      lado: 'bottom',
+      papeis: ['super_admin', 'admin_empresa'],
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="agcfg-ativo"]',
+      titulo: 'Liga/desliga geral',
+      descricao:
+        'Este interruptor liga ou desliga o agente para a empresa inteira. Depois, o controle ' +
+        'fino é por estágio (🤖 na coluna do funil) ou por lead.',
+      rota: '/agente-sexta-feira',
+      lado: 'bottom',
+      papeis: ['super_admin', 'admin_empresa'],
+      semVoltar: true,
+    },
+    {
+      element: '[data-tour="agcfg-provider"]',
+      titulo: 'Provedor e chaves de IA',
+      descricao:
+        'Escolha entre <b>Claude</b> e <b>Gemini</b> e informe a API key. A chave Gemini também ' +
+        'habilita a transcrição automática de áudios recebidos.',
+      rota: '/agente-sexta-feira',
+      lado: 'bottom',
+      papeis: ['super_admin', 'admin_empresa'],
+    },
+    {
+      element: '[data-tour="agcfg-instrucoes"]',
+      titulo: 'Instruções adicionais',
+      descricao:
+        'O coração do agente: personalidade, tom de voz, produtos, preços e regras de conversa. ' +
+        'Quanto mais específicas, mais o agente soa como a sua equipe.',
+      rota: '/agente-sexta-feira',
+      lado: 'top',
+      papeis: ['super_admin', 'admin_empresa'],
+    },
+    {
+      element: '[data-tour="agente-tab-como-funciona"]',
+      titulo: '👉 Clique em "Como Funciona"',
+      descricao: 'Para fechar, a documentação viva de como os agentes trabalham.',
+      rota: '/agente-sexta-feira',
+      lado: 'bottom',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="agente-conteudo"]',
+      titulo: 'Documentação dos agentes 🤖',
+      descricao:
+        'Arquitetura do agente reativo e dos follow-ups, o passo a passo de como montar o fluxo ' +
+        'de atendimento na visão Fluxo do CRM e as regras de proteção (anti-ban, conversa viva, ' +
+        'janela 08h–20h). Fim do tour!',
+      rota: '/agente-sexta-feira',
+      lado: 'top',
+      alinhamento: 'center',
+      semVoltar: true,
     },
   ],
 }
@@ -792,21 +974,33 @@ export const adminTour: Tour = {
       alinhamento: 'center',
     },
     {
-      element: '[data-tour="admin-novo"]',
-      titulo: 'Novo usuário',
-      descricao: 'Cadastre um novo membro da equipe com e-mail, senha e nível de acesso.',
-      rota: '/admin',
-      lado: 'left',
-    },
-    {
       element: '[data-tour="admin-lista"]',
       titulo: 'Usuários e permissões',
       descricao:
-        'Na coluna <b>Ações</b> você ajusta permissões, ativa/desativa, edita ou remove cada ' +
-        'usuário.',
+        'Na coluna <b>Ações</b> você ajusta permissões (o que cada um vê no menu), ativa/desativa, ' +
+        'edita ou remove cada usuário.',
       rota: '/admin',
       lado: 'top',
       alinhamento: 'center',
+    },
+    {
+      element: '[data-tour="admin-novo"]',
+      titulo: '👉 Clique em "Novo Usuário"',
+      descricao: 'Vamos abrir o cadastro para você conhecer os campos — sem salvar nada.',
+      rota: '/admin',
+      lado: 'left',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="modal-conteudo"]',
+      titulo: 'Cadastro de usuário',
+      descricao:
+        'Nome, e-mail, senha e o nível de acesso (master ou usuário comum). Depois de criar, ' +
+        'ajuste as permissões na lista. Ao concluir, eu fecho sem salvar. ✅',
+      rota: '/admin',
+      lado: 'left',
+      semVoltar: true,
+      cliqueAoSair: '[data-tour="modal-fechar"]',
     },
   ],
 }
