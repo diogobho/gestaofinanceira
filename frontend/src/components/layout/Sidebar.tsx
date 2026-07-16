@@ -13,7 +13,7 @@ import {
   MessageSquare, MessageSquareText,
   Kanban, KanbanSquare,
   BarChart3, ChartArea,
-  Sparkles, Wand2,
+  Sparkles, WandSparkles,
   Moon, Sun,
   Mail, MailOpen,
   CreditCard, Wallet,
@@ -38,7 +38,8 @@ const navigationItems = [
   { name: 'Parcelas',     href: '/parcelas',           icon: DollarSign,      iconHover: BadgeDollarSign,   permissao: 'parcelas',  tour: 'nav-parcelas'       },
   { name: 'Sessões',      href: '/sessoes',            icon: Calendar,        iconHover: CalendarCheck,     permissao: 'sessoes',   tour: 'nav-sessoes'        },
   { name: 'WhatsApp',     href: '/whatsapp',           icon: MessageSquare,   iconHover: MessageSquareText, permissao: 'whatsapp',  tour: 'nav-whatsapp'       },
-  { name: 'Agente IA',     href: '/agente-sexta-feira', icon: Sparkles,        iconHover: Wand2,             permissao: 'agente',    tour: 'nav-agente'         },
+  // Varinha mágica (fada-madrinha): no hover ela "lança o feitiço" e viram faíscas
+  { name: 'Agente IA',     href: '/agente-sexta-feira', icon: WandSparkles,    iconHover: Sparkles,          permissao: 'agente',    tour: 'nav-agente'         },
 ]
 
 interface SidebarProps {

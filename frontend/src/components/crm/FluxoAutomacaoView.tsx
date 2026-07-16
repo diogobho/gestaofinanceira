@@ -141,6 +141,11 @@ function FluxoAutomacaoView({
                     <span className="truncate font-semibold text-gray-800 dark:text-gray-100">{estagio.nome}</span>
                     {estagio.is_ganho && <Trophy className="h-4 w-4 shrink-0 text-emerald-500" />}
                     {estagio.is_perdido && <XCircle className="h-4 w-4 shrink-0 text-red-500" />}
+                    {estagio.agente_ia_ativo && (
+                      <span title="Agente de IA reativo ativo neste estágio" className="flex items-center shrink-0">
+                        <Bot className="h-4 w-4 text-emerald-500" />
+                      </span>
+                    )}
                   </div>
                   <button
                     onClick={() => abrirEditor(estagio, false)}

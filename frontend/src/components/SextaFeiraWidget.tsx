@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Sparkles, X, Send, Loader2, ExternalLink, Trash2 } from 'lucide-react'
+import { WandSparkles, X, Send, Loader2, ExternalLink, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { agenteApi } from '@/api/agente'
 import { useAuth } from '@/contexts/AuthContext'
@@ -94,7 +94,8 @@ export default function SextaFeiraWidget() {
           title="Sexta-feira — sua consultora IA"
           aria-label="Abrir Sexta-feira"
         >
-          <Sparkles className="w-6 h-6" />
+          {/* Varinha mágica (estilo fada-madrinha) com leve inclinação e "bibbidi" no hover */}
+          <WandSparkles className="w-6 h-6 -rotate-12 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110" />
           <span className="absolute right-16 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
             Sexta-feira
           </span>
@@ -108,7 +109,7 @@ export default function SextaFeiraWidget() {
           <div className="bg-gradient-to-r from-primary-600 to-primary-700 text-white p-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 bg-white/20 rounded-full flex items-center justify-center">
-                <Sparkles className="w-5 h-5" />
+                <WandSparkles className="w-5 h-5 -rotate-12" />
               </div>
               <div>
                 <h3 className="font-semibold leading-tight">Sexta-feira</h3>
@@ -148,7 +149,7 @@ export default function SextaFeiraWidget() {
             {mensagens.length === 0 && !loading ? (
               <div className="flex flex-col items-center justify-center h-full text-center gap-3 py-8">
                 <div className="w-14 h-14 bg-primary-100 dark:bg-primary-900/40 rounded-full flex items-center justify-center">
-                  <Sparkles className="w-7 h-7 text-primary-600 dark:text-primary-300" />
+                  <WandSparkles className="w-7 h-7 -rotate-12 text-primary-600 dark:text-primary-300" />
                 </div>
                 <div>
                   <p className="font-medium text-gray-800 dark:text-gray-100">

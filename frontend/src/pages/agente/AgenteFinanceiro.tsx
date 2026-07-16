@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import {
-  Send, Trash2, Bot, User, Loader2, Sparkles,
+  Send, Trash2, Bot, User, Loader2, WandSparkles,
   Key, Eye, EyeOff, Save, Cpu, Users, Info,
   Zap, GitBranch, Clock, Mic,
   Search, Edit2, List, FileText, BarChart2,
@@ -175,7 +175,7 @@ function AssistenteChat() {
         ) : mensagensLocais.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
             <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center">
-              <Sparkles className="w-8 h-8 text-primary-600" />
+              <WandSparkles className="w-8 h-8 -rotate-12 text-primary-600" />
             </div>
             <div>
               <h3 className="text-lg font-semibold text-gray-800">
