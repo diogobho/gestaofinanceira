@@ -99,7 +99,7 @@ export const authService = {
     email: string;
     senha: string;
     planoId: number;
-    billingType: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
+    billingType: 'PIX' | 'CREDIT_CARD' | 'BOLETO' | 'TRIAL';
     cpfCnpj?: string;
     aceiteIp?: string;
   }): Promise<{ token: string; user: any; paymentUrl?: string; pixQrCode?: string }> {
@@ -146,7 +146,9 @@ export const authService = {
 
       const asaasKey = process.env.ASAAS_API_KEY;
 
-      if (asaasKey) {
+      // TRIAL: 7 dias grátis sem cartão — pula o Asaas; a cobrança só entra se o
+      // cliente assinar depois (via Minha Conta). Também é o fallback sem Asaas.
+      if (asaasKey && data.billingType !== 'TRIAL') {
         // 3. Criar customer no Asaas
         let customer = await asaasService.findCustomerByEmail(data.email);
         if (!customer) {

@@ -31,7 +31,7 @@ export const authApi = {
     email: string;
     senha: string;
     plano_id: number;
-    billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
+    billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO' | 'TRIAL';
     cpf_cnpj?: string;
     aceite_termos: boolean;
   }): Promise<{ token: string; user: any; paymentUrl?: string; pixQrCode?: string }> => {

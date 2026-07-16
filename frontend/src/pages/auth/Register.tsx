@@ -19,7 +19,7 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 type Step = 'dados' | 'plano' | 'pagamento' | 'confirmacao'
-type BillingType = 'PIX' | 'CREDIT_CARD' | 'BOLETO'
+type BillingType = 'PIX' | 'CREDIT_CARD' | 'BOLETO' | 'TRIAL'
 
 const STEPS = [
   { id: 'dados', label: 'Dados', icon: User },
@@ -109,7 +109,8 @@ export const Register: React.FC = () => {
     setStep('pagamento')
   }
 
-  const handleRegistrar = async () => {
+  const handleRegistrar = async (tipoOverride?: BillingType) => {
+    const tipo = tipoOverride ?? billingType
     if (!selectedPlano) return
     if (!aceiteTermos) {
       toast.error('É necessário aceitar os Termos de Uso e a Política de Privacidade')
@@ -124,16 +125,17 @@ export const Register: React.FC = () => {
         email: form.email,
         senha: form.senha,
         plano_id: selectedPlano.id,
-        billing_type: billingType,
+        billing_type: tipo,
         cpf_cnpj: form.cpf_cnpj,
         aceite_termos: aceiteTermos,
       })
 
+      if (tipoOverride) setBillingType(tipoOverride)
       setPaymentUrl(result.paymentUrl)
       setPixQrCode(result.pixQrCode)
       setStep('confirmacao')
 
-      if (result.paymentUrl && billingType === 'CREDIT_CARD') {
+      if (result.paymentUrl && tipo === 'CREDIT_CARD') {
         setTimeout(() => window.open(result.paymentUrl, '_blank'), 600)
       }
     } catch (err: any) {
@@ -297,6 +299,33 @@ export const Register: React.FC = () => {
                 </div>
               </div>
 
+              {/* Trial 7 dias — caminho principal, sem cartão */}
+              <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">🎁</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-emerald-800">Testar grátis por 7 dias</p>
+                    <p className="text-xs text-emerald-700 mt-0.5 leading-relaxed">
+                      Acesso completo ao plano {selectedPlano.nome}, sem cartão de crédito e sem compromisso.
+                      Assine só se gostar — seus dados ficam guardados.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleRegistrar('TRIAL')}
+                  disabled={loading || !aceiteTermos}
+                  className="mt-3 w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                >
+                  {loading ? 'Criando sua conta...' : 'Começar meu teste grátis'}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex-1 border-t border-gray-200" />
+                <span className="text-xs text-gray-400">ou assine agora</span>
+                <div className="flex-1 border-t border-gray-200" />
+              </div>
+
               {/* Opções de pagamento */}
               <div className="space-y-2">
                 {PAYMENT_OPTIONS.map(opt => (
@@ -341,7 +370,7 @@ export const Register: React.FC = () => {
                 </span>
               </label>
 
-              <Button onClick={handleRegistrar} disabled={loading || !aceiteTermos} variant="primary" className="w-full">
+              <Button onClick={() => handleRegistrar()} disabled={loading || !aceiteTermos} variant="primary" className="w-full">
                 {loading
                   ? <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Criando sua conta...</>
                   : 'Criar minha conta'
@@ -363,7 +392,9 @@ export const Register: React.FC = () => {
               <div>
                 <h2 className="text-xl font-bold text-gray-800">Conta criada com sucesso!</h2>
                 <p className="text-sm text-gray-500 mt-1">
-                  {billingType === 'PIX'
+                  {billingType === 'TRIAL'
+                    ? 'Seus 7 dias de teste grátis já estão liberados — é só entrar e começar. 🎉'
+                    : billingType === 'PIX'
                     ? 'Use o código abaixo para pagar e liberar seu acesso.'
                     : billingType === 'BOLETO'
                     ? 'Acesse o boleto e efetue o pagamento para liberar seu acesso.'
@@ -408,11 +439,13 @@ export const Register: React.FC = () => {
 
               <div className="border-t border-gray-100 pt-4">
                 <p className="text-xs text-gray-400 mb-3">
-                  Após confirmar o pagamento, seu acesso é liberado automaticamente.
+                  {billingType === 'TRIAL'
+                    ? 'Ao final do teste, você escolhe se quer assinar — seus dados ficam guardados.'
+                    : 'Após confirmar o pagamento, seu acesso é liberado automaticamente.'}
                 </p>
                 <a href="/gestao/login"
                   className="text-sm text-primary-600 hover:text-primary-700 font-medium">
-                  Ir para o login →
+                  {billingType === 'TRIAL' ? 'Entrar e começar agora →' : 'Ir para o login →'}
                 </a>
               </div>
             </div>
