@@ -135,6 +135,12 @@ export const Register: React.FC = () => {
       setPixQrCode(result.pixQrCode)
       setStep('confirmacao')
 
+      // Analytics: conversão do funil (Umami — sem dados pessoais)
+      ;(window as any).umami?.track(
+        tipo === 'TRIAL' ? 'conta-criada-trial' : 'conta-criada-pagamento',
+        { plano: selectedPlano.nome, forma: tipo }
+      )
+
       if (result.paymentUrl && tipo === 'CREDIT_CARD') {
         setTimeout(() => window.open(result.paymentUrl, '_blank'), 600)
       }
