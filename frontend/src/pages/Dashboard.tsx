@@ -262,7 +262,7 @@ export const Dashboard: React.FC = () => {
 
       <div className="p-4 sm:p-6 space-y-6">
         {/* Big Numbers - Responsivos ao filtro */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6" data-tour="dash-kpis">
           <Card>
             <div className="flex items-center justify-between">
               <div className="flex-1">
@@ -410,6 +410,7 @@ export const Dashboard: React.FC = () => {
         </div>
 
         {/* Filtros por Período */}
+        <div data-tour="dash-periodo">
         <DateRangePresets
           dataInicio={dataIni}
           dataFim={dataFim}
@@ -425,6 +426,7 @@ export const Dashboard: React.FC = () => {
           label="Filtrar Período"
           referenceLabel="data de vencimento das parcelas"
         />
+        </div>
 
         {/* Cards de Métricas Filtradas - Receitas */}
         <div>
@@ -523,7 +525,7 @@ export const Dashboard: React.FC = () => {
         </div>
 
         {/* Gráficos */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" data-tour="dash-graficos">
           {/* Gráfico de Evolução Mensal */}
           <Card>
             <h3 className="text-lg font-semibold text-gray-900 mb-1">Evolução Mensal</h3>

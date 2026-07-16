@@ -26,7 +26,7 @@ const setSidebar = (open: boolean) => {
 const isMobile = () => window.innerWidth < 768
 
 /** Aguarda um elemento aparecer no DOM (até `timeout` ms). */
-function aguardarElemento(selector: string, timeout = 1500): Promise<Element | null> {
+function aguardarElemento(selector: string, timeout = 3000): Promise<Element | null> {
   return new Promise(resolve => {
     const existente = document.querySelector(selector)
     if (existente) return resolve(existente)
@@ -112,6 +112,8 @@ export const TourProvider: React.FC<{ children: React.ReactNode }> = ({ children
       tourAtualRef.current = tour
 
       const moverPara = async (indice: number) => {
+        // Tour pode ter sido fechado enquanto um clique interativo estava pendente
+        if (!driverRef.current) return
         const passo = passos[indice]
         if (!passo) return
         await prepararPasso(passo)
@@ -136,9 +138,39 @@ export const TourProvider: React.FC<{ children: React.ReactNode }> = ({ children
             description: p.descricao,
             side: p.lado ?? 'bottom',
             align: p.alinhamento ?? 'start',
+            // Passos interativos escondem o "Próximo" (o avanço é o clique no
+            // elemento); semVoltar esconde o "Anterior" (ex.: dentro de modal).
+            showButtons: p.avancarAoClicar
+              ? (['close'] as ('next' | 'previous' | 'close')[])
+              : p.semVoltar
+                ? (['next', 'close'] as ('next' | 'previous' | 'close')[])
+                : undefined,
           },
         })),
+        onHighlighted: (el, _step, { state }) => {
+          // Passo interativo: o clique real no elemento destacado avança o tour.
+          const passo = passos[state.activeIndex ?? 0]
+          if (!passo?.avancarAoClicar || !el) return
+          const idx = state.activeIndex ?? 0
+          el.addEventListener(
+            'click',
+            () => {
+              // Pequena espera para o modal/conteúdo abrir antes do próximo destaque
+              setTimeout(() => {
+                const proximo = idx + 1
+                if (proximo >= passos.length) d.destroy()
+                else void moverPara(proximo)
+              }, 400)
+            },
+            { once: true },
+          )
+        },
         onNextClick: (_el, _step, { state }) => {
+          const atual = passos[state.activeIndex ?? 0]
+          // Fecha o que este passo deixou aberto (ex.: modal) antes de seguir
+          if (atual?.cliqueAoSair) {
+            (document.querySelector(atual.cliqueAoSair) as HTMLElement | null)?.click()
+          }
           const proximo = (state.activeIndex ?? 0) + 1
           if (proximo >= passos.length) {
             d.destroy()

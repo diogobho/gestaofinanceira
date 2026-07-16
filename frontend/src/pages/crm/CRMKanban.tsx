@@ -243,7 +243,7 @@ export default function CRMKanban() {
             </div>
 
             {/* Toggle Kanban / Lista / Fluxo */}
-            <div className="shrink-0 flex items-center border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
+            <div data-tour="crm-visoes" className="shrink-0 flex items-center border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
               <button
                 onClick={() => setViewMode('kanban')}
                 className={`flex items-center gap-1 px-2.5 py-1.5 text-sm transition-colors ${

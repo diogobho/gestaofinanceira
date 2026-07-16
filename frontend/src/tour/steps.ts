@@ -43,7 +43,8 @@ export const welcomeTour: Tour = {
       titulo: 'CRM / Funil de vendas',
       descricao:
         'Gerencie seus leads num quadro Kanban: cadastre, importe, mova por estágios e dispare ' +
-        'mensagens em massa por WhatsApp ou e-mail. O <b>CRM CX</b> cuida do pós-venda.',
+        'mensagens em massa por WhatsApp ou e-mail. Na visão <b>Fluxo</b> você monta as cadências ' +
+        'de follow-up automático de cada estágio. O <b>CRM CX</b> cuida do pós-venda.',
       lado: 'right',
       permissao: 'crm',
       requerSidebar: true,
@@ -105,7 +106,7 @@ export const welcomeTour: Tour = {
   ],
 }
 
-/** Tour da tela de CRM / Funil de vendas. */
+/** Tour da tela de CRM / Funil de vendas — com passos interativos (modais). */
 export const crmTour: Tour = {
   id: 'crm',
   nome: 'Tutorial: CRM / Funil',
@@ -114,8 +115,8 @@ export const crmTour: Tour = {
     {
       titulo: '📊 Seu funil de vendas',
       descricao:
-        'Cada coluna é um <b>estágio</b> e cada cartão é um <b>lead</b>. Vou mostrar rapidamente ' +
-        'tudo que você pode fazer por aqui.',
+        'Cada coluna é um <b>estágio</b> e cada cartão é um <b>lead</b>. Vou te mostrar tudo que ' +
+        'dá para fazer por aqui — incluindo abrir as ferramentas de verdade, sem enviar nada.',
       rota: '/crm',
       lado: 'over',
       alinhamento: 'center',
@@ -130,18 +131,50 @@ export const crmTour: Tour = {
     {
       element: '[data-tour="crm-filtros"]',
       titulo: 'Filtrar',
-      descricao: 'Filtre os leads por responsável, estágio, origem e mais.',
+      descricao:
+        'Filtre por responsável, estágio, temperatura, origem e tarefas. Os filtros também definem ' +
+        'quem entra nos <b>disparos em massa</b>.',
       rota: '/crm',
       lado: 'bottom',
     },
     {
-      element: '[data-tour="crm-contatos"]',
-      titulo: 'Adicionar lead do WhatsApp',
+      element: '[data-tour="crm-visoes"]',
+      titulo: 'Três formas de ver o funil',
       descricao:
-        'Abre seus <b>Contatos do WhatsApp</b> para transformar uma conversa em lead no funil — ' +
-        'sem digitar nada.',
+        '<b>Kanban</b> (colunas para arrastar), <b>Lista</b> (tabela) e <b>Fluxo</b> — onde você ' +
+        'monta a operação de atendimento: cadência de follow-ups de cada estágio (+1d, +3d…), ' +
+        'mensagens fixas ou do Agente IA e as automações de movimento.',
       rota: '/crm',
       lado: 'bottom',
+    },
+    {
+      element: '[data-tour="crm-novo-lead"]',
+      titulo: 'Criar um lead',
+      descricao:
+        'Cadastre um lead manualmente. O mesmo lead pode existir em funis diferentes, mas não ' +
+        'duplicado no mesmo funil.',
+      rota: '/crm',
+      lado: 'bottom',
+    },
+    {
+      element: '[data-tour="crm-kanban"]',
+      titulo: 'Mover entre estágios',
+      descricao:
+        'Arraste os cartões entre as colunas para avançar o lead. Clique num cartão para ver ' +
+        'detalhes, conversa do WhatsApp, anotações e tarefas. No topo de cada coluna: ' +
+        '🤖 = Agente IA reativo ativo · 🔔 = cadência de follow-up ativa.',
+      rota: '/crm',
+      lado: 'top',
+      alinhamento: 'center',
+    },
+    {
+      element: '[data-tour="crm-config"]',
+      titulo: 'Configurar estágios',
+      descricao:
+        'Crie, renomeie e reordene os estágios. Nos 3 pontinhos de cada coluna você configura ' +
+        'cadência, Agente IA, automações e lembretes de reunião.',
+      rota: '/crm',
+      lado: 'left',
     },
     {
       element: '[data-tour="crm-importar"]',
@@ -151,46 +184,200 @@ export const crmTour: Tour = {
       lado: 'bottom',
     },
     {
-      element: '[data-tour="crm-disparar"]',
-      titulo: 'Disparo por WhatsApp',
-      descricao:
-        'Envie uma mensagem em massa por WhatsApp para os leads filtrados. O número ao lado mostra ' +
-        'quantos leads receberão.',
-      rota: '/crm',
-      lado: 'bottom',
-    },
-    {
       element: '[data-tour="crm-email"]',
       titulo: 'Disparo por e-mail',
-      descricao: 'Mesma ideia do disparo de WhatsApp, mas por e-mail.',
+      descricao: 'Envie e-mails em massa para os leads filtrados (requer Config. de E-mail ativa).',
+      rota: '/crm',
+      lado: 'bottom',
+    },
+
+    // ── Contatos WhatsApp — interativo ──
+    {
+      element: '[data-tour="crm-contatos"]',
+      titulo: '👉 Clique em "Contatos"',
+      descricao:
+        'Aqui vivem as suas conversas do WhatsApp que ainda não viraram lead. ' +
+        '<b>Clique no botão</b> para abrir e eu te mostro por dentro.',
+      rota: '/crm',
+      lado: 'bottom',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="cw-abas"]',
+      titulo: 'Contatos e Grupos',
+      descricao:
+        'Na aba <b>Contatos</b> ficam as conversas individuais; em <b>Grupos</b> você importa ' +
+        'participantes de um grupo do WhatsApp direto para o funil.',
+      rota: '/crm',
+      lado: 'bottom',
+      semVoltar: true,
+    },
+    {
+      element: '[data-tour="cw-sync"]',
+      titulo: 'Sincronizar',
+      descricao:
+        'Traz as conversas mais recentes do seu WhatsApp para esta lista. Use a busca ao lado ' +
+        'para encontrar alguém específico.',
       rota: '/crm',
       lado: 'bottom',
     },
     {
-      element: '[data-tour="crm-novo-lead"]',
-      titulo: 'Criar um lead',
+      element: '[data-tour="cw-lista"]',
+      titulo: 'Adicionar ao Funil',
       descricao:
-        'Cadastre um lead manualmente. Lembrando: o mesmo lead pode existir em funis diferentes, ' +
-        'mas não duplicado no mesmo funil.',
-      rota: '/crm',
-      lado: 'bottom',
-    },
-    {
-      element: '[data-tour="crm-kanban"]',
-      titulo: 'Mover entre estágios',
-      descricao:
-        'Arraste os cartões entre as colunas para avançar o lead no funil. Clique num cartão para ' +
-        'ver detalhes, anotações e tarefas.',
+        'Cada contato tem o botão <b>"Adicionar ao Funil"</b>: escolha estágio e responsável e a ' +
+        'conversa vira um lead — sem digitar nada. Vamos fechar e conhecer o disparo em massa.',
       rota: '/crm',
       lado: 'top',
       alinhamento: 'center',
+      cliqueAoSair: '[data-tour="cw-fechar"]',
+    },
+
+    // ── Disparo em massa — interativo (sem enviar nada) ──
+    {
+      element: '[data-tour="crm-disparar"]',
+      titulo: '👉 Clique em "Disparar"',
+      descricao:
+        'O disparo em massa envia uma mensagem de WhatsApp para vários leads de uma vez. ' +
+        'O número no botão mostra quantos entram com os filtros atuais. <b>Clique para abrir</b> — ' +
+        'não se preocupe, não vamos enviar nada.',
+      rota: '/crm',
+      lado: 'bottom',
+      avancarAoClicar: true,
     },
     {
-      element: '[data-tour="crm-config"]',
-      titulo: 'Configurar estágios',
-      descricao: 'Crie, renomeie e reordene os estágios do funil conforme o seu processo de vendas.',
+      element: '[data-tour="disp-modo"]',
+      titulo: 'Quem vai receber',
+      descricao:
+        '<b>Todos do funil</b> usa os filtros (estágio, responsável, temperatura…). ' +
+        '<b>Selecionar leads</b> deixa você marcar um por um — quem já estiver em outro disparo ' +
+        'programado aparece com o selo <b>"programado"</b>, para não repetir.',
       rota: '/crm',
-      lado: 'left',
+      lado: 'bottom',
+      semVoltar: true,
+    },
+    {
+      element: '[data-tour="disp-continuar"]',
+      titulo: '👉 Clique em "Continuar"',
+      descricao: 'Definidos os destinatários, vamos para a etapa da mensagem.',
+      rota: '/crm',
+      lado: 'top',
+      alinhamento: 'end',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="disp-automacao"]',
+      titulo: 'Mover após o envio',
+      descricao:
+        'Opcional: quem receber a mensagem é movido automaticamente para o estágio que você ' +
+        'escolher (ex.: "Aguardando resposta").',
+      rota: '/crm',
+      lado: 'bottom',
+      semVoltar: true,
+    },
+    {
+      element: '[data-tour="disp-agendar"]',
+      titulo: 'Agendar para depois',
+      descricao:
+        'Marque para programar o disparo (ex.: amanhã às 9h). Os disparos programados ficam na ' +
+        'aba <b>Agendamentos</b>, onde dá para editar ou cancelar.',
+      rota: '/crm',
+      lado: 'bottom',
+    },
+    {
+      element: '[data-tour="disp-intervalo"]',
+      titulo: 'Intervalo anti-bloqueio',
+      descricao:
+        'O sistema espera um tempo aleatório entre um envio e o próximo. Intervalos maiores ' +
+        'protegem seu número do WhatsApp.',
+      rota: '/crm',
+      lado: 'top',
+    },
+    {
+      element: '[data-tour="disp-preview"]',
+      titulo: 'Revisar contatos',
+      descricao:
+        'Antes de enviar, revise exatamente quem vai receber — contatos já em outro disparo ' +
+        'programado vêm destacados.',
+      rota: '/crm',
+      lado: 'top',
+    },
+    {
+      element: '[data-tour="disp-variaveis"]',
+      titulo: 'Personalize com variáveis',
+      descricao:
+        'Clique numa variável para inseri-la: <b>[PrimeiroNome]</b>, [Nome], [Empresa]… ' +
+        'Mensagens personalizadas convertem mais e reduzem risco de bloqueio.',
+      rota: '/crm',
+      lado: 'bottom',
+    },
+    {
+      element: '[data-tour="disp-mensagem"]',
+      titulo: 'Escreva a mensagem',
+      descricao:
+        'Digite o texto (com negrito/itálico do WhatsApp, se quiser). O preview abaixo mostra ' +
+        'como o primeiro lead vai receber.',
+      rota: '/crm',
+      lado: 'top',
+    },
+    {
+      element: '[data-tour="disp-enviar"]',
+      titulo: 'O botão final — por hoje é só! 🎉',
+      descricao:
+        'Quando estiver tudo pronto de verdade, é este botão que dispara (ou agenda). ' +
+        '<b>Agora NÃO vamos enviar</b> — ao concluir, eu fecho a janela para você. ' +
+        'Fim do tour do CRM!',
+      rota: '/crm',
+      lado: 'top',
+      alinhamento: 'end',
+      cliqueAoSair: '[data-tour="disp-fechar"]',
+    },
+  ],
+}
+
+/** Tour do Dashboard financeiro. */
+export const dashboardTour: Tour = {
+  id: 'dashboard',
+  nome: 'Tutorial: Dashboard',
+  iniciarNaRota: '/dashboard',
+  passos: [
+    {
+      titulo: '📊 Dashboard Financeiro',
+      descricao: 'A saúde do negócio num relance: faturamento, despesas, lucro e evolução.',
+      rota: '/dashboard',
+      lado: 'over',
+      alinhamento: 'center',
+      permissao: 'dashboard',
+    },
+    {
+      element: '[data-tour="dash-kpis"]',
+      titulo: 'Números principais',
+      descricao:
+        'Faturamento, despesas e lucro do período — separando o que já foi <b>realizado</b> ' +
+        'do que está <b>previsto</b> (a receber / a pagar).',
+      rota: '/dashboard',
+      lado: 'bottom',
+      alinhamento: 'center',
+      permissao: 'dashboard',
+    },
+    {
+      element: '[data-tour="dash-periodo"]',
+      titulo: 'Filtrar período',
+      descricao:
+        'Use os atalhos (Hoje, 7 dias, 30 dias, Este mês) ou escolha datas. Tudo abaixo do filtro ' +
+        'recalcula pela <b>data de vencimento das parcelas</b>.',
+      rota: '/dashboard',
+      lado: 'bottom',
+      permissao: 'dashboard',
+    },
+    {
+      element: '[data-tour="dash-graficos"]',
+      titulo: 'Gráficos de evolução',
+      descricao: 'Receitas × despesas mês a mês e a distribuição por categoria.',
+      rota: '/dashboard',
+      lado: 'top',
+      alinhamento: 'center',
+      permissao: 'dashboard',
     },
   ],
 }
@@ -395,14 +582,18 @@ export const crmCxTour: Tour = {
     {
       element: '[data-tour="cx-contatos"]',
       titulo: 'Contatos do WhatsApp',
-      descricao: 'Traga um contato do WhatsApp para o funil de pós-venda.',
+      descricao:
+        'Traga um contato do WhatsApp para o funil de pós-venda. Funciona igual ao CRM — o ' +
+        'tutorial do CRM / Funil mostra a ferramenta por dentro.',
       rota: '/crm-cx',
       lado: 'bottom',
     },
     {
       element: '[data-tour="cx-disparar"]',
       titulo: 'Disparo por WhatsApp',
-      descricao: 'Envie mensagens em massa por WhatsApp para os clientes filtrados.',
+      descricao:
+        'Envie mensagens em massa para os clientes filtrados — com agendamento, variáveis e ' +
+        'intervalo anti-bloqueio (veja o passo a passo no tutorial do CRM / Funil).',
       rota: '/crm-cx',
       lado: 'bottom',
     },
@@ -535,8 +726,8 @@ export const agenteTour: Tour = {
       element: '[data-tour="agente-abas"]',
       titulo: 'As abas',
       descricao:
-        '<b>Sexta-feira</b> (chat) · <b>Configurar Agente</b> (personalidade e acesso) · ' +
-        '<b>Como Funciona</b> (capacidades).',
+        '<b>Sexta-feira</b> (chat) · <b>Configurar Agente</b> (provedor de IA, personalidade, ' +
+        'instruções e delay) · <b>Como Funciona</b> (arquitetura, follow-ups e guards).',
       rota: '/agente-sexta-feira',
       lado: 'bottom',
       alinhamento: 'start',
@@ -691,6 +882,7 @@ export const minhaContaTour: Tour = {
 /** Registro de todos os tours disponíveis no app. */
 export const tours: Tour[] = [
   welcomeTour,
+  dashboardTour,
   crmTour,
   crmCxTour,
   crmDashboardTour,

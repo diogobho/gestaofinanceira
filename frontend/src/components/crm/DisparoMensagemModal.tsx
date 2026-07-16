@@ -355,7 +355,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
               </p>
             </div>
           </div>
-          <button onClick={handleClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
+          <button onClick={handleClose} data-tour="disp-fechar" className="p-1.5 hover:bg-gray-100 rounded-lg">
             <X size={20} className="text-gray-500" />
           </button>
         </div>
@@ -394,7 +394,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
           {step === 'destinatarios' && (
             <div className="space-y-4">
               {/* Modo tabs */}
-              <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl">
+              <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl" data-tour="disp-modo">
                 <button
                   onClick={() => setModo('todos')}
                   className={`py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
@@ -585,7 +585,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
           {step === 'mensagem' && (
             <div className="space-y-4">
               {/* Automação pós-disparo */}
-              <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
+              <div className="border rounded-lg p-3 space-y-2 bg-gray-50" data-tour="disp-automacao">
                 <div className="flex items-center gap-2">
                   <ArrowRight size={15} className="text-primary-500" />
                   <label className="text-sm font-medium text-gray-700">Após o envio, mover lead para</label>
@@ -609,7 +609,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
               </div>
 
               {/* Agendamento */}
-              <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
+              <div className="border rounded-lg p-3 space-y-2 bg-gray-50" data-tour="disp-agendar">
                 <div
                   className="flex items-center gap-2 cursor-pointer"
                   onClick={() => setAgendar(prev => !prev)}
@@ -637,7 +637,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
               </div>
 
               {/* Intervalo anti-ban entre envios */}
-              <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
+              <div className="border rounded-lg p-3 space-y-2 bg-gray-50" data-tour="disp-intervalo">
                 <div className="flex items-center gap-2">
                   <Clock size={15} className="text-primary-500" />
                   <label className="text-sm font-medium text-gray-700">Intervalo entre envios</label>
@@ -664,7 +664,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
               </div>
 
               {/* Pré-visualização dos destinatários */}
-              <div className="border rounded-lg p-3 space-y-2">
+              <div className="border rounded-lg p-3 space-y-2" data-tour="disp-preview">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Users size={15} className="text-primary-500" />
@@ -736,7 +736,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                   </span>
                 </div>
               )}
-              <div>
+              <div data-tour="disp-variaveis">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                   Inserir variável
                 </p>
@@ -754,7 +754,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                 </div>
               </div>
 
-              <div>
+              <div data-tour="disp-mensagem">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-sm font-medium text-gray-700">
                     Mensagem <span className="text-red-500">*</span>
@@ -930,6 +930,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
               <button
                 onClick={() => setStep('mensagem')}
                 disabled={totalSelecionados === 0}
+                data-tour="disp-continuar"
                 className="flex items-center gap-2 px-5 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 text-sm font-medium"
               >
                 Continuar
@@ -955,6 +956,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                 <button
                   onClick={handleDisparar}
                   disabled={!template.trim() || loading || totalSelecionados === 0 || (agendar && !agendadoPara)}
+                  data-tour="disp-enviar"
                   className="flex items-center gap-2 px-5 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 text-sm font-medium"
                 >
                   {loading ? <Loader2 size={16} className="animate-spin" /> : (agendar ? <Calendar size={16} /> : <Zap size={16} />)}
