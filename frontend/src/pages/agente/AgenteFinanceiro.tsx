@@ -823,28 +823,28 @@ function ComoFunciona() {
                 <td className="px-4 py-2.5 text-gray-600">Msg WA chega → BullMQ</td>
                 <td className="px-4 py-2.5 text-gray-600">17 (CRM + Financeiro)</td>
                 <td className="px-4 py-2.5 text-gray-600">historico_mensagens + anotações + tags</td>
-                <td className="px-4 py-2.5"><span className="text-green-600 font-medium">Sim</span> (máx 10 iter + 2min)</td>
+                <td className="px-4 py-2.5"><span className="text-green-600 dark:text-green-400 font-medium">Sim</span> (máx 10 iter + 2min)</td>
               </tr>
               <tr className="hover:bg-gray-50/50">
-                <td className="px-4 py-2.5"><span className="font-semibold text-orange-700">Follow-up IA</span></td>
+                <td className="px-4 py-2.5"><span className="font-semibold text-orange-700 dark:text-orange-300">Follow-up IA</span></td>
                 <td className="px-4 py-2.5 text-gray-600">Cron 1min (instância 0)</td>
                 <td className="px-4 py-2.5 text-gray-600">Nenhuma (1 chamada)</td>
                 <td className="px-4 py-2.5 text-gray-600">historico_mensagens + anotações + tags</td>
                 <td className="px-4 py-2.5"><span className="text-gray-400">Não</span></td>
               </tr>
               <tr className="hover:bg-gray-50/50">
-                <td className="px-4 py-2.5"><span className="font-semibold text-blue-700">Follow-up Manual</span></td>
+                <td className="px-4 py-2.5"><span className="font-semibold text-blue-700 dark:text-blue-300">Follow-up Manual</span></td>
                 <td className="px-4 py-2.5 text-gray-600">Cron 1min (instância 0)</td>
                 <td className="px-4 py-2.5 text-gray-600">—</td>
                 <td className="px-4 py-2.5 text-gray-600">Mensagem pré-definida</td>
                 <td className="px-4 py-2.5"><span className="text-gray-400">Não</span></td>
               </tr>
               <tr className="hover:bg-gray-50/50">
-                <td className="px-4 py-2.5"><span className="font-semibold text-teal-700">Sexta-feira</span></td>
+                <td className="px-4 py-2.5"><span className="font-semibold text-teal-700 dark:text-teal-300">Sexta-feira</span></td>
                 <td className="px-4 py-2.5 text-gray-600">HTTP POST (chat web)</td>
                 <td className="px-4 py-2.5 text-gray-600">10 Financeiro + 1 admin</td>
                 <td className="px-4 py-2.5 text-gray-600">chat_financeiro_historico</td>
-                <td className="px-4 py-2.5"><span className="text-green-600 font-medium">Sim</span> (máx 10 iter + 2min)</td>
+                <td className="px-4 py-2.5"><span className="text-green-600 dark:text-green-400 font-medium">Sim</span> (máx 10 iter + 2min)</td>
               </tr>
             </tbody>
           </table>
@@ -1086,13 +1086,37 @@ function ComoFunciona() {
         </div>
         <p className="text-xs text-gray-500 mb-3 leading-relaxed">
           O scheduler roda a cada minuto <strong>exclusivamente na instância 0</strong> do cluster PM2 — eliminando envios duplicados em ambiente de 3 instâncias.
-          Respeita data agendada, janela de horário (<code className="text-xs font-mono bg-gray-100 px-1 rounded">hora_inicio / hora_fim</code>) e dias da semana configurados.
-          Fora da janela, o registro permanece <code className="text-xs font-mono bg-gray-100 px-1 rounded">pendente</code> e é tentado novamente no próximo ciclo.
-          Tipo <strong>Manual</strong> envia mensagem pré-definida; tipo <strong>Agente IA</strong> lê o histórico real
-          de WhatsApp (<code className="text-xs font-mono bg-gray-100 px-1 rounded">historico_mensagens</code>), as anotações do CRM, as tags e a
-          data atual para formular uma mensagem personalizada por lead. Após o envio, uma
-          anotação é criada automaticamente no lead para rastreabilidade no CRM.
+          Respeita data agendada, horário exato e dias da semana configurados; fora da janela o registro
+          permanece <code className="text-xs font-mono bg-gray-100 px-1 rounded">pendente</code> e é tentado no próximo ciclo.
+          Passo tipo <strong>Manual</strong> envia mensagem pré-definida (com variáveis como [PrimeiroNome] e anexo de mídia);
+          passo tipo <strong>Agente IA</strong> lê a <strong>conversa completa do contato</strong> no WhatsApp
+          (<code className="text-xs font-mono bg-gray-100 px-1 rounded">historico_mensagens</code>), as anotações do CRM, as tags e a
+          data atual para escrever uma mensagem personalizada — sem repetir perguntas já respondidas. Após o envio, uma
+          anotação é criada automaticamente no lead para rastreabilidade.
         </p>
+
+        {/* Como montar o fluxo de atendimento (cadência por estágio) */}
+        <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 leading-relaxed">
+          <p className="font-semibold mb-1">🧭 Montando o fluxo de atendimento — visão "Fluxo" do CRM</p>
+          <p>
+            Em <strong>CRM / Funil → botão "Fluxo"</strong> você enxerga e edita a operação inteira: cada estágio vira um
+            card com a sua <strong>cadência de passos</strong> (ex.: <code className="font-mono bg-emerald-100 px-1 rounded">+2d</code>, <code className="font-mono bg-emerald-100 px-1 rounded">+3d</code>, <code className="font-mono bg-emerald-100 px-1 rounded">+6d</code>),
+            contados da <em>entrada do lead no estágio</em> ou do <em>passo anterior</em>. Cada passo pode ser
+            <strong> WhatsApp manual</strong> (script fixo) ou <strong>Agente IA</strong> (instrução do que buscar naquele toque).
+          </p>
+          <p className="mt-1">
+            As setas embaixo do card mostram as automações de movimento: <strong>"Ao responder →"</strong> (qualquer resposta
+            do lead move para o próximo estágio e encerra a cadência atual) e <strong>"Após a cadência →"</strong> (terminou os passos
+            sem resposta, o último passo move o lead — ex.: para Nutrição). Mover de estágio sempre encerra a régua antiga e
+            inicia a do estágio novo.
+          </p>
+          <p className="mt-1">
+            Ícones no cabeçalho do estágio (kanban e fluxo): <strong>🤖 robô</strong> = agente de IA reativo ativo
+            (responde as mensagens recebidas na hora, ciente do passo atual da cadência) · <strong>🔔 sino</strong> = cadência
+            de follow-up ativa · o estágio <em>Reunião Agendada</em> ainda tem lembretes automáticos (−24h/−1h) e régua de no-show.
+          </p>
+        </div>
+
         {/* Distinção: manual vs estágio */}
         <div className="mb-3 rounded-xl border border-orange-100 bg-orange-50 p-3 text-xs text-orange-800 leading-relaxed">
           <p className="font-semibold mb-1">⚡ Follow-up Individual vs Follow-up de Estágio</p>
@@ -1102,8 +1126,9 @@ function ComoFunciona() {
             um <em>override explícito</em> <code className="font-mono bg-orange-100 px-1 rounded">leads.agente_ia_ativo = false</code> no lead.
           </p>
           <p className="mt-1">
-            <strong>Origem <code className="font-mono bg-orange-100 px-1 rounded">estagio</code></strong> (criado automaticamente pela configuração do estágio):
-            cancela se o agente não estiver ativo por nenhuma fonte (estágio ou lead).
+            <strong>Origem <code className="font-mono bg-orange-100 px-1 rounded">estagio</code></strong> (criado automaticamente pela cadência do estágio):
+            cancela se o agente não estiver ativo por nenhuma fonte (estágio ou lead), se o lead for arquivado
+            ou quando ele muda de estágio (a cadência nova assume).
           </p>
         </div>
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -1266,8 +1291,8 @@ function ComoFunciona() {
           <div>
             <p className="text-xs font-semibold text-amber-800">Contexto unificado — fonte única de verdade</p>
             <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
-              Agente reativo e follow-up IA leem da <strong>mesma fonte</strong>: <code className="font-mono bg-amber-100 px-1 rounded">historico_mensagens</code> — o histórico
-              real do WhatsApp, incluindo conversas anteriores à ativação do agente. Junto vão as
+              Agente reativo e follow-up IA leem da <strong>mesma fonte</strong>: <code className="font-mono bg-amber-100 px-1 rounded">historico_mensagens</code> — a conversa
+              completa do <strong>contato</strong> no WhatsApp (mesmo que ele tenha leads em mais de um funil), incluindo mensagens anteriores à ativação do agente. Junto vão as
               últimas <strong>20 anotações</strong> do CRM, as <strong>tags</strong> do lead, o nome do responsável atual e
               a <strong>data de hoje</strong> (fuso America/São_Paulo) — garantindo que o agente saiba calcular prazos,
               dizer "amanhã" ou "essa semana" com precisão.
@@ -1296,9 +1321,11 @@ function ComoFunciona() {
           <div>
             <p className="text-xs font-semibold text-orange-800">Guards do follow-up agendado</p>
             <ul className="text-xs text-orange-700 mt-1 space-y-0.5 leading-relaxed">
-              <li>🔸 <strong>Janela de horário</strong> — fora da janela, deixa pendente e tenta no próximo minuto</li>
-              <li>🔸 <strong>Anti-duplicação 60min</strong> — se houve envio nos últimos 60min, adia (não falha)</li>
-              <li>🔸 <strong>Override de lead</strong> — cancela se <code className="font-mono bg-orange-100 px-0.5 rounded">agente_ia_ativo = false</code> no lead</li>
+              <li>🔸 <strong>Conversa viva 60min</strong> — se houve mensagem (do lead ou nossa) na última hora, o passo é adiado +15min, não perdido</li>
+              <li>🔸 <strong>Anti-ban por empresa</strong> — envios espaçados com intervalo aleatório configurável; máx. 1 follow-up por empresa por ciclo, contando qualquer saída (massa, lembretes, chat)</li>
+              <li>🔸 <strong>Dias/horário</strong> — fora do dia da semana ou horário configurado, aguarda o próximo momento válido</li>
+              <li>🔸 <strong>Override de lead</strong> — cancela se <code className="font-mono bg-orange-100 px-0.5 rounded">agente_ia_ativo = false</code> no lead; lead arquivado não recebe cadência</li>
+              <li>🔸 <strong>Envio verificado</strong> — falha no WhatsApp marca o passo como falhou (nunca como enviado); mensagem vazia não é disparada</li>
               <li>🔸 <strong>Anotação automática</strong> — cria nota no CRM após envio para rastreabilidade</li>
             </ul>
           </div>
@@ -1310,8 +1337,10 @@ function ComoFunciona() {
           <div>
             <p className="text-xs font-semibold text-primary-800">Ativação por estágio ou lead</p>
             <p className="text-xs text-primary-700 mt-0.5 leading-relaxed">
-              Ative o agente para <strong>todos os leads de um estágio</strong> (configurações da coluna no Kanban)
-              ou <strong>individualmente</strong> por lead com override. Prioridade: override de lead &gt; estágio &gt; inativo.
+              Ative o agente para <strong>todos os leads de um estágio</strong> (configurações da coluna no Kanban —
+              o 🤖 no cabeçalho mostra que está ativo) ou <strong>individualmente</strong> por lead com override.
+              Prioridade: override de lead &gt; estágio &gt; inativo. Ao responder, o agente segue o
+              <strong> foco do passo atual da cadência</strong> do estágio em que o lead está.
               Leads sem contato WhatsApp vinculado recebem alerta visual mas não enviam mensagens.
             </p>
           </div>

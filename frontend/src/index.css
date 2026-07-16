@@ -106,6 +106,25 @@ html.dark textarea::placeholder {
   color: rgb(156 163 175);           /* gray-400 */
 }
 
+/* --- CORES PRIMARY (navy) escuras demais para fundo escuro ---
+   primary-600 (#243a65) e 700 (#13264C) somem sobre gray-800; clareia
+   para primary-300/200 apenas no dark (links, abas ativas, destaques). */
+html.dark .text-primary-500,
+html.dark .text-primary-600,
+html.dark .text-primary-700 { color: #8094ba; }   /* primary-300 */
+html.dark .text-primary-800 { color: #aebcd4; }   /* primary-200 */
+html.dark .text-primary-900 { color: #d5dcea; }   /* primary-100 */
+
+html.dark .border-primary-500,
+html.dark .border-primary-600,
+html.dark .border-primary-700 { border-color: #8094ba; }
+html.dark .border-primary-200 { border-color: #3a5483; }
+
+/* Chips/painéis claros de primary viram navy translúcido no dark */
+html.dark .bg-primary-50  { background-color: rgba(36, 58, 101, 0.25); }
+html.dark .bg-primary-100 { background-color: rgba(36, 58, 101, 0.45); }
+html.dark .hover\:bg-primary-50:hover { background-color: rgba(36, 58, 101, 0.35); }
+
 /* --- SCROLLBAR no modo escuro --- */
 html.dark ::-webkit-scrollbar-track { background: rgb(31 41 55); }
 html.dark ::-webkit-scrollbar-thumb { background: rgb(75 85 99); border-radius: 4px; }
