@@ -304,7 +304,6 @@ function AssistenteChat() {
 // ─── Aba 2: Configurar Agente ──────────────────────────────────────────────────
 
 function ConfigurarAgente() {
-  const [abaInterna, setAbaInterna] = useState<'config' | 'acesso'>('config')
   const [mostrarApiKey, setMostrarApiKey] = useState(false)
   const [mostrarGeminiKey, setMostrarGeminiKey] = useState(false)
   const [form, setForm] = useState<Partial<AgenteIAConfig>>({
@@ -366,20 +365,14 @@ function ConfigurarAgente() {
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-5">
-      {/* Sub-tabs */}
+      {/* Sub-tabs (só Configurações — a aba "Acesso" foi removida por não ter efeito real) */}
       <div className="flex border-b">
         {[
           { key: 'config', label: 'Configurações', icon: Cpu },
-          { key: 'acesso', label: 'Acesso', icon: Users },
         ].map(({ key, label, icon: Icon }) => (
           <button
             key={key}
-            onClick={() => setAbaInterna(key as any)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              abaInterna === key
-                ? 'border-primary-600 text-primary-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+            className="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 border-primary-600 text-primary-600"
           >
             <Icon size={15} />
             {label}
@@ -387,8 +380,7 @@ function ConfigurarAgente() {
         ))}
       </div>
 
-      {abaInterna === 'config' ? (
-        <>
+      <>
           {/* Toggle ativo */}
           <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border">
             <div>
@@ -631,26 +623,7 @@ function ConfigurarAgente() {
               O agente responde automaticamente apenas mensagens de <strong>texto</strong>. Arquivos de áudio, imagens e documentos são armazenados mas não processados pela IA.
             </p>
           </div>
-        </>
-      ) : (
-        /* Aba Acesso */
-        <div className="space-y-4">
-          <div className="p-4 rounded-xl bg-primary-50 border border-primary-200">
-            <p className="text-sm font-medium text-primary-800">Quem pode ativar/desativar o agente nos leads?</p>
-            <p className="text-xs text-primary-600 mt-1">
-              Por padrão, qualquer usuário com acesso ao CRM pode ativar o agente individualmente por lead.
-              Use os checkboxes abaixo para restringir o acesso se necessário.
-            </p>
-          </div>
-          <div className="p-4 rounded-xl border bg-gray-50">
-            <p className="text-sm text-gray-500 flex items-center gap-2">
-              <Users size={16} />
-              A seleção de usuários específicos estará disponível em breve.
-              Por enquanto, todos os usuários com acesso ao CRM podem usar o agente.
-            </p>
-          </div>
-        </div>
-      )}
+      </>
 
       {/* Botão salvar */}
       <div className="flex justify-end pt-2 pb-6">

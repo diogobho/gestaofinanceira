@@ -13,6 +13,30 @@ import { despesasService } from '../despesas/despesas.service';
 
 // Lock para evitar processamento concorrente do mesmo lead
 
+/**
+ * Envia a resposta do agente em PARTES: blocos separados por linha em branco
+ * viram mensagens separadas no WhatsApp, com pausa curta entre elas — mais
+ * humano que um textão único (e casa com a instrução "uma ideia por mensagem").
+ * Máximo de 3 mensagens por turno; o excedente é agrupado na última.
+ * Lança em falha de envio (via enviarMensagemOuFalhar).
+ */
+async function enviarTextoEmPartes(
+  usuarioId: number,
+  empresaId: number,
+  contatoId: number,
+  texto: string,
+  leadId: number
+): Promise<void> {
+  const partes = texto.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  const blocos = partes.length <= 3
+    ? partes
+    : [...partes.slice(0, 2), partes.slice(2).join('\n\n')];
+  for (let i = 0; i < blocos.length; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 1500 + Math.floor(Math.random() * 2500)));
+    await contatosService.enviarMensagemOuFalhar(usuarioId, empresaId, contatoId, blocos[i], leadId);
+  }
+}
+
 export interface AgenteIAConfig {
   id: number;
   empresa_id: number;
@@ -960,8 +984,9 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
       console.warn(`[AgenteIA] Lead #${leadId}: ${config.provider || 'IA'} não retornou texto final. Mensagem recebida: "${mensagemFinal.substring(0, 80)}".`);
     } else {
       try {
+        // Blocos separados por linha em branco saem como mensagens separadas.
         // Lança em falha de envio — senão a ação seria logada como sucesso com o WhatsApp falhando.
-        await contatosService.enviarMensagemOuFalhar(usuarioId, empresaId, contatoId, finalText, leadId);
+        await enviarTextoEmPartes(usuarioId, empresaId, contatoId, finalText, leadId);
       } catch (err: any) {
         await this.logarAcao(leadId, empresaId, 'responder', { mensagem: finalText }, false, err.message);
         throw err;
@@ -1150,8 +1175,9 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
 
     // Enviar a mensagem — não salva em agente_ia_contexto pois o histórico já fica em
     // historico_mensagens e o próximo follow-up/reativo lê de lá via getContextoHistorico.
+    // Blocos separados por linha em branco saem como mensagens separadas.
     // Lança em falha de envio — senão o follow-up seria marcado como enviado com o WhatsApp falhando.
-    await contatosService.enviarMensagemOuFalhar(
+    await enviarTextoEmPartes(
       remetenteId, empresaId, followup.contato_whatsapp_id, texto, leadId
     );
     await this.logarAcao(leadId, empresaId, 'followup_ia', { texto, followup_id: followup.id }, true);

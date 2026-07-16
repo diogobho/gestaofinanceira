@@ -25,6 +25,24 @@ const agenteIAQueue = new Queue<AgenteIAJobData>('agente-ia', {
   },
 });
 
+// Janela de atendimento do agente reativo (horário de Brasília). Mensagens que
+// chegam fora dela não são respondidas na hora: o job fica adiado até a abertura
+// da janela (com jitter para não sair rajada às 8h). Mensagens da madrugada se
+// agregam no mesmo job (dedup por jobId) e a IA responde tudo de uma vez às 8h.
+const JANELA_INICIO_H = 8;
+const JANELA_FIM_H = 20;
+
+function delayAteJanelaMs(): number {
+  const agoraSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  const hora = agoraSP.getHours();
+  if (hora >= JANELA_INICIO_H && hora < JANELA_FIM_H) return 0;
+  const alvo = new Date(agoraSP);
+  alvo.setHours(JANELA_INICIO_H, 0, 0, 0);
+  if (hora >= JANELA_FIM_H) alvo.setDate(alvo.getDate() + 1);
+  const jitterMs = Math.floor(Math.random() * 10 * 60_000); // 0-10min
+  return alvo.getTime() - agoraSP.getTime() + jitterMs;
+}
+
 export async function adicionarJobAgente(
   contatoId: number,
   leadId: number,
@@ -44,6 +62,13 @@ export async function adicionarJobAgente(
     }
   } catch (err: any) {
     console.warn('[AgenteIA] Erro ao buscar delay da config:', err.message);
+  }
+
+  // Fora da janela 08h-20h: adia a resposta para a abertura da janela
+  const delayJanela = delayAteJanelaMs();
+  if (delayJanela > 0) {
+    delayMs = Math.max(delayMs, delayJanela);
+    console.log(`[AgenteIA] Lead #${leadId}: fora da janela ${JANELA_INICIO_H}h-${JANELA_FIM_H}h — resposta adiada ${Math.round(delayJanela / 60000)}min`);
   }
 
   // triggerAt é definido no momento da chegada da mensagem (antes do delay)
