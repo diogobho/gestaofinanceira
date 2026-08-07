@@ -11,7 +11,8 @@
 | DB user | `gestao_financeira_user` |
 | Nginx frontend | `/gestao/` → `frontend/dist/` |
 | Nginx API | `/api/gestao/` → `localhost:4100/api/` |
-| Domínios | `duofuturo.mooo.com`, `duofuturo.tech` (e www), `gestao.duofuturo.tech` — todos servem `/gestao` (configs em `sites-available/duofuturo-mooo`, `duofuturo-tech`, `gestao-duofuturo-tech`) |
+| URL canônica | `https://duofuturo.tech/gestao/` — usar sempre esta em links, docs e comunicação |
+| Domínios | Só `duofuturo.tech` (e www) serve a app — `sites-available/duofuturo-tech`. Legados **só com 301**: `duofuturo.mooo.com` (`duofuturo-mooo`, mas `/api/*` ainda é servido lá por causa de webhook) e `gestao.duofuturo.tech` (`gestao-duofuturo-tech`) |
 | Identidade | Azul Navy + Dourado + **Esmeralda `#10b981`** |
 
 ## Estrutura

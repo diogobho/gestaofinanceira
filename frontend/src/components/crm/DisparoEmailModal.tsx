@@ -57,7 +57,7 @@ function aplicarPreview(template: string, lead: LeadEmail): string {
 
 const SIGNATURE_STORAGE_KEY = 'crm_email_signature_v3'
 
-const SIG_BASE = 'https://duofuturo.mooo.com/gestao/signature'
+const SIG_BASE = 'https://duofuturo.tech/gestao/signature'
 
 const DEFAULT_SIGNATURE = `<table cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:520px;font-family:Arial,sans-serif;color:#333;">
   <tr>
