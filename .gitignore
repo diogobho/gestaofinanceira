@@ -65,3 +65,7 @@ ecosystem.config.js
 # Backups de .env (DATABASE_URL, JWT secrets) — as regras acima não pegam .env.bak.*
 .env.bak*
 *.env.bak*
+
+# Relatórios e extrações com dados pessoais de clientes (LGPD) — nunca versionar
+relatorios/
+api/relatorios/
