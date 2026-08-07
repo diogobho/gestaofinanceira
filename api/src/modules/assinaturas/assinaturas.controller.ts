@@ -51,7 +51,7 @@ export const assinaturasController = {
       const empresaId = req.user?.empresa_id;
       if (!empresaId) return res.status(400).json({ message: 'Usuário sem empresa' });
 
-      const { plano_id, billing_type, cpf_cnpj, credit_card, credit_card_holder_info } = req.body;
+      const { plano_id, billing_type, cpf_cnpj, credit_card, credit_card_holder_info, usuarios } = req.body;
 
       if (!plano_id || !billing_type) {
         return res.status(400).json({ message: 'plano_id e billing_type são obrigatórios' });
@@ -79,6 +79,7 @@ export const assinaturasController = {
         creditCard: credit_card,
         creditCardHolderInfo: credit_card_holder_info,
         remoteIp,
+        usuarios: usuarios != null ? Number(usuarios) : undefined,
       });
 
       res.json(resultado);
@@ -89,6 +90,30 @@ export const assinaturasController = {
         return res.status(400).json({ message: asaasErrors[0].description });
       }
       res.status(500).json({ message: error.message });
+    }
+  },
+
+  /** PUT /assinaturas/usuarios — altera a quantidade de usuários contratados */
+  async alterarUsuarios(req: AuthRequest, res: Response) {
+    try {
+      const empresaId = req.user?.empresa_id;
+      if (!empresaId) return res.status(400).json({ message: 'Usuário sem empresa' });
+      if (req.user?.tipo_usuario !== 'master' && req.user?.nivel !== 'super_admin') {
+        return res.status(403).json({ message: 'Apenas o responsável pela conta pode alterar o plano' });
+      }
+
+      const { usuarios } = req.body;
+      if (usuarios == null) return res.status(400).json({ message: 'usuarios é obrigatório' });
+
+      const assinatura = await assinaturasService.alterarQuantidadeUsuarios(empresaId, Number(usuarios));
+      res.json(assinatura);
+    } catch (error: any) {
+      const asaasErrors = error.response?.data?.errors;
+      if (asaasErrors?.length) {
+        return res.status(400).json({ message: asaasErrors[0].description });
+      }
+      // Limite/validação de negócio é erro do usuário, não falha do servidor.
+      res.status(400).json({ message: error.message });
     }
   },
 

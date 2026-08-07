@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Check, Zap, Crown, Star, Loader2, CreditCard, Lock } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { assinaturasApi, Plano, Assinatura } from '@/api/assinaturas'
+import { assinaturasApi, Plano, Assinatura, calcularPreco } from '@/api/assinaturas'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/contexts/AuthContext'
@@ -31,6 +31,8 @@ export const Planos: React.FC = () => {
   const [assinatura, setAssinatura] = useState<Assinatura | null>(null)
   const [loading, setLoading] = useState(true)
   const [assinando, setAssinando] = useState<number | null>(null)
+  // Quantidade de usuários escolhida em cada plano customizável (chave = plano.id).
+  const [usuariosPorPlano, setUsuariosPorPlano] = useState<Record<number, number>>({})
   const [billingType, setBillingType] = useState<'BOLETO' | 'PIX' | 'CREDIT_CARD'>('PIX')
   const [cpfCnpj, setCpfCnpj] = useState('')
 
@@ -56,6 +58,8 @@ export const Planos: React.FC = () => {
       setAssinatura(a)
     }).finally(() => setLoading(false))
   }, [])
+
+  const qtdDe = (plano: Plano) => usuariosPorPlano[plano.id] ?? plano.usuarios_base ?? 1
 
   const handleAssinar = async (plano: Plano) => {
     if (!cpfCnpj) {
@@ -105,6 +109,7 @@ export const Planos: React.FC = () => {
         cpf_cnpj: cpfCnpj,
         credit_card: creditCard,
         credit_card_holder_info: creditCardHolderInfo,
+        usuarios: qtdDe(plano),
       })
 
       if (billingType === 'PIX' && (resultado.pixQrCodeImage || resultado.pixQrCode)) {
@@ -338,12 +343,68 @@ export const Planos: React.FC = () => {
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">{plano.nome}</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">{plano.descricao}</p>
 
-                <div className="mb-6">
+                <div className="mb-4">
                   <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                    R$ {Number(plano.preco_mensal).toFixed(2).replace('.', ',')}
+                    R$ {calcularPreco(plano, qtdDe(plano)).toFixed(2).replace('.', ',')}
                   </span>
                   <span className="text-sm text-gray-500 dark:text-gray-400">/mês</span>
+                  {plano.customizavel && qtdDe(plano) > (plano.usuarios_base ?? 0) && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      R$ {Number(plano.preco_mensal).toFixed(2).replace('.', ',')} do plano
+                      {' + '}
+                      {qtdDe(plano) - (plano.usuarios_base ?? 0)} usuário
+                      {qtdDe(plano) - (plano.usuarios_base ?? 0) > 1 ? 's' : ''} adicional
+                      {qtdDe(plano) - (plano.usuarios_base ?? 0) > 1 ? 'is' : ''}
+                    </p>
+                  )}
                 </div>
+
+                {/* Seletor de usuários — só nos planos que aceitam adicionais */}
+                {plano.customizavel && (
+                  <div className="mb-6 rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Usuários</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {plano.usuarios_base} inclusos · até {plano.usuarios_max}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          aria-label="Remover usuário"
+                          onClick={() => setUsuariosPorPlano(m => ({
+                            ...m,
+                            [plano.id]: Math.max(plano.usuarios_base ?? 1, qtdDe(plano) - 1),
+                          }))}
+                          disabled={qtdDe(plano) <= (plano.usuarios_base ?? 1)}
+                          className="h-8 w-8 rounded-lg border border-gray-300 text-lg leading-none text-gray-700 disabled:opacity-40 dark:border-gray-600 dark:text-gray-200"
+                        >
+                          −
+                        </button>
+                        <span className="w-8 text-center text-base font-semibold text-gray-900 dark:text-white">
+                          {qtdDe(plano)}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Adicionar usuário"
+                          onClick={() => setUsuariosPorPlano(m => ({
+                            ...m,
+                            [plano.id]: Math.min(plano.usuarios_max ?? 1, qtdDe(plano) + 1),
+                          }))}
+                          disabled={qtdDe(plano) >= (plano.usuarios_max ?? 1)}
+                          className="h-8 w-8 rounded-lg border border-gray-300 text-lg leading-none text-gray-700 disabled:opacity-40 dark:border-gray-600 dark:text-gray-200"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Cada usuário adicional custa R$ {Number(plano.preco_usuario_adicional).toFixed(2).replace('.', ',')}/mês
+                      e ganha o próprio número de WhatsApp.
+                    </p>
+                  </div>
+                )}
 
                 <ul className="space-y-2 mb-6 flex-1">
                   {(plano.features as string[]).map((feat, i) => (

@@ -1,0 +1,545 @@
+<title>DuoFuturo CRM — Apresentação Investidora</title>
+<style>
+  :root{
+    --navy-900:#081326;--navy-800:#0b1b3b;--navy-700:#122a53;--navy-600:#1a3866;
+    --line:#22406e;--line-soft:#1a2e50;
+    --gold:#d2b773;--gold-bright:#e6cf94;
+    --emerald:#10b981;--emerald-soft:#34d399;
+    --ink:#eaf0fb;--ink-dim:#a9b8d4;--ink-faint:#6f80a3;
+    --paper:#0e1e3f;--warn:#f0a742;
+    --font-display:"Georgia","Iowan Old Style",serif;
+    --font-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0;background:var(--navy-900);color:var(--ink);font-family:var(--font-sans);line-height:1.5;-webkit-font-smoothing:antialiased;}
+  .deck{scroll-snap-type:y mandatory;height:100vh;overflow-y:auto;scroll-behavior:smooth;}
+  @media (prefers-reduced-motion:reduce){html,.deck{scroll-behavior:auto;}}
+  .slide{scroll-snap-align:start;min-height:100vh;width:100%;display:flex;flex-direction:column;justify-content:center;padding:clamp(24px,4.5vw,72px);position:relative;border-bottom:1px solid var(--line-soft);
+    background:radial-gradient(120% 80% at 100% 0%, rgba(210,183,115,.06), transparent 55%),radial-gradient(100% 90% at 0% 100%, rgba(16,185,129,.05), transparent 50%),var(--navy-900);}
+  .inner{width:100%;max-width:1160px;margin:0 auto;}
+  .eyebrow{font-size:.72rem;letter-spacing:.28em;text-transform:uppercase;color:var(--gold);font-weight:700;display:flex;align-items:center;gap:.7em;}
+  .eyebrow::before{content:"";width:34px;height:1px;background:var(--gold);display:inline-block;}
+  .snum{position:absolute;top:clamp(18px,3vw,36px);right:clamp(20px,4vw,54px);font-family:var(--font-display);font-size:.9rem;color:var(--ink-faint);letter-spacing:.1em;}
+  .snum b{color:var(--gold);font-weight:400;}
+  h1,h2{font-family:var(--font-display);font-weight:400;text-wrap:balance;letter-spacing:-.01em;}
+  h1{font-size:clamp(2.3rem,5.6vw,4.4rem);line-height:1.02;margin:.35em 0 .3em;}
+  h2{font-size:clamp(1.55rem,3.2vw,2.7rem);line-height:1.08;margin:.5em 0 .1em;}
+  .lede{font-size:clamp(1.02rem,1.6vw,1.3rem);color:var(--ink-dim);max-width:62ch;}
+  p{max-width:64ch;}
+  .em{color:var(--emerald-soft);}.go{color:var(--gold-bright);}
+  .cover-mark{display:flex;align-items:baseline;gap:.5rem;font-family:var(--font-display);}
+  .cover-mark .dot{width:12px;height:12px;border-radius:50%;background:var(--emerald);display:inline-block;transform:translateY(-2px);}
+  .cover-foot{position:absolute;bottom:clamp(24px,4vw,48px);left:0;right:0;padding:0 clamp(24px,4.5vw,72px);}
+  .cover-foot .inner{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--ink-faint);font-size:.85rem;letter-spacing:.04em;}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:13px;margin-top:24px;}
+  .tile{background:linear-gradient(180deg,var(--paper),rgba(11,27,59,.4));border:1px solid var(--line);border-radius:14px;padding:18px 20px;}
+  .tile .n{font-family:var(--font-display);font-size:clamp(1.7rem,3vw,2.5rem);line-height:1;color:var(--ink);font-variant-numeric:tabular-nums;}
+  .tile .n.g{color:var(--gold-bright);}.tile .n.e{color:var(--emerald-soft);}
+  .tile .k{font-size:.8rem;color:var(--ink-dim);margin-top:9px;}
+  .tag{display:inline-block;font-size:.64rem;letter-spacing:.12em;text-transform:uppercase;color:var(--emerald-soft);border:1px solid rgba(16,185,129,.4);border-radius:999px;padding:2px 8px;margin-top:11px;}
+  .tag.est{color:var(--warn);border-color:rgba(240,167,66,.4);}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:clamp(18px,4vw,50px);align-items:start;}
+  @media(max-width:820px){.cols{grid-template-columns:1fr;}}
+  ul.clean{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:10px;}
+  ul.clean li{position:relative;padding-left:1.5em;color:var(--ink-dim);font-size:1rem;max-width:58ch;}
+  ul.clean li::before{content:"";position:absolute;left:0;top:.62em;width:7px;height:7px;border-radius:2px;background:var(--gold);transform:rotate(45deg);}
+  ul.clean li b{color:var(--ink);font-weight:600;}
+  ul.clean.em li::before{background:var(--emerald);}
+  .tblwrap{overflow-x:auto;margin-top:20px;border:1px solid var(--line);border-radius:14px;}
+  table{border-collapse:collapse;width:100%;min-width:540px;font-variant-numeric:tabular-nums;}
+  th,td{text-align:right;padding:11px 15px;border-bottom:1px solid var(--line-soft);font-size:.94rem;}
+  th:first-child,td:first-child{text-align:left;}
+  thead th{background:var(--navy-700);color:var(--gold);font-weight:700;font-size:.74rem;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--line);}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr.hi{background:rgba(16,185,129,.08);}
+  tbody tr.tot td{background:var(--navy-700);color:var(--ink);font-weight:700;border-top:1px solid var(--line);}
+  td .pos{color:var(--emerald-soft);font-weight:600;}
+  caption{caption-side:bottom;text-align:left;color:var(--ink-faint);font-size:.77rem;padding:11px 4px 0;}
+  /* timeline */
+  .timeline{margin-top:34px;display:grid;grid-template-columns:repeat(4,1fr);gap:0;position:relative;}
+  .timeline::before{content:"";position:absolute;top:9px;left:6%;right:6%;height:2px;background:linear-gradient(90deg,var(--emerald),var(--gold));}
+  .tstep{position:relative;padding:0 14px;text-align:center;}
+  .tstep .node{width:18px;height:18px;border-radius:50%;background:var(--navy-900);border:3px solid var(--gold);margin:0 auto 15px;position:relative;z-index:2;}
+  .tstep.now .node{border-color:var(--emerald);background:var(--emerald);box-shadow:0 0 0 5px rgba(16,185,129,.18);}
+  .tstep .date{font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:700;}
+  .tstep .th{font-family:var(--font-display);color:var(--ink);font-size:1.08rem;margin:6px 0 8px;}
+  .tstep .td{font-size:.85rem;color:var(--ink-dim);max-width:22ch;margin:0 auto;}
+  @media(max-width:820px){.timeline{grid-template-columns:1fr;gap:22px;}.timeline::before{top:6%;bottom:6%;left:9px;right:auto;width:2px;height:auto;}.tstep{text-align:left;padding:0 0 0 40px;}.tstep .node{position:absolute;left:0;top:2px;margin:0;}.tstep .td{margin:0;max-width:46ch;}}
+  /* plans */
+  .plan-row{display:grid;grid-template-columns:repeat(3,1fr);gap:13px;margin-top:20px;}
+  @media(max-width:760px){.plan-row{grid-template-columns:1fr;}}
+  .plan{border:1px solid var(--line);border-radius:14px;padding:18px 20px;background:linear-gradient(180deg,var(--paper),transparent);}
+  .plan.star{border-color:var(--gold);box-shadow:0 0 0 1px rgba(210,183,115,.25) inset;}
+  .plan.ent{border-color:var(--emerald);box-shadow:0 0 0 1px rgba(16,185,129,.22) inset;}
+  .plan .pn{font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);}
+  .plan .pp{font-family:var(--font-display);font-size:1.8rem;color:var(--ink);margin:4px 0 2px;}
+  .plan .pp small{font-size:.82rem;color:var(--ink-faint);}
+  .plan .who{font-size:.79rem;color:var(--gold-bright);margin:9px 0 7px;font-weight:600;}
+  .plan .pd{font-size:.84rem;color:var(--ink-dim);}
+  .callout{border-left:3px solid var(--gold);padding:6px 0 6px 18px;margin-top:22px;color:var(--ink);font-family:var(--font-display);font-size:clamp(1.02rem,1.7vw,1.3rem);max-width:62ch;}
+  .callout.e{border-color:var(--emerald);}
+  .split-num{display:flex;gap:clamp(22px,5vw,56px);flex-wrap:wrap;margin-top:22px;}
+  .bignum .n{font-family:var(--font-display);font-size:clamp(2.3rem,5.2vw,3.6rem);line-height:1;color:var(--gold-bright);font-variant-numeric:tabular-nums;}
+  .bignum .n.e{color:var(--emerald-soft);}
+  .bignum .k{color:var(--ink-dim);font-size:.88rem;margin-top:8px;max-width:26ch;}
+  .foot-note{color:var(--ink-faint);font-size:.77rem;margin-top:18px;max-width:70ch;}
+  .ladder{display:grid;gap:0;margin-top:20px;border-left:2px solid var(--line);}
+  .rung{padding:12px 0 12px 22px;position:relative;}
+  .rung::before{content:"";position:absolute;left:-7px;top:18px;width:12px;height:12px;border-radius:50%;background:var(--navy-900);border:2px solid var(--gold);}
+  .rung.now::before{background:var(--emerald);border-color:var(--emerald);}
+  .rung .head{font-weight:600;color:var(--ink);}
+  .rung .sub{color:var(--ink-dim);font-size:.9rem;}
+  .steps-mini{display:grid;gap:9px;margin-top:16px;counter-reset:st;}
+  .stepm{display:flex;gap:12px;align-items:baseline;color:var(--ink-dim);font-size:.94rem;}
+  .stepm::before{counter-increment:st;content:counter(st);font-family:var(--font-display);color:var(--emerald-soft);border:1px solid var(--emerald);border-radius:50%;width:1.7em;height:1.7em;display:inline-flex;align-items:center;justify-content:center;flex:none;font-size:.78rem;}
+  /* business model canvas */
+  .bmc{margin-top:20px;display:grid;grid-template-columns:repeat(5,1fr);grid-auto-rows:minmax(0,1fr);gap:7px;}
+  .bmc-bottom{margin-top:7px;display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+  .cell{border:1px solid var(--line);border-radius:9px;padding:11px 12px;background:linear-gradient(180deg,var(--paper),rgba(8,19,38,.3));min-height:0;}
+  .cell .ct{font-size:.66rem;letter-spacing:.05em;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:6px;display:flex;gap:.4em;align-items:baseline;}
+  .cell .ct b{font-family:var(--font-display);color:var(--ink-faint);font-weight:400;}
+  .cell ul{list-style:none;margin:0;padding:0;display:grid;gap:3px;}
+  .cell li{font-size:.74rem;line-height:1.28;color:var(--ink-dim);padding-left:.8em;position:relative;}
+  .cell li::before{content:"–";position:absolute;left:0;color:var(--gold);}
+  .cell.vp{grid-row:1/3;border-color:var(--gold);}
+  .cell.vp .ct{color:var(--gold-bright);}
+  .cell.seg{grid-column:2;grid-row:1;}
+  .cell.par{grid-column:2;grid-row:2;}
+  .cell.rel{grid-column:3;grid-row:1/3;}
+  .cell.can{grid-column:4;grid-row:1;}
+  .cell.ati{grid-column:4;grid-row:2;}
+  .cell.rec{grid-column:5;grid-row:1/3;}
+  .cell.rev{border-color:var(--emerald);}
+  .cell.rev .ct{color:var(--emerald-soft);}
+  @media(max-width:860px){.bmc{grid-template-columns:1fr 1fr;grid-auto-rows:auto;}.bmc .cell{grid-column:auto!important;grid-row:auto!important;}.bmc-bottom{grid-template-columns:1fr;}}
+  /* glossary */
+  .gloss{margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:10px 34px;}
+  @media(max-width:820px){.gloss{grid-template-columns:1fr;}}
+  .gdef{border-bottom:1px solid var(--line-soft);padding-bottom:9px;}
+  .gdef dt{font-weight:700;color:var(--gold-bright);font-size:.92rem;}
+  .gdef dt span{color:var(--ink-faint);font-weight:400;font-style:italic;font-size:.82rem;}
+  .gdef dd{margin:3px 0 0;color:var(--ink-dim);font-size:.86rem;line-height:1.4;max-width:52ch;}
+  /* per-slide legend */
+  .legend{margin-top:26px;padding-top:13px;border-top:1px solid var(--line-soft);display:flex;flex-wrap:wrap;gap:7px 16px;align-items:baseline;}
+  .lg-label{font-size:.61rem;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);font-weight:700;flex:none;}
+  .lg-item{font-size:.72rem;color:var(--ink-faint);line-height:1.3;}
+  .lg-item b{color:var(--ink-dim);font-weight:700;}
+  .slide.dense .legend{margin-top:16px;}
+  .rail{position:fixed;left:0;bottom:0;height:3px;background:var(--emerald);width:0;z-index:20;transition:width .2s ease;}
+  .nav{position:fixed;right:13px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;z-index:20;}
+  .nav a{width:8px;height:8px;border-radius:50%;background:var(--line);border:1px solid var(--line);display:block;transition:.2s;}
+  .nav a:hover{background:var(--ink-faint);}
+  .nav a.on{background:var(--gold);border-color:var(--gold);transform:scale(1.3);}
+  @media(max-width:720px){.nav{display:none;}}
+</style>
+
+<div class="rail" id="rail"></div>
+<nav class="nav" id="nav"></nav>
+
+<div class="deck" id="deck">
+
+  <!-- 1 · CAPA -->
+  <section class="slide" id="s1">
+    <span class="snum"><b>01</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow" style="border:none;">CRM · WHATSAPP · IA · FINANCEIRO</div>
+      <div class="cover-mark" style="margin-top:18px;font-size:clamp(2.5rem,7vw,5rem);color:var(--ink);">Duo<span class="go">Futuro</span> CRM<span class="dot"></span></div>
+      <h1 style="margin-top:.15em;">O WhatsApp da sua empresa<br>vendendo — com <span class="em">IA</span> —<br>enquanto você cuida do negócio.</h1>
+      <p class="lede">Funil visual, agente de IA que atende e qualifica no WhatsApp, follow-up automático e o financeiro junto. Um só sistema, em português, com equipe brasileira para implantar.</p>
+      <div class="legend">
+        <span class="lg-label">Siglas deste slide</span>
+        <span class="lg-item"><b>CRM</b> — sistema que organiza clientes e vendas num só lugar</span>
+        <span class="lg-item"><b>IA</b> — inteligência artificial que conversa pelo WhatsApp</span>
+        <span class="lg-item"><b>Funil</b> — as etapas por onde o cliente passa até fechar</span>
+      </div>
+    </div>
+    <div class="cover-foot"><div class="inner">
+      <span>Apresentação · Investidora-anjo</span>
+      <span>Lançamento <b class="go">01 AGO 2026</b></span>
+    </div></div>
+  </section>
+
+  <!-- 2 · PRODUTO PRONTO -->
+  <section class="slide" id="s2">
+    <span class="snum"><b>02</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow">O que já está pronto</div>
+      <h2>Não é uma ideia no papel.<br>É um produto rodando na nossa casa.</h2>
+      <p class="lede" style="margin-top:15px;">Hoje o sistema está em <span class="em">validação interna</span>: o nosso próprio time comercial usa o CRM no dia a dia de vendas. É o piloto que prova o produto antes de vender para fora.</p>
+      <div class="tiles">
+        <div class="tile"><div class="n g">12.406</div><div class="k">leads já gerenciados na plataforma</div></div>
+        <div class="tile"><div class="n">~5 meses</div><div class="k">de desenvolvimento — produto completo</div></div>
+        <div class="tile"><div class="n e">Agente de IA</div><div class="k">qualifica, agenda e faz follow-up sozinho</div></div>
+        <div class="tile"><div class="n g">R$ 250–400k</div><div class="k">custo p/ replicar do zero a preço de agência <span class="tag est">estimativa</span></div></div>
+      </div>
+      <ul class="clean" style="margin-top:20px;">
+        <li><b>WhatsApp nativo multiusuário</b> + disparos com intervalo anti-bloqueio + cadências de follow-up.</li>
+        <li><b>Financeiro integrado</b> — receitas, despesas, parcelas e cobrança. <span class="go">Nenhum concorrente global tem.</span></li>
+        <li><b>Tutoriais guiados dentro do app</b> — onboarding que reduz suporte e acelera a ativação.</li>
+      </ul>
+      <div class="legend">
+        <span class="lg-label">Siglas deste slide</span>
+        <span class="lg-item"><b>lead</b> — contato ou cliente em potencial</span>
+        <span class="lg-item"><b>agente de IA</b> — robô que atende e vende pelo WhatsApp sozinho</span>
+        <span class="lg-item"><b>onboarding</b> — os primeiros passos do cliente dentro do sistema</span>
+        <span class="lg-item"><b>anti-bloqueio</b> — intervalos que protegem o número de ser banido</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · BUSINESS MODEL CANVAS -->
+  <section class="slide dense" id="s3">
+    <span class="snum"><b>03</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow">Modelo de negócio · Business Canvas</div>
+      <h2 style="margin-bottom:.2em;">O negócio em uma tela.</h2>
+      <div class="bmc">
+        <div class="cell vp"><div class="ct"><b>1.</b> Proposta de Valor</div><ul>
+          <li>CRM + WhatsApp + IA + financeiro num só sistema, em português</li>
+          <li>Agente de IA que atende, qualifica, agenda e faz follow-up</li>
+          <li>Preço por empresa, não por usuário</li>
+          <li>Equipe brasileira que implanta, migra e integra</li>
+        </ul></div>
+        <div class="cell seg"><div class="ct"><b>2.</b> Segmentos</div><ul>
+          <li>Micro/autônomo (Starter)</li>
+          <li>PME com time no WhatsApp: clínicas, consultorias, escolas (Profissional)</li>
+          <li>Operação estruturada migrando de concorrente (Enterprise)</li>
+        </ul></div>
+        <div class="cell par"><div class="ct"><b>3.</b> Parcerias-chave</div><ul>
+          <li>Anthropic / Gemini (IA)</li>
+          <li>Hostinger (infra)</li>
+          <li>Asaas (pagamentos), Brevo (e-mail)</li>
+          <li>Base própria / Leadership Club (canal)</li>
+        </ul></div>
+        <div class="cell rel"><div class="ct"><b>4.</b> Relacionamento</div><ul>
+          <li>Trial de 7 dias + tutoriais guiados (self-service)</li>
+          <li>Suporte por WhatsApp com IA de triagem, SLA por plano</li>
+          <li>Enterprise: consultor e assessoria dedicada</li>
+          <li>Sem fidelidade</li>
+        </ul></div>
+        <div class="cell can"><div class="ct"><b>5.</b> Canais</div><ul>
+          <li>Hoje: venda direta na base própria</li>
+          <li>Landing page + trial</li>
+          <li>Depois: SEO, tráfego pago, indicação</li>
+        </ul></div>
+        <div class="cell ati"><div class="ct"><b>6.</b> Atividades-chave</div><ul>
+          <li>Desenvolvimento e evolução do software</li>
+          <li>Vendas, onboarding e suporte</li>
+          <li>Calibragem da IA · implantação/integração</li>
+        </ul></div>
+        <div class="cell rec"><div class="ct"><b>7.</b> Recursos-chave</div><ul>
+          <li>O software (ativo de ~R$ 250–400k)</li>
+          <li>Equipe: fundador/dev + comercial</li>
+          <li>Infra (VPS) + APIs de IA e WhatsApp</li>
+          <li>Base de clientes própria</li>
+        </ul></div>
+      </div>
+      <div class="bmc-bottom">
+        <div class="cell"><div class="ct"><b>8.</b> Estrutura de Custos</div><ul>
+          <li>Fixos hoje: VPS + domínio + IA Anthropic + mão de obra ≈ R$ 165/mês</li>
+          <li>Ao escalar: IA por uso (~R$ 30–45/empresa), 2ª VPS, gateway ~1,5%, CS</li>
+        </ul></div>
+        <div class="cell rev"><div class="ct"><b>9.</b> Fontes de Renda</div><ul>
+          <li>Assinatura recorrente: R$ 79 / R$ 219 / R$ 397 por mês</li>
+          <li>Serviços de mão de obra (implantação, migração, integração): R$ 250/h sob orçamento</li>
+        </ul></div>
+      </div>
+      <div class="legend">
+        <span class="lg-label">Siglas deste slide</span>
+        <span class="lg-item"><b>trial</b> — período de teste grátis (7 dias)</span>
+        <span class="lg-item"><b>self-service</b> — cliente configura sozinho</span>
+        <span class="lg-item"><b>SLA</b> — prazo de resposta garantido do suporte</span>
+        <span class="lg-item"><b>SEO</b> — aparecer de graça no Google</span>
+        <span class="lg-item"><b>VPS</b> — servidor onde o sistema roda</span>
+        <span class="lg-item"><b>gateway</b> — intermediador de pagamentos (Asaas)</span>
+        <span class="lg-item"><b>IA por uso</b> — IA paga por conversa processada</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · MERCADO & DIFERENCIAL -->
+  <section class="slide" id="s4">
+    <span class="snum"><b>04</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow">Mercado &amp; diferencial</div>
+      <h2>Mesmo território dos globais —<br>com trunfos que eles não têm.</h2>
+      <div class="cols" style="margin-top:8px;">
+        <div>
+          <ul class="clean em">
+            <li><b>Preço por empresa</b>, não por usuário. Equipe de 5: Kommo ≈ <span class="go">R$ 680/mês</span> vs. nosso Profissional <span class="em">R$ 219</span>.</li>
+            <li><b>Financeiro integrado</b> ao CRM — Kommo, Pipedrive e GoHighLevel não entregam.</li>
+            <li><b>Agente de IA em português</b> que conversa de verdade — qualifica, agenda e faz follow-up.</li>
+            <li><b>Equipe brasileira</b> que implanta, migra e integra — nenhum global oferece isso em PT.</li>
+          </ul>
+        </div>
+        <div class="tblwrap">
+          <table>
+            <thead><tr><th>Equipe 5 pessoas</th><th>Mensal</th></tr></thead>
+            <tbody>
+              <tr><td>Kommo Avançado</td><td>R$ 680</td></tr>
+              <tr><td>Pipedrive + extras</td><td>R$ 400+</td></tr>
+              <tr class="hi"><td>DuoFuturo Profissional</td><td class="pos">R$ 219</td></tr>
+            </tbody>
+            <caption>Preço por empresa, tudo incluso. Cresça a equipe sem susto na fatura.</caption>
+          </table>
+        </div>
+      </div>
+      <div class="legend">
+        <span class="lg-label">Jargões deste slide</span>
+        <span class="lg-item"><b>por usuário</b> — concorrente cobra por cada pessoa da equipe</span>
+        <span class="lg-item"><b>por empresa</b> — nós cobramos um valor único pela empresa toda</span>
+        <span class="lg-item"><b>benchmark</b> — comparação com os concorrentes do mercado</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · TIMELINE -->
+  <section class="slide" id="s5">
+    <span class="snum"><b>05</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow">Próximos passos · linha do tempo</div>
+      <h2>Do nosso time para o mercado —<br>uma etapa de cada vez.</h2>
+      <p class="lede" style="margin-top:14px;">Cada canal novo só abre depois que o anterior está estável. Assim o tiro não sai pela culatra.</p>
+      <div class="timeline">
+        <div class="tstep now"><div class="node"></div><div class="date">JUL 2026 · agora</div><div class="th">Validação interna</div><div class="td">Nosso time comercial vendendo com o sistema. Ajuste fino de onboarding e IA.</div></div>
+        <div class="tstep"><div class="node"></div><div class="date">01 AGO · lançamento</div><div class="th">Base própria</div><div class="td">Venda para os clientes que já temos. Mercado morno, CAC baixo, prova social real.</div></div>
+        <div class="tstep"><div class="node"></div><div class="date">OUT 2026</div><div class="th">Abertura ao mercado</div><div class="td">Conteúdo/SEO, tráfego pago e indicação — só com suporte já testado.</div></div>
+        <div class="tstep"><div class="node"></div><div class="date">DEZ 2026</div><div class="th">Escala</div><div class="td">Meta: ~60 assinaturas ativas · MRR ~R$ 12,5k · payback à vista.</div></div>
+      </div>
+      <div class="legend">
+        <span class="lg-label">Siglas deste slide</span>
+        <span class="lg-item"><b>MRR</b> — receita recorrente mensal (o que entra de assinaturas todo mês)</span>
+        <span class="lg-item"><b>CAC</b> — custo para conquistar um cliente novo</span>
+        <span class="lg-item"><b>payback</b> — quando o lucro devolve o investimento</span>
+        <span class="lg-item"><b>SEO</b> — aparecer de graça no Google</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · PLANOS + PERFIL -->
+  <section class="slide" id="s6">
+    <span class="snum"><b>06</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow">Planos &amp; perfil de cliente</div>
+      <h2>Três planos, três perfis.</h2>
+      <div class="plan-row">
+        <div class="plan"><div class="pn">Starter</div><div class="pp">R$ 79<small>/mês</small></div><div class="who">Quem está saindo da planilha</div><div class="pd">Autônomo, profissional liberal, micronegócio. 2 usuários. Organiza contatos e o financeiro básico.</div></div>
+        <div class="plan star"><div class="pn go">Profissional ★</div><div class="pp">R$ 219<small>/mês</small></div><div class="who">Time de vendas no WhatsApp</div><div class="pd">Clínicas, consultorias, escolas, comércio de serviço. 5 usuários. Disparos, follow-up e agendamentos. O núcleo da receita.</div></div>
+        <div class="plan ent"><div class="pn em">Enterprise</div><div class="pp">R$ 397<small>/mês</small></div><div class="who">Operação no piloto automático</div><div class="pd">Empresa estruturada, muitas vezes migrando de concorrente. 8 usuários. Agente de IA completo + assessoria dedicada e integrações.</div></div>
+      </div>
+      <div class="callout">O plano <b class="em">Enterprise</b> é onde mora o nosso diferencial de serviço — detalhado no próximo slide.</div>
+      <div class="legend">
+        <span class="lg-label">Jargões deste slide</span>
+        <span class="lg-item"><b>disparos</b> — envio de mensagens em massa no WhatsApp</span>
+        <span class="lg-item"><b>follow-up</b> — retomar o contato com quem parou de responder</span>
+        <span class="lg-item"><b>piloto automático</b> — o sistema atendendo e vendendo sozinho</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · ENTERPRISE / ASSESSORIA -->
+  <section class="slide" id="s7">
+    <span class="snum"><b>07</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow">Diferencial exclusivo · Enterprise</div>
+      <h2>Assessoria que nenhum<br>concorrente global entrega.</h2>
+      <div class="cols" style="margin-top:8px;">
+        <div>
+          <ul class="clean em">
+            <li><b>Suporte dedicado de implantação</b> — nossa equipe configura o funil, conecta o WhatsApp e calibra a IA.</li>
+            <li><b>Migração de sistema</b> — traz o cliente que já usa um concorrente sem perder o histórico.</li>
+            <li><b>Integração com outros sistemas</b> — conecta o DuoFuturo às ferramentas que o cliente já usa.</li>
+            <li><b>Consultoria de usabilidade</b> — treina a equipe para operar no dia a dia.</li>
+          </ul>
+        </div>
+        <div>
+          <h2 style="font-size:1.3rem;">Serviços sob demanda (mão de obra)</h2>
+          <div class="steps-mini">
+            <div class="stepm"><span><b style="color:var(--ink)">Diagnóstico</b> — entendemos o que o cliente precisa antes de qualquer coisa.</span></div>
+            <div class="stepm"><span><b style="color:var(--ink)">Orçamento</b> — por tempo de mão de obra × dificuldade do pedido.</span></div>
+            <div class="stepm"><span><b style="color:var(--ink)">Execução</b> — migração e integrações entregues pela nossa equipe.</span></div>
+          </div>
+          <div class="split-num" style="margin-top:20px;">
+            <div class="bignum"><div class="n">R$ 250<small style="font-size:.4em;color:var(--ink-faint)"> /h</small></div><div class="k">hora técnica de mão de obra especializada</div></div>
+          </div>
+          <div class="callout e">Receita de serviço de alta margem + trava de retenção: cliente migrado e integrado não troca de sistema.</div>
+        </div>
+      </div>
+      <div class="legend">
+        <span class="lg-label">Jargões deste slide</span>
+        <span class="lg-item"><b>migração</b> — trazer os dados de outro sistema para o nosso</span>
+        <span class="lg-item"><b>integração</b> — conectar o CRM às outras ferramentas do cliente</span>
+        <span class="lg-item"><b>hora técnica</b> — valor cobrado por hora de mão de obra (R$ 250)</span>
+        <span class="lg-item"><b>retenção</b> — manter o cliente pagando por mais tempo</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · METAS MÊS A MÊS -->
+  <section class="slide" id="s8">
+    <span class="snum"><b>08</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow">Metas de venda · ago → dez 2026</div>
+      <h2>Rampa mês a mês, por plano.</h2>
+      <div class="tblwrap">
+        <table>
+          <thead><tr><th>Mês</th><th>Starter</th><th>Profis.</th><th>Enterp.</th><th>Novos/mês</th><th>MRR acum.</th></tr></thead>
+          <tbody>
+            <tr><td>Agosto</td><td>2</td><td>2</td><td>1</td><td>5</td><td>R$ 993</td></tr>
+            <tr><td>Setembro</td><td>3</td><td>4</td><td>1</td><td>8</td><td>R$ 2.503</td></tr>
+            <tr><td>Outubro</td><td>4</td><td>6</td><td>2</td><td>12</td><td>R$ 4.927</td></tr>
+            <tr><td>Novembro</td><td>5</td><td>8</td><td>3</td><td>16</td><td>R$ 8.265</td></tr>
+            <tr class="hi"><td>Dezembro</td><td>6</td><td>10</td><td>4</td><td>20</td><td class="pos">R$ 12.517</td></tr>
+            <tr class="tot"><td>Total 2026</td><td>20</td><td>30</td><td>11</td><td>61</td><td>ARR ~R$ 150k</td></tr>
+          </tbody>
+          <caption>Fase 1 (ago–set) na base própria; mercado abre em out. MRR acumulado sem churn, para leitura da rampa. Metas.</caption>
+        </table>
+      </div>
+      <p style="margin-top:16px;color:var(--ink-dim);">Saímos do ano com <b class="go">61 assinaturas ativas</b> e MRR de <b class="em">~R$ 12,5 mil/mês</b> — antes de contabilizar a receita de serviços Enterprise.</p>
+      <div class="legend">
+        <span class="lg-label">Siglas deste slide</span>
+        <span class="lg-item"><b>MRR</b> — receita recorrente mensal</span>
+        <span class="lg-item"><b>MRR acum.</b> — soma de todos os clientes ativos até aquele mês</span>
+        <span class="lg-item"><b>ARR</b> — receita recorrente anual (MRR × 12)</span>
+        <span class="lg-item"><b>churn</b> — taxa de cancelamento de clientes</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 · CUSTOS & CAPACIDADE -->
+  <section class="slide" id="s9">
+    <span class="snum"><b>09</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow">Custos reais &amp; capacidade</div>
+      <h2>Operação enxuta.<br>Caixa que cabe no bolso.</h2>
+      <div class="cols" style="margin-top:8px;">
+        <div>
+          <div class="tblwrap" style="margin-top:6px;">
+            <table>
+              <thead><tr><th>Custo fixo hoje</th><th>Mensal</th></tr></thead>
+              <tbody>
+                <tr><td>VPS Hostinger</td><td>~R$ 50 <span class="tag est" style="margin:0">est.</span></td></tr>
+                <tr><td>Domínio</td><td>~R$ 5</td></tr>
+                <tr><td>IA Anthropic (assinatura)</td><td>US$ 20 (~R$ 110)</td></tr>
+                <tr><td>Mão de obra</td><td>fundador/dev</td></tr>
+                <tr class="hi"><td>Caixa fixo</td><td class="pos">~R$ 165/mês</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <div class="callout e">A estrutura de hoje aguenta <b class="em">50–60 empresas</b> com WhatsApp antes de precisar da 2ª VPS.</div>
+          <ul class="clean" style="margin-top:18px;">
+            <li>Ao escalar, a IA migra da assinatura para <b>API por uso</b> (~R$ 30–45 por empresa ativa).</li>
+            <li>WhatsApp próprio: <b>R$ 0 por mensagem</b> — sem custo variável por conversa.</li>
+            <li>Cada cliente nasce lucrativo já no plano de R$ 79.</li>
+          </ul>
+          <div class="foot-note">Custo de caixa hoje não remunera a mão de obra do fundador (sweat equity). Valores de infra marcados como estimativa.</div>
+        </div>
+      </div>
+      <div class="legend">
+        <span class="lg-label">Siglas deste slide</span>
+        <span class="lg-item"><b>VPS</b> — servidor onde o sistema roda (na Hostinger)</span>
+        <span class="lg-item"><b>IA por uso (API)</b> — IA paga por conversa; cresce junto com a receita</span>
+        <span class="lg-item"><b>sweat equity</b> — trabalho do fundador ainda não pago em dinheiro</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 · EQUIPE & SUPORTE -->
+  <section class="slide" id="s10">
+    <span class="snum"><b>10</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow">Vamos precisar contratar?</div>
+      <h2>Não até <span class="go">~50 clientes</span>.<br>A contratação acompanha a receita.</h2>
+      <div class="cols" style="margin-top:8px;">
+        <div>
+          <div class="ladder">
+            <div class="rung now"><div class="head">Até 50 clientes — time atual</div><div class="sub">Fundador + comercial. A IA resolve o 1º nível de suporte 24/7 dentro do app.</div></div>
+            <div class="rung"><div class="head">50–100 — +1 pessoa de CS</div><div class="sub">Começa meio período, vira full. Sobe a 2ª VPS.</div></div>
+            <div class="rung"><div class="head">250+ — 2 CS + 1 dev</div><div class="sub">Infra dedicada. Time cresce pago pela própria margem.</div></div>
+          </div>
+        </div>
+        <div>
+          <h2 style="font-size:1.3rem;">Suporte que também é vitrine</h2>
+          <ul class="clean">
+            <li><b>Número exclusivo</b> de suporte rodando no próprio DuoFuturo (dogfooding).</li>
+            <li><b>IA de triagem</b> no primeiro contato → escala para humano só quando precisa.</li>
+            <li><b>SLA por plano</b> — Enterprise responde em 1h. Central de ajuda + tutoriais 24/7.</li>
+          </ul>
+          <div class="callout e">O suporte é operado pelo produto que vendemos — vira case vivo, não custo puro.</div>
+        </div>
+      </div>
+      <div class="legend">
+        <span class="lg-label">Siglas deste slide</span>
+        <span class="lg-item"><b>CS</b> — Customer Success: cuida do pós-venda e do sucesso do cliente</span>
+        <span class="lg-item"><b>N1</b> — primeiro nível de suporte (dúvidas mais simples)</span>
+        <span class="lg-item"><b>dogfooding</b> — usar o próprio produto na operação</span>
+        <span class="lg-item"><b>SLA</b> — prazo de resposta garantido do suporte</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 · RETORNO & PEDIDO -->
+  <section class="slide" id="s11">
+    <span class="snum"><b>11</b> / 11</span>
+    <div class="inner">
+      <div class="eyebrow">Retorno &amp; o pedido</div>
+      <h2>O produto está pronto. Falta<br><span class="go">combustível de aquisição</span>.</h2>
+      <div class="split-num">
+        <div class="bignum"><div class="n">61</div><div class="k">assinaturas na meta de dezembro — já cobrem o payback do investimento</div></div>
+        <div class="bignum"><div class="n e">R$ 0,8–1,4M</div><div class="k">valor do ativo a 100 clientes (múltiplo de ARR SaaS) <span class="tag est">estimativa</span></div></div>
+        <div class="bignum"><div class="n">4–7 meses</div><div class="k">payback do custo de aquisição por cliente</div></div>
+      </div>
+      <div class="cols" style="margin-top:28px;">
+        <div>
+          <h2 style="font-size:1.28rem;">O capital destrava</h2>
+          <ul class="clean em">
+            <li>Marketing de aquisição para abrir o mercado frio (a partir de out).</li>
+            <li>Primeiro CS/onboarding dedicado ao passar de ~50 clientes.</li>
+            <li>Reserva de infra (2ª VPS) e migração da IA para API por uso.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="callout">Pedido: <b class="go">R$ __________</b> por <b class="go">__%</b> — a definir.<br>Meta 90 dias: <b class="em">primeiras assinaturas da base própria</b> convertidas.</div>
+          <div class="cover-mark" style="margin-top:24px;font-family:var(--font-display);color:var(--ink-faint);font-size:.9rem;letter-spacing:.06em;">DuoFuturo CRM · duofuturo.tech</div>
+        </div>
+      </div>
+      <div class="legend">
+        <span class="lg-label">Siglas deste slide</span>
+        <span class="lg-item"><b>payback</b> — quando o lucro devolve o investimento</span>
+        <span class="lg-item"><b>ARR</b> — receita recorrente anual (MRR × 12)</span>
+        <span class="lg-item"><b>LTV</b> — quanto um cliente rende no total, do 1º ao último pagamento</span>
+        <span class="lg-item"><b>CAC</b> — custo para conquistar um cliente novo</span>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  (function(){
+    var deck=document.getElementById('deck');
+    var slides=[].slice.call(document.querySelectorAll('.slide'));
+    var nav=document.getElementById('nav');
+    var rail=document.getElementById('rail');
+    slides.forEach(function(s,i){
+      var a=document.createElement('a');a.href='#'+s.id;a.setAttribute('aria-label','Slide '+(i+1));
+      nav.appendChild(a);
+    });
+    var dots=[].slice.call(nav.children);
+    function onScroll(){
+      var idx=Math.round(deck.scrollTop/window.innerHeight);
+      idx=Math.max(0,Math.min(slides.length-1,idx));
+      dots.forEach(function(d,i){d.classList.toggle('on',i===idx);});
+      rail.style.width=(idx/(slides.length-1)*100)+'%';
+    }
+    deck.addEventListener('scroll',onScroll,{passive:true});onScroll();
+    document.addEventListener('keydown',function(e){
+      var idx=Math.round(deck.scrollTop/window.innerHeight);
+      if(e.key==='ArrowDown'||e.key==='PageDown'||e.key===' '){e.preventDefault();if(slides[idx+1])slides[idx+1].scrollIntoView();}
+      if(e.key==='ArrowUp'||e.key==='PageUp'){e.preventDefault();if(slides[idx-1])slides[idx-1].scrollIntoView();}
+    });
+  })();
+</script>

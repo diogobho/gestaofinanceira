@@ -21,6 +21,9 @@ export const agenteIaController = {
       } else {
         resp.gemini_api_key = null;
       }
+      // Follow-ups de IA que ficam esperando enquanto o agente está desligado.
+      // A interface avisa o usuário para que a fila parada não passe despercebida.
+      resp.followups_pausados = await agenteIaService.contarFollowupsPausados(empresaId);
       res.json(resp);
     } catch (err) {
       next(err);

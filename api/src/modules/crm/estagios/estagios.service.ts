@@ -40,6 +40,19 @@ export interface EstagioFollowupConfig {
   dias_semana?: number[] | null;
 }
 
+export interface MarcoReuniaoLembrete {
+  marco: string;               // id estável: lembrete_24h, lembrete_1h, noshow_d0…
+  grupo?: string;              // 'lembrete' | 'noshow'
+  offset_min: number;          // <0 antes da reunião, >=0 depois (no-show)
+  tolerancia_min?: number;
+  mensagem: string;
+}
+
+export interface EstagioReuniaoLembretes {
+  ativo: boolean;
+  marcos: MarcoReuniaoLembrete[];
+}
+
 export interface EstagioFunil {
   id: number;
   funil_id: number;
@@ -57,6 +70,7 @@ export interface EstagioFunil {
   auto_criar_lead?: boolean;
   auto_criar_lead_usuarios?: number[] | null;
   agente_ia_ativo?: boolean;
+  reuniao_lembretes?: EstagioReuniaoLembretes | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -85,6 +99,7 @@ export interface UpdateEstagioDto {
   auto_criar_lead?: boolean;
   auto_criar_lead_usuarios?: number[] | null;
   agente_ia_ativo?: boolean;
+  reuniao_lembretes?: EstagioReuniaoLembretes | null;
 }
 
 export const estagiosService = {
@@ -235,6 +250,10 @@ export const estagiosService = {
     if (data.agente_ia_ativo !== undefined) {
       fields.push(`agente_ia_ativo = $${paramCount++}`);
       values.push(!!data.agente_ia_ativo);
+    }
+    if (data.reuniao_lembretes !== undefined) {
+      fields.push(`reuniao_lembretes = $${paramCount++}`);
+      values.push(data.reuniao_lembretes ? JSON.stringify(data.reuniao_lembretes) : null);
     }
 
     if (fields.length === 0) return estagio;

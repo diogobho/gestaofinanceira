@@ -21,8 +21,7 @@ export default function CRMComAbas({ variante }: CRMComAbasProps) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* pl-14 no mobile: recuo para o botão ☰ fixo (top-4 left-4) não cobrir a 1ª aba */}
-      <div className="border-b border-gray-200 bg-white pl-14 pr-6 md:px-6 dark:border-gray-700 dark:bg-gray-900">
+      <div className="border-b border-gray-200 bg-white px-4 md:px-6 dark:border-gray-700 dark:bg-gray-900">
         <Tabs
           tabs={[
             { key: 'funil',  label: t.funil,        icon: <LayoutGrid className="h-4 w-4" /> },

@@ -12,6 +12,8 @@ export interface Funil {
   created_at: string;
   updated_at: string;
   total_leads?: number;
+  /** Total de leads incluindo arquivados — o que a exclusão do funil apaga de fato. */
+  total_leads_geral?: number;
   total_estagios?: number;
 }
 
@@ -52,6 +54,19 @@ export interface EstagioFollowupConfig {
   data_fixa?: string | null;
   hora_envio?: string | null;
   dias_semana?: number[] | null;
+}
+
+export interface MarcoReuniaoLembrete {
+  marco: string;               // id estável: lembrete_24h, lembrete_1h, noshow_d0…
+  grupo?: 'lembrete' | 'noshow';
+  offset_min: number;          // <0 antes da reunião, >=0 depois (no-show)
+  tolerancia_min?: number;
+  mensagem: string;
+}
+
+export interface ReuniaoLembretesConfig {
+  ativo: boolean;
+  marcos: MarcoReuniaoLembrete[];
 }
 
 export interface FollowupAgendado {
@@ -111,6 +126,7 @@ export interface EstagioFunil {
   auto_criar_lead?: boolean;
   auto_criar_lead_usuarios?: number[] | null;
   agente_ia_ativo?: boolean;
+  reuniao_lembretes?: ReuniaoLembretesConfig | null;
   created_at: string;
   updated_at: string;
   total_leads?: number;
@@ -482,6 +498,8 @@ export interface AgenteIAConfig {
   contexto_mensagens: number;
   usuarios_habilitados: number[];
   delay_segundos: number;
+  /** Follow-ups de IA parados na fila (só saem quando o agente estiver ativo). */
+  followups_pausados?: number;
 }
 
 export interface AgenteIALeadStatus {

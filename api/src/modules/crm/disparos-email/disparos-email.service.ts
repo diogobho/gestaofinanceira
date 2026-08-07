@@ -4,6 +4,7 @@ import { enviarEmail, EmailAnexo } from '../../../services/email.service';
 import { configuracoesSmtpService } from '../../configuracoes-smtp/configuracoes-smtp.service';
 import { leadsService } from '../leads/leads.service';
 import { _tarefaFiltroSQL, FiltrosTarefa } from '../disparos/disparos.service';
+import { aplicarVariaveisLead } from '../_shared/agendamento';
 
 export interface IniciarDisparoEmailDto {
   lead_ids?: number[];
@@ -24,15 +25,11 @@ export interface IniciarDisparoEmailDto {
   com_tarefa_atrasada?: boolean;
 }
 
+// Usa o mesmo padrão de substituição do resto do CRM (follow-up, lembretes, disparo
+// de WhatsApp). Antes esta função tinha a própria lista com 6 replaces manuais, então
+// [Responsavel], [Cargo], [Titulo] e as demais saíam cruas no e-mail.
 function aplicarVariaveis(template: string, lead: Record<string, any>): string {
-  const primeiroNome = lead.nome?.split(' ')[0] || lead.nome || '';
-  return template
-    .replace(/\[Nome\]/gi, lead.nome || '')
-    .replace(/\[PrimeiroNome\]/gi, primeiroNome)
-    .replace(/\[Empresa\]/gi, lead.empresa || '')
-    .replace(/\[Origem\]/gi, lead.origem || '')
-    .replace(/\[Email\]/gi, lead.email || '')
-    .replace(/\[Telefone\]/gi, lead.telefone || '');
+  return aplicarVariaveisLead(template, lead);
 }
 
 async function sleep(ms: number) {
@@ -69,8 +66,13 @@ async function _buscarLeadsPorConfig(
     extraWhere += _tarefaFiltroSQL(config);
 
     const r = await query(
-      `SELECT l.id, l.nome, l.email, l.empresa, l.origem
+      // Colunas alinhadas com as variáveis de aplicarVariaveisLead — inclusive
+      // responsavel_nome, que alimenta [Responsavel]/[PrimeiroNomeResponsavel].
+      `SELECT l.id, l.nome, l.email, l.empresa, l.origem, l.telefone, l.cargo,
+              l.titulo, l.valor_potencial, l.moeda, l.cpf_cnpj, l.temperatura,
+              u.nome AS responsavel_nome
        FROM leads l
+       LEFT JOIN usuarios u ON u.id = l.responsavel_id
        WHERE l.empresa_id = $1 AND l.funil_id = $2 AND l.arquivado = false
          AND l.email IS NOT NULL AND l.email != ''
          ${extraWhere}
@@ -80,8 +82,11 @@ async function _buscarLeadsPorConfig(
     return r.rows;
   } else if (config.lead_ids?.length) {
     const r = await query(
-      `SELECT l.id, l.nome, l.email, l.empresa, l.origem
+      `SELECT l.id, l.nome, l.email, l.empresa, l.origem, l.telefone, l.cargo,
+              l.titulo, l.valor_potencial, l.moeda, l.cpf_cnpj, l.temperatura,
+              u.nome AS responsavel_nome
        FROM leads l
+       LEFT JOIN usuarios u ON u.id = l.responsavel_id
        WHERE l.id = ANY($1::int[]) AND l.empresa_id = $2 AND l.arquivado = false
          AND l.email IS NOT NULL AND l.email != ''`,
       [config.lead_ids, empresaId]

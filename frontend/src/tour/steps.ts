@@ -639,6 +639,13 @@ export const crmCxTour: Tour = {
       lado: 'bottom',
     },
     {
+      element: '[data-tour="cx-importar"]',
+      titulo: 'Importar em lote',
+      descricao: 'Suba uma planilha (CSV/Excel) para cadastrar vários clientes de uma vez.',
+      rota: '/crm-cx',
+      lado: 'bottom',
+    },
+    {
       element: '[data-tour="cx-email"]',
       titulo: 'Disparo por e-mail',
       descricao: 'Envie e-mails em massa para os clientes do pós-venda.',

@@ -304,7 +304,8 @@ export const leadsController = {
 
       res.json(lead);
     } catch (error: any) {
-      if (['Lead já está neste funil', 'Funil não encontrado', 'Funil destino não possui estágios'].includes(error.message)) {
+      if (['Lead já está neste funil', 'Funil não encontrado', 'Funil destino não possui estágios'].includes(error.message)
+        || /^Já existe um lead/.test(error.message || '')) {
         return res.status(400).json({ message: error.message });
       }
       next(error);

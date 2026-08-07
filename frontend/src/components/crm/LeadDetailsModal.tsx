@@ -5,7 +5,7 @@ import {
   Thermometer, Tag as TagIcon, Archive, Trash2, Send, Clock, User,
   Paperclip, Image, FileText, Mic, XCircle, Plus, Check,
   Trash, PhoneCall, Video, MailIcon, RefreshCw, FileSignature, MapPin,
-  MoreHorizontal, StickyNote, AlertTriangle, Bell, Globe, Square, Edit2, ArrowRight
+  MoreHorizontal, StickyNote, AlertTriangle, Bell, Globe, Square, Edit2, ArrowRight, ChevronRight
 } from 'lucide-react'
 import LeadFormModal from './LeadFormModal'
 import AgendamentoConfig, { AgendamentoValue, agendamentoPadrao } from './AgendamentoConfig'
@@ -53,6 +53,9 @@ const origemConfig: Record<string, { label: string; color: string }> = {
 
 export default function LeadDetailsModal({ lead, estagios, isOpen, onClose }: LeadDetailsModalProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'tarefas' | 'anotacoes' | 'atividades' | 'mensagem'>('info')
+  // Dica de rolagem da barra de abas (mobile): degradê/seta some ao chegar no fim
+  const tabsRef = useRef<HTMLDivElement>(null)
+  const [tabScroll, setTabScroll] = useState({ left: false, right: false })
   const [mensagem, setMensagem] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [caption, setCaption] = useState('')
@@ -106,6 +109,21 @@ const arquivarLead = useArquivarLead()
 
   // Determinar se o lead pode usar WhatsApp (tem contato vinculado OU tem telefone)
   const canWhatsApp = !!(lead?.contato_whatsapp_id || lead?.telefone)
+
+  // Atualiza os indicadores de rolagem das abas (há mais conteúdo à esquerda/direita?)
+  const updateTabScroll = () => {
+    const el = tabsRef.current
+    if (!el) return
+    const max = el.scrollWidth - el.clientWidth
+    setTabScroll({ left: el.scrollLeft > 4, right: el.scrollLeft < max - 4 })
+  }
+  useEffect(() => {
+    if (!isOpen) return
+    const id = requestAnimationFrame(updateTabScroll)
+    window.addEventListener('resize', updateTabScroll)
+    return () => { cancelAnimationFrame(id); window.removeEventListener('resize', updateTabScroll) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, canWhatsApp])
 
   // Usar historico via contato se ja vinculado, ou via lead
   const { data: historicoContato } = useHistoricoMensagens(
@@ -320,11 +338,12 @@ const handleArquivar = async () => {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="border-b flex">
+        {/* Tabs — roláveis horizontalmente no mobile (senão a aba WhatsApp fica fora da tela) */}
+        <div className="relative">
+        <div ref={tabsRef} onScroll={updateTabScroll} className="border-b flex overflow-x-auto">
           <button
             onClick={() => setActiveTab('info')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex-shrink-0 whitespace-nowrap ${
               activeTab === 'info'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -334,7 +353,7 @@ const handleArquivar = async () => {
           </button>
           <button
             onClick={() => setActiveTab('tarefas')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 flex-shrink-0 whitespace-nowrap ${
               activeTab === 'tarefas'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -349,7 +368,7 @@ const handleArquivar = async () => {
           </button>
           <button
             onClick={() => setActiveTab('anotacoes')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 flex-shrink-0 whitespace-nowrap ${
               activeTab === 'anotacoes'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -364,7 +383,7 @@ const handleArquivar = async () => {
           </button>
           <button
             onClick={() => setActiveTab('atividades')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex-shrink-0 whitespace-nowrap ${
               activeTab === 'atividades'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -375,7 +394,7 @@ const handleArquivar = async () => {
           {canWhatsApp && (
             <button
               onClick={() => setActiveTab('mensagem')}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 ${
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 flex-shrink-0 whitespace-nowrap ${
                 activeTab === 'mensagem'
                   ? 'border-primary-500 text-primary-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -390,6 +409,16 @@ const handleArquivar = async () => {
               )}
             </button>
           )}
+        </div>
+        {/* Dica de rolagem: degradê + seta à direita enquanto houver aba escondida (some no fim) */}
+        {tabScroll.right && (
+          <div className="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center pl-8 pr-1 bg-gradient-to-l from-white via-white to-transparent">
+            <ChevronRight size={18} className="text-primary-400 animate-pulse" />
+          </div>
+        )}
+        {tabScroll.left && (
+          <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-white to-transparent" />
+        )}
         </div>
 
         {/* Content */}

@@ -16,6 +16,7 @@ import EstagioSettingsModal from '@/components/crm/EstagioSettingsModal'
 import FunilSelector from '@/components/crm/FunilSelector'
 import { TourHelpButton } from '@/components/tour/TourHelpButton'
 import FunilFormModal from '@/components/crm/FunilFormModal'
+import DeleteFunilModal from '@/components/crm/DeleteFunilModal'
 import ConversaoGanhoModal, { type ConversaoGanhoData } from '@/components/crm/ConversaoGanhoModal'
 import type { Lead, EstagioFunil, Funil } from '@/types/crm'
 import type { FiltrosLead } from '@/api/crm'
@@ -27,6 +28,7 @@ export default function CRMKanban() {
   const [selectedFunilId, setSelectedFunilId] = useState<number | undefined>()
   const [showFunilFormModal, setShowFunilFormModal] = useState(false)
   const [editingFunil, setEditingFunil] = useState<Funil | null>(null)
+  const [deletingFunil, setDeletingFunil] = useState<Funil | null>(null)
 
   const { data: funisList = [] } = useFunisAquisicao()
   const { data: usuariosEmpresa = [] } = useUsuariosEmpresa()
@@ -197,6 +199,7 @@ export default function CRMKanban() {
                   setEditingFunil(f)
                   setShowFunilFormModal(true)
                 }}
+                onDelete={(f) => setDeletingFunil(f)}
               />
               {totalNaoLidas > 0 && (
                 <span className="flex items-center gap-1 px-2 py-1 bg-green-500 text-white text-xs font-bold rounded-full animate-pulse">
@@ -455,6 +458,16 @@ export default function CRMKanban() {
           setEditingFunil(null)
         }}
         funil={editingFunil}
+      />
+
+      <DeleteFunilModal
+        isOpen={!!deletingFunil}
+        onClose={() => setDeletingFunil(null)}
+        funil={deletingFunil}
+        onDeleted={(id) => {
+          // Se o funil excluído era o que estava aberto, volta para o padrão.
+          if (funil?.id === id) setSelectedFunilId(undefined)
+        }}
       />
 
       <ConversaoGanhoModal

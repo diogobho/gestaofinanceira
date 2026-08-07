@@ -136,6 +136,30 @@ export const asaasService = {
     }
   },
 
+  /**
+   * Altera o valor/descrição de uma assinatura já existente.
+   *
+   * Usado quando o cliente muda a quantidade de usuários contratados: preserva o
+   * ciclo, a data de vencimento e o histórico de cobranças — diferente de cancelar
+   * e recriar, que reiniciaria o vencimento e geraria cobrança imediata.
+   *
+   * `updatePendingPayments` faz o Asaas reprecificar as cobranças em aberto; sem
+   * isso, a fatura do mês corrente continuaria com o valor antigo.
+   */
+  async updateSubscription(subscriptionId: string, data: {
+    value?: number;
+    description?: string;
+    updatePendingPayments?: boolean;
+  }): Promise<AsaasSubscription> {
+    const payload: any = {};
+    if (data.value !== undefined) payload.value = data.value;
+    if (data.description !== undefined) payload.description = data.description;
+    payload.updatePendingPayments = data.updatePendingPayments ?? true;
+
+    const res = await asaasHttp.post(`/subscriptions/${subscriptionId}`, payload);
+    return res.data;
+  },
+
   async cancelSubscription(subscriptionId: string): Promise<void> {
     await asaasHttp.delete(`/subscriptions/${subscriptionId}`);
   },

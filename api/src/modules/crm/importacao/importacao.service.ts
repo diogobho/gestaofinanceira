@@ -1,6 +1,7 @@
 import { query } from '../../../config/database';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
+import { digitosParaGravar, chaveTelefone } from '../_shared/telefone';
 
 const ORIGENS_VALIDAS = new Set(['whatsapp','manual','importacao','indicacao','networking','parceria','instagram','lancamento','forms','diagnostico']);
 
@@ -100,27 +101,39 @@ export const importacaoService = {
       throw new Error('Arquivo vazio');
     }
 
-    // Buscar estágio de entrada do funil
+    // Estágio de destino: o de entrada, se houver. Vários funis (principalmente os de CX,
+    // criados a partir de um funil existente) não têm nenhum estágio marcado como entrada —
+    // aí a importação inteira falhava. Nesses casos cai no PRIMEIRO estágio da ordem, que é
+    // para onde o card iria de qualquer jeito.
     const estagioResult = await query(
-      `SELECT id FROM estagios_funil WHERE funil_id = $1 AND is_entrada = true LIMIT 1`,
+      `SELECT id FROM estagios_funil
+        WHERE funil_id = $1
+        ORDER BY is_entrada DESC NULLS LAST, ordem ASC, id ASC
+        LIMIT 1`,
       [funilId]
     );
 
     if (!estagioResult.rows[0]) {
       fs.unlinkSync(filePath);
-      throw new Error('Funil não possui estágio de entrada configurado');
+      throw new Error('Funil não possui estágios configurados');
     }
 
     const estagioId = estagioResult.rows[0].id;
 
-    // Pre-fetch telefones já existentes no funil destino (duplicidade é por funil)
+    // Pre-fetch telefones já existentes no funil destino (duplicidade é por funil).
+    // A chave ignora DDI e 9º dígito: a mesma pessoa chega da planilha como
+    // "43999536125" e já está no CRM como "5543999536125". Comparar dígito a dígito
+    // deixava passar a duplicata.
     const existingPhonesResult = await query(
-      `SELECT REGEXP_REPLACE(telefone, '[^0-9]', '', 'g') as tel_norm, nome
+      `SELECT telefone, nome
        FROM leads WHERE empresa_id = $1 AND funil_id = $2 AND arquivado = false AND telefone IS NOT NULL AND telefone != ''`,
       [empresaId, funilId]
     );
     const existingPhones = new Map<string, string>();
-    existingPhonesResult.rows.forEach((r: any) => existingPhones.set(r.tel_norm, r.nome));
+    existingPhonesResult.rows.forEach((r: any) => {
+      const chave = chaveTelefone(r.telefone);
+      if (chave) existingPhones.set(chave, r.nome);
+    });
 
     // Buscar ordem máxima atual no estágio (1 query só)
     const ordemResult = await query(
@@ -161,19 +174,24 @@ export const importacaoService = {
         }
 
         // Verificar duplicata em memória
+        let telefoneFinal = telefone;
         if (telefone) {
-          const telNorm = telefone.replace(/\D/g, '');
-          if (telNorm && existingPhones.has(telNorm)) {
+          const chave = chaveTelefone(telefone);
+          if (chave && existingPhones.has(chave)) {
             resultado.duplicados++;
             resultado.erros.push({
               linha: numLinha,
-              erro: `Telefone já existe no lead "${existingPhones.get(telNorm)}"`,
+              erro: `Telefone já existe no lead "${existingPhones.get(chave)}"`,
               dados: { nome, telefone }
             });
             continue;
           }
           // Marcar como já visto para evitar duplicatas dentro do próprio arquivo
-          if (telNorm) existingPhones.set(telNorm, nome);
+          if (chave) existingPhones.set(chave, nome);
+
+          // Grava o número da planilha como ele veio (só dígitos). A comparação de
+          // duplicidade é por `chaveTelefone`, então o formato não precisa ser mexido.
+          telefoneFinal = digitosParaGravar(telefone);
         }
 
         let valorPotencial = 0;
@@ -189,7 +207,7 @@ export const importacaoService = {
         leadsValidos.push([
           usuarioId, empresaId, usuarioId, funilId, estagioId,
           nome,
-          telefone || null,
+          telefoneFinal || null,
           email || null,
           empresa || null,
           cargo || null,

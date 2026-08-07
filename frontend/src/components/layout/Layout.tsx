@@ -3,6 +3,8 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { TOUR_SIDEBAR_EVENT } from '@/contexts/TourContext'
 import { useSwipeable } from 'react-swipeable'
 import { Menu } from 'lucide-react'
+// Símbolo quadrado (o logo.png original é 1920x1080 e ficaria minúsculo em h-7).
+import iconeApp from '/icons/icon-192.png'
 import { Sidebar } from './Sidebar'
 import { SubscriptionExpired } from '@/components/ui/SubscriptionExpired'
 import { useAssinatura } from '@/hooks/useAssinatura'
@@ -69,15 +71,25 @@ export const Layout: React.FC = () => {
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
       <div className="flex-1 md:ml-64 flex flex-col overflow-hidden">
-        <div className={`flex-1 overflow-auto relative ${alturaCheia ? '' : 'pb-24'}`}>
-          {/* Botão Hamburguer - apenas mobile */}
+        {/*
+          Barra de topo do mobile. Ocupa espaço no fluxo, em vez de flutuar: o ☰ era
+          `fixed top-4 left-4` e cobria o título de qualquer página que começasse no
+          topo (só o CRM reservava recuo). Aqui nenhuma página precisa saber que ela
+          existe. Fica fora da área de rolagem, então não sobe junto com o conteúdo.
+        */}
+        <header className="md:hidden flex items-center gap-3 shrink-0 border-b border-gray-200 bg-white px-4 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] dark:border-gray-700 dark:bg-gray-800">
           <button
             onClick={() => setIsSidebarOpen(true)}
-            className="md:hidden fixed top-4 left-4 z-30 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-md text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Abrir menu"
+            className="-ml-2 rounded-lg p-2 text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <Menu size={24} />
           </button>
+          <img src={iconeApp} alt="" className="h-7 w-7" />
+          <span className="text-base font-bold text-brand-navy dark:text-white">DuoFuturo</span>
+        </header>
 
+        <div className={`flex-1 overflow-auto relative ${alturaCheia ? '' : 'pb-24'}`}>
           <Outlet />
         </div>
       </div>

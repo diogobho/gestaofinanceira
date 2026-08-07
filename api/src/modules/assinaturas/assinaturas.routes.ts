@@ -12,6 +12,7 @@ router.post('/webhook/asaas', assinaturasController.webhook);
 router.get('/assinaturas/minha', authRequired, assinaturasController.getMinhaAssinatura);
 router.get('/assinaturas/status', authRequired, assinaturasController.getStatus);
 router.post('/assinaturas/assinar', authRequired, assinaturasController.assinar);
+router.put('/assinaturas/usuarios', authRequired, assinaturasController.alterarUsuarios);
 router.post('/assinaturas/cancelar', authRequired, assinaturasController.cancelar);
 router.post('/assinaturas/:empresaId/ativar', authRequired, assinaturasController.ativarEmpresa);
 router.post('/assinaturas/:empresaId/suspender', authRequired, assinaturasController.suspenderEmpresa);

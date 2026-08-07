@@ -133,9 +133,9 @@ export const EmailConfig: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6">
       {/* Header */}
-      <div className="flex items-center justify-between ml-10 md:ml-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <Mail className="w-6 h-6 text-primary-600" />
           <div>

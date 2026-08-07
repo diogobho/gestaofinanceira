@@ -1,21 +1,9 @@
 import axios from 'axios';
 import { query } from '../../../config/database';
 import { leadsService } from '../leads/leads.service';
+import { contatosService } from '../contatos/contatos.service';
 import { aplicarVariaveisLead } from '../_shared/agendamento';
-
-// Normaliza números brasileiros para o formato padrão do WhatsApp (13 dígitos: 55+DDD+9 dígitos).
-// Números com 12 dígitos (55+DDD+8 dígitos — formato antigo) recebem o 9º dígito após o DDD.
-function normalizarTelefoneBR(digits: string): string {
-  if (digits.startsWith('55')) {
-    const semPais = digits.slice(2);
-    if (semPais.length === 10) return `55${semPais.slice(0, 2)}9${semPais.slice(2)}`;
-    if (semPais.length === 11) return digits;
-    return digits;
-  }
-  if (digits.length === 10) return `55${digits.slice(0, 2)}9${digits.slice(2)}`;
-  if (digits.length === 11) return `55${digits}`;
-  return digits;
-}
+import { vinculoDivergente, erroVinculoDivergente, comDDIParaEnvio } from '../_shared/telefone';
 
 export interface DisparoLead {
   id: number;
@@ -154,9 +142,11 @@ async function _buscarLeadsPorConfig(
       `SELECT
         l.id, l.nome, l.telefone, l.empresa, l.origem, l.contato_whatsapp_id,
         l.estagio_id, ef.nome AS estagio_nome,
-        cw.whatsapp_id
+        cw.whatsapp_id,
+        u.nome AS responsavel_nome
        FROM leads l
        LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
+       LEFT JOIN usuarios u ON u.id = l.responsavel_id
        LEFT JOIN estagios_funil ef ON l.estagio_id = ef.id
        WHERE l.empresa_id = $1
          AND l.funil_id = $2
@@ -172,9 +162,11 @@ async function _buscarLeadsPorConfig(
       `SELECT
         l.id, l.nome, l.telefone, l.empresa, l.origem, l.contato_whatsapp_id,
         l.estagio_id, ef.nome AS estagio_nome,
-        cw.whatsapp_id
+        cw.whatsapp_id,
+        u.nome AS responsavel_nome
        FROM leads l
        LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
+       LEFT JOIN usuarios u ON u.id = l.responsavel_id
        LEFT JOIN estagios_funil ef ON l.estagio_id = ef.id
        WHERE l.id = ANY($1::int[])
          AND l.empresa_id = $2
@@ -216,10 +208,16 @@ async function _processarEnviosWA(
     try {
       if (!porta) throw new Error('WhatsApp não configurado para este usuário');
 
+      // O destino preferido é o whatsapp_id do contato: se ele não for o telefone
+      // do card, a mensagem sairia para outra pessoa. Falha visível no relatório.
+      if (vinculoDivergente(lead.telefone, lead.whatsapp_id?.replace(/@.*$/, ''), lead.whatsapp_id)) {
+        throw new Error(erroVinculoDivergente(lead.telefone, lead.whatsapp_id));
+      }
+
       const mensagem = aplicarVariaveis(template, lead);
       let destino = lead.whatsapp_id || lead.telefone!;
       if (!destino.includes('@')) {
-        destino = normalizarTelefoneBR(destino.replace(/\D/g, ''));
+        destino = comDDIParaEnvio(destino.replace(/\D/g, ''));
       }
 
       const response = await axios.post(
@@ -233,6 +231,12 @@ async function _processarEnviosWA(
       }
 
       if (lead.contato_whatsapp_id) {
+        // Guarda o destino real confirmado pelo WhatsApp (ver _corrigirJidConfirmado).
+        await contatosService._corrigirJidConfirmado(
+          { id: lead.contato_whatsapp_id, whatsapp_id: lead.whatsapp_id, is_grupo: false },
+          response.data.jid
+        );
+
         await query(
           `INSERT INTO historico_mensagens
             (lead_id, contato_whatsapp_id, usuario_id, empresa_id,
@@ -294,17 +298,20 @@ async function _processarEnviosWA(
       enviados++;
     } catch (err: any) {
       falhas++;
+      // A API do WhatsApp responde 4xx com o motivo no corpo (ex.: número sem conta).
+      const motivo = err.response?.data?.details || err.response?.data?.error || err.message;
+
       erros.push({
         lead_id: lead.id,
         nome: lead.nome,
         telefone: (lead.whatsapp_id || lead.telefone || '').replace(/@.*$/, ''),
-        erro: err.message,
+        erro: motivo,
       });
 
       await query(
         `INSERT INTO disparo_leads (disparo_id, lead_id, empresa_id, estagio_id, estagio_nome, status, erro, enviado_at)
          VALUES ($1, $2, $3, $4, $5, 'falha', $6, NOW())`,
-        [disparoId, lead.id, empresaId, lead.estagio_id || null, lead.estagio_nome || null, err.message]
+        [disparoId, lead.id, empresaId, lead.estagio_id || null, lead.estagio_nome || null, motivo]
       );
     }
 
@@ -396,11 +403,10 @@ export const disparosService = {
       // Leads já selecionados em disparos AGENDADOS pendentes (mesma lógica do preview) —
       // marca na lista de seleção para o operador não repetir o contato.
       query(
-        `SELECT jsonb_array_elements_text(
-                  COALESCE(configuracao_json->'lead_ids', '[]'::jsonb)
-                )::int AS lead_id
+        `SELECT jsonb_array_elements_text(configuracao_json->'lead_ids')::int AS lead_id
          FROM disparos_crm
-         WHERE empresa_id = $1 AND status = 'agendado'`,
+         WHERE empresa_id = $1 AND status = 'agendado'
+           AND jsonb_typeof(configuracao_json->'lead_ids') = 'array'`,
         [empresaId]
       ),
     ]);
@@ -439,11 +445,10 @@ export const disparosService = {
 
     // Leads já presentes em disparos AGENDADOS pendentes (por lead_ids na config).
     const agendadosRes = await query(
-      `SELECT jsonb_array_elements_text(
-                COALESCE(configuracao_json->'lead_ids', '[]'::jsonb)
-              )::int AS lead_id
+      `SELECT jsonb_array_elements_text(configuracao_json->'lead_ids')::int AS lead_id
        FROM disparos_crm
-       WHERE empresa_id = $1 AND status = 'agendado'`,
+       WHERE empresa_id = $1 AND status = 'agendado'
+         AND jsonb_typeof(configuracao_json->'lead_ids') = 'array'`,
       [empresaId]
     );
     const jaAgendados = new Set<number>(agendadosRes.rows.map((r: any) => r.lead_id));

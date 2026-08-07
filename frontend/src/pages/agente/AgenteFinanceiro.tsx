@@ -7,6 +7,7 @@ import {
   Zap, GitBranch, Clock, Mic,
   Search, Edit2, List, FileText, BarChart2,
   CheckSquare, CheckCircle, XCircle, TrendingUp, TrendingDown, Calendar, CalendarCheck,
+  PauseCircle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
@@ -33,6 +34,42 @@ const QUICK_ACTIONS = [
   'Evolução dos últimos 3 meses',
   'Quanto gastei por categoria?',
 ]
+
+// ─── Config do chat Sexta-feira ───────────────────────────────────────────────
+// A Sexta-feira (este chat) e o agente do WhatsApp/CRM são mecanismos separados,
+// com tabelas de config próprias: desligar um NÃO desliga o outro.
+
+interface ChatFinanceiroConfig {
+  ativo: boolean
+  max_tokens?: number
+  contexto_mensagens?: number
+  empresa_id?: number | null
+}
+
+const CHAT_CONFIG_KEY = ['chat-financeiro-config']
+
+function useChatFinanceiroConfig() {
+  return useQuery<ChatFinanceiroConfig>({
+    queryKey: CHAT_CONFIG_KEY,
+    queryFn: () => agenteApi.getConfig(),
+    staleTime: 30_000,
+    retry: false,
+  })
+}
+
+function useChatFinanceiroUpdateConfig() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Partial<ChatFinanceiroConfig>) => agenteApi.updateConfig(data),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: CHAT_CONFIG_KEY })
+      toast.success(vars.ativo ? 'Sexta-feira ativada' : 'Sexta-feira desativada')
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Erro ao salvar a configuração da Sexta-feira')
+    },
+  })
+}
 
 const MODELOS_CLAUDE = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Recomendado)' },
@@ -69,6 +106,8 @@ function formatTime(dateStr: string): string {
 
 function AssistenteChat() {
   const { user } = useAuth()
+  const { data: chatConfig } = useChatFinanceiroConfig()
+  const desativada = chatConfig?.ativo === false
   const queryClient = useQueryClient()
   const [input, setInput] = useState('')
   const [mensagensLocais, setMensagensLocais] = useState<Mensagem[]>([])
@@ -135,7 +174,7 @@ function AssistenteChat() {
 
   const handleSend = () => {
     const texto = input.trim()
-    if (!texto || enviarMutation.isPending) return
+    if (!texto || enviarMutation.isPending || desativada) return
     enviarMutation.mutate(texto)
   }
 
@@ -147,12 +186,23 @@ function AssistenteChat() {
   }
 
   const handleQuickAction = (acao: string) => {
-    if (enviarMutation.isPending) return
+    if (enviarMutation.isPending || desativada) return
     enviarMutation.mutate(acao)
   }
 
   return (
     <div className="flex flex-col flex-1 min-h-0 p-4 gap-4">
+      {desativada && (
+        <div className="flex items-start gap-3 p-3 rounded-xl bg-gray-100 border border-gray-300">
+          <PauseCircle size={18} className="text-gray-500 shrink-0 mt-0.5" />
+          <p className="text-xs text-gray-600 leading-relaxed">
+            <strong className="text-gray-800">Sexta-feira desativada.</strong> Um administrador
+            desligou a assistente em <strong>Configurações → Sexta-feira ativa</strong>. O histórico
+            continua salvo e volta a funcionar assim que ela for reativada.
+          </p>
+        </div>
+      )}
+
       {mensagensLocais.length > 0 && (
         <div className="flex justify-end">
           <Button
@@ -190,7 +240,7 @@ function AssistenteChat() {
                 <button
                   key={acao}
                   onClick={() => handleQuickAction(acao)}
-                  disabled={enviarMutation.isPending}
+                  disabled={enviarMutation.isPending || desativada}
                   className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-full text-gray-700 hover:bg-primary-50 hover:border-primary-300 hover:text-primary-700 transition-colors disabled:opacity-50"
                 >
                   {acao}
@@ -261,7 +311,7 @@ function AssistenteChat() {
             <button
               key={acao}
               onClick={() => handleQuickAction(acao)}
-              disabled={enviarMutation.isPending}
+              disabled={enviarMutation.isPending || desativada}
               className="px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-full text-gray-600 hover:bg-primary-50 hover:border-primary-300 hover:text-primary-700 transition-colors whitespace-nowrap disabled:opacity-50"
             >
               {acao}
@@ -275,9 +325,12 @@ function AssistenteChat() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Digite sua mensagem... (Enter para enviar, Shift+Enter para nova linha)"
+          disabled={desativada}
+          placeholder={desativada
+            ? 'Sexta-feira desativada — ative em Configurações para conversar'
+            : 'Digite sua mensagem... (Enter para enviar, Shift+Enter para nova linha)'}
           rows={1}
-          className="flex-1 resize-none outline-none text-sm text-gray-900 placeholder-gray-400 max-h-32 overflow-y-auto"
+          className="flex-1 resize-none outline-none text-sm text-gray-900 placeholder-gray-400 max-h-32 overflow-y-auto disabled:bg-transparent disabled:cursor-not-allowed"
           style={{ height: 'auto', minHeight: '24px' }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement
@@ -287,7 +340,7 @@ function AssistenteChat() {
         />
         <button
           onClick={handleSend}
-          disabled={!input.trim() || enviarMutation.isPending}
+          disabled={!input.trim() || enviarMutation.isPending || desativada}
           className="w-9 h-9 rounded-lg bg-primary-600 text-white flex items-center justify-center hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
         >
           {enviarMutation.isPending ? (
@@ -295,6 +348,55 @@ function AssistenteChat() {
           ) : (
             <Send className="w-4 h-4" />
           )}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Toggle da Sexta-feira (chat interno) ─────────────────────────────────────
+// Vive na aba Configurações, mas grava em chat_financeiro_config — nada a ver com
+// o "Agente ativo" logo abaixo, que controla o agente do WhatsApp/CRM.
+
+function ChatSextaFeiraToggle() {
+  const { user } = useAuth()
+  const { data: config, isLoading } = useChatFinanceiroConfig()
+  const updateConfig = useChatFinanceiroUpdateConfig()
+
+  // Mesma regra do backend (chat-financeiro.controller.ts): só super_admin ou master.
+  const podeEditar = user?.nivel === 'super_admin' || user?.tipo_usuario === 'master'
+  const ativo = config?.ativo ?? true
+
+  return (
+    <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-200" data-tour="agcfg-sexta-feira">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="font-medium text-indigo-900 flex items-center gap-1.5">
+            <Bot size={15} className="text-indigo-600" />
+            Sexta-feira ativa
+          </p>
+          <p className="text-xs text-indigo-700/80 mt-0.5">
+            Liga ou desliga a assistente da aba <strong>Assistente</strong> (chat interno desta página)
+          </p>
+          {!ativo && (
+            <p className="text-xs text-indigo-800 mt-1.5">
+              Desligada: o chat para de responder para todos os usuários da empresa. Não afeta o
+              agente do WhatsApp nem os follow-ups do CRM.
+            </p>
+          )}
+          {!podeEditar && (
+            <p className="text-xs text-gray-500 mt-1.5">
+              Apenas administradores podem alterar esta opção.
+            </p>
+          )}
+        </div>
+        <button
+          onClick={() => updateConfig.mutate({ ativo: !ativo })}
+          disabled={!podeEditar || isLoading || updateConfig.isPending}
+          title={podeEditar ? undefined : 'Apenas administradores podem alterar esta opção'}
+          className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${ativo ? 'bg-indigo-600' : 'bg-gray-300'}`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${ativo ? 'translate-x-6' : ''}`} />
         </button>
       </div>
     </div>
@@ -381,11 +483,42 @@ function ConfigurarAgente() {
       </div>
 
       <>
+          {/* Sexta-feira (chat interno desta página) — config SEPARADA do agente do
+              WhatsApp/CRM. Salva na hora, sem depender do botão "Salvar configurações". */}
+          <ChatSextaFeiraToggle />
+
+          {/* Fila parada: com o agente desligado os follow-ups de IA ficam esperando.
+              Eles NÃO são perdidos — só voltam a sair quando o agente for reativado. */}
+          {!config?.ativo && (config?.followups_pausados ?? 0) > 0 && (
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-300">
+              <PauseCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-semibold text-amber-900">
+                  {config!.followups_pausados} follow-up{config!.followups_pausados! > 1 ? 's' : ''} de IA em espera
+                </p>
+                <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                  Com o agente desligado, os follow-ups agendados não são enviados — eles ficam
+                  guardados na fila e <strong>nenhum é perdido</strong>. Assim que você reativar o
+                  agente, a fila volta a sair sozinha, respeitando o intervalo entre envios.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Toggle ativo */}
           <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border" data-tour="agcfg-ativo">
             <div>
-              <p className="font-medium text-gray-900">Agente ativo</p>
-              <p className="text-xs text-gray-500 mt-0.5">Liga ou desliga o agente globalmente para toda a empresa</p>
+              <p className="font-medium text-gray-900">Agente do WhatsApp/CRM ativo</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Liga ou desliga o agente globalmente para toda a empresa (não afeta a Sexta-feira acima)
+              </p>
+              {!form.ativo && (
+                <p className="text-xs text-amber-700 mt-1.5">
+                  Desligado: follow-ups de IA ficam em espera na fila (não são perdidos) e o agente
+                  para de responder no WhatsApp. Follow-ups de <strong>mensagem fixa</strong> da
+                  cadência continuam saindo — eles não passam pela IA.
+                </p>
+              )}
             </div>
             <button
               onClick={() => set('ativo', !form.ativo)}
@@ -709,7 +842,7 @@ function ComoFunciona() {
 
   const ferramentas = [
     // CRM
-    { name: 'criar_tarefa',           icon: CheckSquare,  desc: 'Agenda ligação, reunião, follow-up ou proposta vinculada ao lead' },
+    { name: 'criar_tarefa',           icon: CheckSquare,  desc: 'Agenda ligação, reunião, follow-up ou proposta vinculada ao lead — com data e horário real (fuso de Brasília), evitando reunião "às 00:00"' },
     { name: 'listar_tarefas',         icon: List,         desc: 'Lista todas as tarefas do lead (pendentes e concluídas)' },
     { name: 'concluir_tarefa',        icon: CheckCircle,  desc: 'Marca uma tarefa do lead como concluída' },
     { name: 'mover_lead_estagio',     icon: GitBranch,    desc: 'Move o lead para outro estágio do funil de vendas' },
@@ -1061,10 +1194,13 @@ function ComoFunciona() {
           O scheduler roda a cada minuto <strong>exclusivamente na instância 0</strong> do cluster PM2 — eliminando envios duplicados em ambiente de 3 instâncias.
           Respeita data agendada, horário exato e dias da semana configurados; fora da janela o registro
           permanece <code className="text-xs font-mono bg-gray-100 px-1 rounded">pendente</code> e é tentado no próximo ciclo.
+          Os passos saem <strong>sempre em ordem e no máximo um por lead por dia</strong> — quando dois passos colidem no mesmo dia
+          (ex.: um passo rola do fim de semana para segunda), o seguinte é empurrado, preservando o intervalo desenhado na cadência.
           Passo tipo <strong>Manual</strong> envia mensagem pré-definida (com variáveis como [PrimeiroNome] e anexo de mídia);
           passo tipo <strong>Agente IA</strong> lê a <strong>conversa completa do contato</strong> no WhatsApp
           (<code className="text-xs font-mono bg-gray-100 px-1 rounded">historico_mensagens</code>), as anotações do CRM, as tags e a
-          data atual para escrever uma mensagem personalizada — sem repetir perguntas já respondidas. Após o envio, uma
+          data e hora atuais (fuso de Brasília) para escrever uma mensagem personalizada — sem repetir perguntas já respondidas
+          e com saudação coerente com o horário. Após o envio, uma
           anotação é criada automaticamente no lead para rastreabilidade.
         </p>
 
@@ -1086,7 +1222,8 @@ function ComoFunciona() {
           <p className="mt-1">
             Ícones no cabeçalho do estágio (kanban e fluxo): <strong>🤖 robô</strong> = agente de IA reativo ativo
             (responde as mensagens recebidas na hora, ciente do passo atual da cadência) · <strong>🔔 sino</strong> = cadência
-            de follow-up ativa · o estágio <em>Reunião Agendada</em> ainda tem lembretes automáticos (−24h/−1h) e régua de no-show.
+            de follow-up ativa · o estágio <em>Reunião Agendada</em> ainda tem lembretes automáticos (−24h/−1h) e régua de no-show —
+            que <strong>não disparam em fins de semana</strong> nem quando a reunião está <strong>sem horário definido</strong>, sempre no fuso de Brasília.
           </p>
         </div>
 
@@ -1267,8 +1404,8 @@ function ComoFunciona() {
               Agente reativo e follow-up IA leem da <strong>mesma fonte</strong>: <code className="font-mono bg-amber-100 px-1 rounded">historico_mensagens</code> — a conversa
               completa do <strong>contato</strong> no WhatsApp (mesmo que ele tenha leads em mais de um funil), incluindo mensagens anteriores à ativação do agente. Junto vão as
               últimas <strong>20 anotações</strong> do CRM, as <strong>tags</strong> do lead, o nome do responsável atual e
-              a <strong>data de hoje</strong> (fuso America/São_Paulo) — garantindo que o agente saiba calcular prazos,
-              dizer "amanhã" ou "essa semana" com precisão.
+              a <strong>data e a hora de hoje</strong> (fuso America/São_Paulo) — garantindo que o agente saiba calcular prazos,
+              dizer "amanhã" ou "essa semana" com precisão e cumprimentar de acordo com o horário.
             </p>
           </div>
         </div>
@@ -1295,8 +1432,10 @@ function ComoFunciona() {
             <p className="text-xs font-semibold text-orange-800">Guards do follow-up agendado</p>
             <ul className="text-xs text-orange-700 mt-1 space-y-0.5 leading-relaxed">
               <li>🔸 <strong>Conversa viva 60min</strong> — se houve mensagem (do lead ou nossa) na última hora, o passo é adiado +15min, não perdido</li>
+              <li>🔸 <strong>Ordem e 1 por dia</strong> — nunca dispara dois passos do mesmo lead no mesmo dia nem fora de ordem; se dois passos colidem (ex.: rolagem de fim de semana), o seguinte espera o próximo dia</li>
               <li>🔸 <strong>Anti-ban por empresa</strong> — envios espaçados com intervalo aleatório configurável; máx. 1 follow-up por empresa por ciclo, contando qualquer saída (massa, lembretes, chat)</li>
-              <li>🔸 <strong>Dias/horário</strong> — fora do dia da semana ou horário configurado, aguarda o próximo momento válido</li>
+              <li>🔸 <strong>Dias/horário (Brasília)</strong> — respeita os dias da semana e o horário configurados; a IA recebe a hora atual de São Paulo e cumprimenta de acordo (nunca "boa noite" de manhã)</li>
+              <li>🔸 <strong>Falha transitória adiada</strong> — erro momentâneo da IA (sobrecarga/timeout) adia e re-tenta o passo, em vez de marcá-lo como falhou</li>
               <li>🔸 <strong>Override de lead</strong> — cancela se <code className="font-mono bg-orange-100 px-0.5 rounded">agente_ia_ativo = false</code> no lead; lead arquivado não recebe cadência</li>
               <li>🔸 <strong>Envio verificado</strong> — falha no WhatsApp marca o passo como falhou (nunca como enviado); mensagem vazia não é disparada</li>
               <li>🔸 <strong>Anotação automática</strong> — cria nota no CRM após envio para rastreabilidade</li>
@@ -1369,8 +1508,9 @@ export const AgenteFinanceiro: React.FC = () => {
     { key: 'como-funciona', label: 'Como Funciona' },
   ]
 
+  // h-full, não h-screen: a área útil já vem descontada da barra de topo do mobile.
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-full">
       <Header
         title="Sexta-feira"
         subtitle="Sua consultora de sistema, operação e abordagens — também responde no WhatsApp"
@@ -1378,13 +1518,15 @@ export const AgenteFinanceiro: React.FC = () => {
       />
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 px-4 bg-white flex-shrink-0" data-tour="agente-abas">
+      {/* overflow-x-auto + whitespace-nowrap: em telas estreitas as abas rolam
+          lateralmente em vez de quebrar o rótulo em duas linhas. */}
+      <div className="flex overflow-x-auto border-b border-gray-200 px-4 bg-white flex-shrink-0" data-tour="agente-abas">
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setAba(tab.key)}
             data-tour={`agente-tab-${tab.key}`}
-            className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+            className={`whitespace-nowrap px-4 sm:px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
               aba === tab.key
                 ? 'border-primary-600 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'

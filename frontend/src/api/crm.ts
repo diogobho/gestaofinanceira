@@ -47,7 +47,9 @@ export const funisApi = {
   update: (id: number, data: Partial<Funil>) =>
     api.put<Funil>(`/crm/funis/${id}`, data).then(r => r.data),
 
-  delete: (id: number) => api.delete(`/crm/funis/${id}`),
+  // Exclui o funil junto com os leads que estiverem nele; devolve quantos foram removidos.
+  delete: (id: number) =>
+    api.delete<{ leadsRemovidos: number }>(`/crm/funis/${id}`).then(r => r.data),
 }
 
 // Estagios

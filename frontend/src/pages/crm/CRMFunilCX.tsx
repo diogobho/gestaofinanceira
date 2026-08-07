@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   RefreshCw, BarChart3, Settings, Search, Plus, LayoutList, LayoutGrid, Workflow,
   Bell, User, Calendar, DollarSign,
-  CheckCircle2, Clock, MessageCircle, Mail, Send
+  CheckCircle2, Clock, MessageCircle, Mail, Send, Upload
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -16,8 +16,10 @@ import LeadFormModal from '@/components/crm/LeadFormModal'
 import EstagioSettingsModal from '@/components/crm/EstagioSettingsModal'
 import FunilSelector from '@/components/crm/FunilSelector'
 import FunilFormModal from '@/components/crm/FunilFormModal'
+import DeleteFunilModal from '@/components/crm/DeleteFunilModal'
 import ConversaoGanhoModal, { type ConversaoGanhoData } from '@/components/crm/ConversaoGanhoModal'
 import ContatosWhatsAppModal from '@/components/crm/ContatosWhatsAppModal'
+import ImportLeadsModal from '@/components/crm/ImportLeadsModal'
 import { TourHelpButton } from '@/components/tour/TourHelpButton'
 import DisparoMensagemModal from '@/components/crm/DisparoMensagemModal'
 import DisparoEmailModal from '@/components/crm/DisparoEmailModal'
@@ -178,6 +180,7 @@ export default function CRMFunilCX() {
   const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'fluxo'>('kanban')
   const [showFunilFormModal, setShowFunilFormModal] = useState(false)
   const [editingFunil, setEditingFunil] = useState<Funil | null>(null)
+  const [deletingFunil, setDeletingFunil] = useState<Funil | null>(null)
 
   const { data: funisCXList = [] } = useFunisCX()
   const { data: usuariosEmpresa = [] } = useUsuariosEmpresa()
@@ -207,6 +210,7 @@ export default function CRMFunilCX() {
 
   const [showLeadFormModal, setShowLeadFormModal] = useState(false)
   const [showContatosModal, setShowContatosModal] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
   const [showDisparoModal, setShowDisparoModal] = useState(false)
   const [showDisparoEmailModal, setShowDisparoEmailModal] = useState(false)
   const [showEstagioModal, setShowEstagioModal] = useState(false)
@@ -341,6 +345,7 @@ export default function CRMFunilCX() {
                   setEditingFunil(f)
                   setShowFunilFormModal(true)
                 }}
+                onDelete={(f) => setDeletingFunil(f)}
               />
               {totalNaoLidas > 0 && (
                 <span className="flex items-center gap-1 px-2 py-1 bg-green-500 text-white text-xs font-bold rounded-full animate-pulse">
@@ -447,6 +452,19 @@ export default function CRMFunilCX() {
               >
                 <MessageCircle size={15} />
                 <span className="hidden md:inline">WhatsApp</span>
+              </button>
+            )}
+
+            {/* Importar planilha */}
+            {funil && (
+              <button
+                data-tour="cx-importar"
+                onClick={() => setShowImportModal(true)}
+                className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border border-amber-500 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 text-sm"
+                title="Importar clientes de CSV/Excel"
+              >
+                <Upload size={15} />
+                <span className="hidden md:inline">Importar</span>
               </button>
             )}
 
@@ -576,6 +594,12 @@ export default function CRMFunilCX() {
             funilId={funil.id}
           />
 
+          <ImportLeadsModal
+            isOpen={showImportModal}
+            onClose={() => setShowImportModal(false)}
+            defaultFunilId={funil.id}
+          />
+
           <DisparoMensagemModal
             isOpen={showDisparoModal}
             onClose={() => setShowDisparoModal(false)}
@@ -600,6 +624,16 @@ export default function CRMFunilCX() {
         }}
         funil={editingFunil}
         defaultTipo="cx"
+      />
+
+      <DeleteFunilModal
+        isOpen={!!deletingFunil}
+        onClose={() => setDeletingFunil(null)}
+        funil={deletingFunil}
+        onDeleted={(id) => {
+          // Se o funil excluído era o que estava aberto, volta para o padrão do CX.
+          if (funil?.id === id) setSelectedFunilId(undefined)
+        }}
       />
 
       <ConversaoGanhoModal

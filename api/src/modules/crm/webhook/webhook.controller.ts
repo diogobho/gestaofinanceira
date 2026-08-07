@@ -22,8 +22,12 @@ const FORM_LEAD_ORIGEM = 'Leadership (form site)';
 // Autenticado pelo hottok no header X-HOTMART-HOTTOK (fallback body.hottok).
 // O comprador cai sempre no funil "Boas vindas" (id 32), sob responsabilidade da
 // Gabriela (id 27). O ESTÁGIO de entrada é definido pelo PRODUTO comprado:
-//   - Escola de Empreendedorismo (product.id 5510712) → "Entrada - ESCOLA"     (id 243)
-//   - Formação Líderes Quânticos (product.id 7956451) → "Entrada - Leaderhsip" (id 245)
+//   - Escola de Empreendedorismo (product.id 5510712) → "Entrada - ESCOLA" (id 243)
+//   - Formação Líderes Quânticos (product.id 7956451) → "Entrada - ESCOLA" (id 243)
+// Os dois produtos compartilham o mesmo estágio hoje: o estágio próprio do Leadership
+// (id 245) foi excluído do funil e o "Boas vindas" ficou só com a cadência da Escola.
+// A conexão de origem continua distinguida no log e pode voltar a ter estágio próprio
+// trocando HOTMART_ESTAGIO_LEADERSHIP_ID no .env.
 // O hottok NÃO serve para rotear: as duas ofertas usam a mesma conta Hotmart e
 // portanto o MESMO token — ele só autentica. O roteamento é pelo product.id.
 // A camada de boas-vindas no WhatsApp é configurada pelo próprio usuário na
@@ -34,9 +38,26 @@ const HOTMART_EMPRESA_ID = Number(process.env.HOTMART_EMPRESA_ID) || 5;
 const HOTMART_FUNIL_ID = Number(process.env.HOTMART_FUNIL_ID) || 32;
 const HOTMART_RESPONSAVEL_ID = Number(process.env.HOTMART_RESPONSAVEL_ID) || 27;
 const HOTMART_ESTAGIO_ESCOLA_ID = Number(process.env.HOTMART_ESTAGIO_ESCOLA_ID) || 243;
-const HOTMART_ESTAGIO_LEADERSHIP_ID = Number(process.env.HOTMART_ESTAGIO_LEADERSHIP_ID) || 245;
+const HOTMART_ESTAGIO_LEADERSHIP_ID = Number(process.env.HOTMART_ESTAGIO_LEADERSHIP_ID) || 243;
 // Produtos Hotmart → estágio de entrada. Escola é o padrão (produto desconhecido cai em ESCOLA).
 const HOTMART_PRODUTO_LEADERSHIP_ID = Number(process.env.HOTMART_PRODUTO_LEADERSHIP_ID) || 7956451;
+// Carrinho abandonado (PURCHASE_OUT_OF_SHOPPING_CART) → funil "Escola Empreendedorismo" (24),
+// estágio "Entrada de Leads" (208). Sem automação: o time comercial recupera manualmente.
+const HOTMART_ABANDONO_FUNIL_ID = Number(process.env.HOTMART_ABANDONO_FUNIL_ID) || 24;
+const HOTMART_ABANDONO_ESTAGIO_ID = Number(process.env.HOTMART_ABANDONO_ESTAGIO_ID) || 208;
+// Proprietária dos leads de carrinho abandonado: Jéssica Machado (id 45).
+const HOTMART_ABANDONO_RESPONSAVEL_ID = Number(process.env.HOTMART_ABANDONO_RESPONSAVEL_ID) || 45;
+
+// Webhook de captação genérica de formulário de site → cria lead no funil
+// "Escola Empreendedorismo" (id 24), estágio de entrada "Entrada de Leads" (id 208),
+// sob responsabilidade da Jéssica (comercial, id 45). Só usa Nome e Telefone (país+DDD+número).
+// Autenticado via X-Webhook-Secret (header) ou ?secret= / ?token= (query).
+const ESCOLA_FORM_SECRET = process.env.ESCOLA_FORM_WEBHOOK_SECRET || '';
+const ESCOLA_FORM_EMPRESA_ID = Number(process.env.ESCOLA_FORM_EMPRESA_ID) || 5;
+const ESCOLA_FORM_FUNIL_ID = Number(process.env.ESCOLA_FORM_FUNIL_ID) || 24;
+const ESCOLA_FORM_ESTAGIO_ID = Number(process.env.ESCOLA_FORM_ESTAGIO_ID) || 208;
+const ESCOLA_FORM_RESPONSAVEL_ID = Number(process.env.ESCOLA_FORM_RESPONSAVEL_ID) || 45;
+const ESCOLA_FORM_ORIGEM = 'Escola Empreendedorismo (form site)';
 
 // Extrai o valor de um campo aceitando os formatos comuns de webhook de form:
 // - flat (Elementor com Field ID = nome):           body.nome
@@ -85,6 +106,57 @@ function pickByTokens(body: any, todos: string[], algum: string[] = []): string 
     }
   }
   return '';
+}
+
+// Garante que o estágio de destino de um lead automático ainda existe no funil.
+// Estágio configurado por env/constante pode ser excluído pelo usuário na ferramenta —
+// como leads.estagio_id tem FK ON DELETE RESTRICT, o insert quebraria com 500 e a origem
+// (Hotmart, form) ficaria reenviando. Nesse caso caímos no estágio de entrada do funil.
+// Retorna null se o próprio funil não existir (aí não há destino possível).
+async function resolverEstagioEntrada(funilId: number, estagioPreferido: number): Promise<number | null> {
+  const existe = await query(
+    `SELECT 1 FROM estagios_funil WHERE id = $1 AND funil_id = $2`,
+    [estagioPreferido, funilId]
+  );
+  if (existe.rows.length > 0) return estagioPreferido;
+
+  const entrada = await query(
+    `SELECT id FROM estagios_funil WHERE funil_id = $1 ORDER BY ordem ASC, id ASC LIMIT 1`,
+    [funilId]
+  );
+  if (entrada.rows.length === 0) {
+    console.error(`[Webhook] Funil ${funilId} sem estágios — impossível criar lead`);
+    return null;
+  }
+  console.warn(
+    `[Webhook] Estágio ${estagioPreferido} não existe no funil ${funilId}; ` +
+    `usando o estágio de entrada ${entrada.rows[0].id}`
+  );
+  return entrada.rows[0].id;
+}
+
+// Monta o telefone do comprador da Hotmart a partir de checkout_phone_code + checkout_phone.
+// A Hotmart é inconsistente no `code`: às vezes vem o DDI ("55"), às vezes repete o DDD
+// ("11", "53", "62"...) que já está no `phone` — concatenar cego gerava número de 13 dígitos
+// inválido (ex.: 11 + 11976937828 = 1111976937828) que nunca chegava no WhatsApp.
+// Regra: se o `phone` já é um número nacional completo (10 ou 11 dígitos), o `code` só é
+// aproveitado quando for um DDI estrangeiro de verdade — se for "55" ou uma repetição do
+// DDD, assumimos Brasil. A normalização final (9º dígito) fica no leadsService.create.
+function montarTelefoneHotmart(phoneCode: any, phone: any): string {
+  const code = String(phoneCode || '').replace(/\D/g, '');
+  const fone = String(phone || '').replace(/\D/g, '');
+  if (!fone) return '';
+
+  // Já veio completo com DDI 55 (55 + DDD + 8/9 dígitos)
+  if (fone.startsWith('55') && (fone.length === 12 || fone.length === 13)) return fone;
+
+  // Nacional: DDD + 8/9 dígitos
+  if (fone.length === 10 || fone.length === 11) {
+    if (!code || code === '55' || code === fone.slice(0, 2)) return `55${fone}`;
+    return `${code}${fone}`; // DDI estrangeiro legítimo (ex.: 351 + 912345678)
+  }
+
+  return `${code}${fone}`;
 }
 
 function mapWhatsAppType(type: string): string {
@@ -715,6 +787,73 @@ export const webhookController = {
     }
   },
 
+  // Recebe o preenchimento de um formulário de site (WordPress/Elementor, Google Forms,
+  // HTML puro, etc.) e cria o lead no funil "Escola Empreendedorismo", estágio "Entrada de Leads".
+  // Só aproveita Nome e Telefone (país+DDD+número, ex.: 5531999998888).
+  // Autenticada via header X-Webhook-Secret OU query string (?secret= / ?token=).
+  async receberFormEscola(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!ESCOLA_FORM_SECRET) {
+        console.error('[FormEscola] ESCOLA_FORM_WEBHOOK_SECRET não configurado no .env');
+        return res.status(500).json({ error: 'Webhook não configurado' });
+      }
+      const secret = req.headers['x-webhook-secret'] || req.query.secret || req.query.token;
+      if (secret !== ESCOLA_FORM_SECRET) {
+        return res.status(401).json({ error: 'Webhook secret invalido' });
+      }
+
+      // Nome: aceita nome/name/first_name (+ sobrenome opcional) por Field ID ou por rótulo.
+      const nome = pickFormField(req.body, ['nome', 'name', 'first_name', 'primeiro_nome'])
+        || pickByTokens(req.body, ['nome']);
+      const sobrenome = pickFormField(req.body, ['sobrenome', 'last_name', 'surname'])
+        || pickByTokens(req.body, ['sobrenome']);
+      // Telefone: país+DDD+número. A normalização BR é feita pelo leadsService.create.
+      const telefone = pickFormField(req.body, ['telefone', 'phone', 'celular', 'whatsapp', 'tel'])
+        || pickByTokens(req.body, ['telefone']) || pickByTokens(req.body, ['celular'])
+        || pickByTokens(req.body, ['whatsapp']);
+
+      const nomeCompleto = [nome, sobrenome].filter(Boolean).join(' ').trim();
+
+      if (!nomeCompleto || !telefone) {
+        console.warn('[FormEscola] Payload sem nome/telefone:', JSON.stringify(req.body).slice(0, 500));
+        return res.status(400).json({ error: 'Nome e telefone são obrigatórios' });
+      }
+
+      const estagioEscola = await resolverEstagioEntrada(ESCOLA_FORM_FUNIL_ID, ESCOLA_FORM_ESTAGIO_ID);
+      if (!estagioEscola) {
+        return res.status(500).json({ error: 'Funil de destino sem estágios' });
+      }
+
+      try {
+        const lead = await leadsService.create(
+          ESCOLA_FORM_EMPRESA_ID,
+          ESCOLA_FORM_RESPONSAVEL_ID,
+          {
+            funil_id: ESCOLA_FORM_FUNIL_ID,
+            estagio_id: estagioEscola,   // "Entrada de Leads"
+            responsavel_id: ESCOLA_FORM_RESPONSAVEL_ID,
+            nome: nomeCompleto,
+            telefone,
+            origem: ESCOLA_FORM_ORIGEM,
+          },
+          false // requireTarefa = false (lead automático de captação)
+        );
+        console.log(`[FormEscola] Lead #${lead.id} criado: "${lead.nome}" (${telefone})`);
+        return res.status(201).json({ success: true, lead_id: lead.id });
+      } catch (err: any) {
+        // Duplicata de telefone no funil: já existe lead → 200 para o form não reenviar.
+        if (/Já existe um lead/i.test(err?.message || '')) {
+          console.log(`[FormEscola] Duplicata ignorada: ${err.message}`);
+          return res.json({ success: true, duplicate: true, message: err.message });
+        }
+        throw err;
+      }
+    } catch (error) {
+      console.error('[FormEscola] Erro no webhook do formulário Escola Empreendedorismo:', error);
+      next(error);
+    }
+  },
+
   // Recebe a notificação de compra da Hotmart (webhook 2.0.0) e cria o lead no CRM.
   // Apenas o evento PURCHASE_APPROVED gera lead; os demais são reconhecidos com 200 e ignorados.
   async receberCompraHotmart(req: Request, res: Response, next: NextFunction) {
@@ -734,6 +873,64 @@ export const webhookController = {
 
       const body = req.body || {};
       const event = body.event || body.data?.event;
+
+      // Carrinho abandonado: iniciou o checkout e não finalizou → cria lead de recuperação
+      // no funil "Escola Empreendedorismo" / estágio "Entrada de Leads" (sem automação).
+      if (event === 'PURCHASE_OUT_OF_SHOPPING_CART') {
+        const d = body.data || {};
+        const b = d.buyer || {};
+        const nomeAb = String(b.name || [b.first_name, b.last_name].filter(Boolean).join(' ') || '').trim();
+        const emailAb = String(b.email || '').trim();
+        const telefoneAb = montarTelefoneHotmart(
+          b.checkout_phone_code,
+          b.checkout_phone || (typeof b.phone === 'string' ? b.phone : '')
+        );
+        const produtoAb = String(d.product?.name || '').trim();
+
+        if (!nomeAb && !telefoneAb && !emailAb) {
+          console.warn('[Hotmart/Abandono] Payload sem comprador reconhecido:', JSON.stringify(body).slice(0, 500));
+          return res.status(400).json({ error: 'Nenhum dado de comprador (nome/telefone/email)' });
+        }
+
+        const notasAb = [
+          'Carrinho abandonado — iniciou o checkout e não finalizou a compra',
+          produtoAb && `Produto: ${produtoAb}${d.product?.id ? ` (#${d.product.id})` : ''}`,
+          d.offer?.code && `Oferta: ${d.offer.code}`,
+        ].filter(Boolean).join('\n');
+
+        const estagioAb = await resolverEstagioEntrada(HOTMART_ABANDONO_FUNIL_ID, HOTMART_ABANDONO_ESTAGIO_ID);
+        if (!estagioAb) {
+          return res.status(500).json({ error: 'Funil de destino sem estágios' });
+        }
+
+        try {
+          const lead = await leadsService.create(
+            HOTMART_EMPRESA_ID,
+            HOTMART_ABANDONO_RESPONSAVEL_ID,
+            {
+              funil_id: HOTMART_ABANDONO_FUNIL_ID,
+              estagio_id: estagioAb,
+              responsavel_id: HOTMART_ABANDONO_RESPONSAVEL_ID,   // proprietária: Jéssica
+              nome: nomeAb || telefoneAb || emailAb,
+              telefone: telefoneAb || undefined,
+              email: emailAb || undefined,
+              titulo: produtoAb || undefined,
+              origem: 'Abandono carrinho',
+              notas: notasAb || undefined,
+            },
+            false // requireTarefa = false (lead automático de captação)
+          );
+          console.log(`[Hotmart/Abandono] Lead #${lead.id} criado: "${lead.nome}" (${telefoneAb || emailAb}) — proprietária #${HOTMART_ABANDONO_RESPONSAVEL_ID}`);
+          return res.status(201).json({ success: true, lead_id: lead.id, tipo: 'carrinho_abandonado' });
+        } catch (err: any) {
+          if (/Já existe um lead/i.test(err?.message || '')) {
+            console.log(`[Hotmart/Abandono] Duplicata ignorada: ${err.message}`);
+            return res.json({ success: true, duplicate: true, message: err.message });
+          }
+          throw err;
+        }
+      }
+
       // Só compra aprovada gera lead. Outros eventos: responde 200 para a Hotmart não reenviar.
       if (event && event !== 'PURCHASE_APPROVED') {
         return res.json({ success: true, processed: false, reason: `evento_ignorado:${event}` });
@@ -755,6 +952,10 @@ export const webhookController = {
         estagioEntradaId = HOTMART_ESTAGIO_ESCOLA_ID;
         conexao = 'ESCOLA';
       }
+      const estagioResolvido = await resolverEstagioEntrada(HOTMART_FUNIL_ID, estagioEntradaId);
+      if (!estagioResolvido) {
+        return res.status(500).json({ error: 'Funil de destino sem estágios' });
+      }
 
       // Proteção contra parcelado/recorrência: cobranças seguintes de assinatura/parcelamento
       // inteligente trazem recurrence_number > 1 → não recriam lead (evita boas-vindas repetida).
@@ -766,11 +967,12 @@ export const webhookController = {
 
       const nome = String(buyer.name || [buyer.first_name, buyer.last_name].filter(Boolean).join(' ') || '').trim();
       const email = String(buyer.email || '').trim();
-      // Telefone: combina o DDI (checkout_phone_code, ex.: "55") com o número (checkout_phone).
-      // Fallback para phone (string). A normalização BR é feita pelo leadsService.create.
-      const ddi = String(buyer.checkout_phone_code || '').replace(/\D/g, '');
-      const foneRaw = String(buyer.checkout_phone || (typeof buyer.phone === 'string' ? buyer.phone : '') || '').replace(/\D/g, '');
-      const telefone = foneRaw ? `${ddi}${foneRaw}` : '';
+      // Telefone: checkout_phone_code + checkout_phone, com fallback para phone (string).
+      // A normalização BR final é feita pelo leadsService.create.
+      const telefone = montarTelefoneHotmart(
+        buyer.checkout_phone_code,
+        buyer.checkout_phone || (typeof buyer.phone === 'string' ? buyer.phone : '')
+      );
       const cpfCnpj = String(buyer.document || '').trim();
 
       const produto = String(data.product?.name || '').trim();
@@ -807,7 +1009,7 @@ export const webhookController = {
           HOTMART_RESPONSAVEL_ID,
           {
             funil_id: HOTMART_FUNIL_ID,
-            estagio_id: estagioEntradaId,      // estágio de entrada conforme a conexão (ESCOLA/Leadership)
+            estagio_id: estagioResolvido,      // estágio de entrada conforme a conexão (ESCOLA/Leadership)
             responsavel_id: HOTMART_RESPONSAVEL_ID,
             nome: nome || telefone || email,
             telefone: telefone || undefined,
@@ -883,6 +1085,55 @@ export const webhookController = {
       res.json({ success: true, processed: true, empresas: empresaIds.length });
     } catch (error) {
       console.error('[Webhook Grupo] Erro:', error);
+      next(error);
+    }
+  },
+
+  // Telemetria de conexão: a instância Baileys empurra aqui cada desconexão
+  // (logout/ban/rede...). Registra no log append-only whatsapp_conexao_eventos,
+  // mapeando a porta → usuário/empresa. Autenticado pelo mesmo X-Webhook-Secret.
+  async registrarConexao(req: Request, res: Response, next: NextFunction) {
+    try {
+      const secret = req.headers['x-webhook-secret'];
+      if (secret !== WEBHOOK_SECRET) {
+        return res.status(401).json({ error: 'Webhook secret invalido' });
+      }
+
+      const { port, categoria, motivo, code, registrado } = req.body || {};
+      const porta = Number(port);
+      if (!porta) {
+        return res.status(400).json({ error: 'Campo "port" obrigatorio' });
+      }
+
+      // Mapeia a porta → usuário/empresa (pode não existir se a porta foi liberada)
+      const dono = await query(
+        `SELECT id, empresa_id FROM usuarios WHERE whatsapp_porta = $1 LIMIT 1`,
+        [porta]
+      );
+      const usuarioId = dono.rows[0]?.id ?? null;
+      const empresaId = dono.rows[0]?.empresa_id ?? null;
+
+      await query(
+        `INSERT INTO whatsapp_conexao_eventos
+           (porta, usuario_id, empresa_id, categoria, motivo, status_code, registrado)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [porta, usuarioId, empresaId, categoria || null, motivo || null,
+         Number.isFinite(Number(code)) ? Number(code) : null,
+         typeof registrado === 'boolean' ? registrado : null]
+      );
+
+      // Marca o usuário como desconectado (o /status confirmará quando reconectar)
+      if (usuarioId) {
+        await query(`UPDATE usuarios SET whatsapp_conectado = FALSE WHERE id = $1`, [usuarioId]);
+      }
+
+      if (categoria === 'ban') {
+        console.warn(`[Webhook Conexão] ⛔ BAN detectado na porta ${porta} (usuário ${usuarioId ?? '?'}): ${motivo}`);
+      }
+
+      return res.json({ success: true, usuarioId, empresaId });
+    } catch (error) {
+      console.error('[Webhook Conexão] Erro:', error);
       next(error);
     }
   }

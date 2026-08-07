@@ -63,7 +63,10 @@ export const funisController = {
 
       const funil = await funisService.create(empresaId, usuarioId, { nome, descricao, padrao, tipo, padrao_cx });
       res.status(201).json(funil);
-    } catch (error) {
+    } catch (error: any) {
+      if (error.code === '23505') {
+        return res.status(400).json({ message: 'Já existe um funil com este nome' });
+      }
       next(error);
     }
   },
@@ -88,7 +91,10 @@ export const funisController = {
       }
 
       res.json(funil);
-    } catch (error) {
+    } catch (error: any) {
+      if (error.code === '23505') {
+        return res.status(400).json({ message: 'Já existe um funil com este nome' });
+      }
       next(error);
     }
   },
@@ -98,8 +104,11 @@ export const funisController = {
       const empresaId = (req as any).user.empresa_id;
       const { id } = req.params;
 
-      await funisService.delete(parseInt(id), empresaId);
-      res.status(204).send();
+      const resultado = await funisService.delete(parseInt(id), empresaId);
+      if (!resultado) {
+        return res.status(404).json({ message: 'Funil não encontrado' });
+      }
+      res.json(resultado);
     } catch (error: any) {
       if (error.message.includes('Não é possível')) {
         return res.status(400).json({ message: error.message });

@@ -2,7 +2,11 @@ import bcrypt from 'bcryptjs';
 import { query } from '../../config/database';
 import { JwtPayload } from '../../config/jwt';
 import { whatsappProvisionService } from '../../services/whatsapp-provision.service';
+import { assinaturasService } from '../assinaturas/assinaturas.service';
 
+// Permissões padrão — alinhadas às seções atuais do sistema (o módulo
+// 'relatorios' foi removido; 'agente' = Agente IA). Deve espelhar o
+// PERMISSOES_PJ / UserPermissoes do frontend (admin/UserManagement.tsx).
 const DEFAULT_PERMISSOES = {
   dashboard: true,
   crm: true,
@@ -12,7 +16,7 @@ const DEFAULT_PERMISSOES = {
   parcelas: true,
   sessoes: true,
   whatsapp: true,
-  relatorios: true
+  agente: true
 };
 
 function validarSenha(senha: string) {
@@ -111,6 +115,18 @@ export const usuariosService = {
       data.nivel = 'usuario';
     } else {
       throw new Error('Sem permissão para criar usuários');
+    }
+
+    // Limite de usuários do plano. O super_admin passa direto: é ele quem provisiona
+    // empresa e master, e travá-lo impediria criar a primeira conta de um cliente novo.
+    if (caller.nivel !== 'super_admin') {
+      const { limite, emUso } = await assinaturasService.getLimiteUsuarios(data.empresa_id);
+      if (limite != null && emUso >= limite) {
+        throw new Error(
+          `Limite de ${limite} usuários atingido no seu plano. ` +
+          `Aumente a quantidade de usuários em "Minha Conta" para adicionar mais.`
+        );
+      }
     }
 
     // E-mail duplicado → mensagem amigável em vez de erro 500 do constraint

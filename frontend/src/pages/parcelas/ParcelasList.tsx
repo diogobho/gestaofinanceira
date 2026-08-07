@@ -290,8 +290,10 @@ export const ParcelasList: React.FC = () => {
     vencimento.setHours(0, 0, 0, 0)
     const diffDays = Math.floor((vencimento.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 
-    if (diffDays < 0) return 'bg-red-50' // Overdue
-    if (diffDays <= 7) return 'bg-yellow-50' // Due soon
+    // Sem a variante dark, a linha ficava rosa/amarelo claro com o texto branco
+    // do tema escuro por cima — ilegível.
+    if (diffDays < 0) return 'bg-red-50 dark:bg-red-950/40' // Overdue
+    if (diffDays <= 7) return 'bg-yellow-50 dark:bg-yellow-950/40' // Due soon
     return ''
   }
 
@@ -348,7 +350,7 @@ export const ParcelasList: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-full min-h-[60vh]">
         <Spinner size="lg" />
       </div>
     )
@@ -538,7 +540,12 @@ export const ParcelasList: React.FC = () => {
 
           {/* Botões de E-mail e WhatsApp (só para receitas de usuários PJ) */}
           {activeTab === 'receitas' && (
-            <div className="flex items-center gap-2 pt-4 border-t border-gray-200" data-tour="parcelas-cobranca">
+            <div
+              /* flex-wrap: com whitespace-nowrap nos dois botões, em tela estreita o
+                 segundo era empurrado para fora em vez de descer para a linha de baixo. */
+              className="flex flex-wrap items-center gap-2 pt-4 border-t border-gray-200"
+              data-tour="parcelas-cobranca"
+            >
               <Button
                 variant="outline"
                 onClick={() => setIsEmailPreviewOpen(true)}

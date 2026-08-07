@@ -10,6 +10,12 @@ import CadenciaConfig, {
   followupConfigParaCadencia,
   cadenciaParaFollowupConfig,
 } from './CadenciaConfig'
+import ReuniaoLembretesConfig, {
+  ReuniaoLembretesValue,
+  reuniaoLembretesPadrao,
+  configParaLembretes,
+  lembretesParaConfig,
+} from './ReuniaoLembretesConfig'
 
 interface EstagioSettingsModalProps {
   isOpen: boolean
@@ -57,6 +63,8 @@ export default function EstagioSettingsModal({
   const [autoCriarUsuarios, setAutoCriarUsuarios] = useState<number[]>([])
   // Agente de IA reativo (responde às mensagens do lead neste estágio)
   const [agenteIaAtivo, setAgenteIaAtivo] = useState(false)
+  // Lembretes de reunião (−24h/−1h + resgate de no-show)
+  const [reuniaoLembretes, setReuniaoLembretes] = useState<ReuniaoLembretesValue>(reuniaoLembretesPadrao())
 
   const updateEstagio = useUpdateEstagio()
   const deleteEstagio = useDeleteEstagio()
@@ -76,6 +84,7 @@ export default function EstagioSettingsModal({
       setAutoCriarLead(estagio.auto_criar_lead ?? false)
       setAutoCriarUsuarios(estagio.auto_criar_lead_usuarios ?? [])
       setAgenteIaAtivo(estagio.agente_ia_ativo ?? false)
+      setReuniaoLembretes(configParaLembretes(estagio.reuniao_lembretes))
       const base = followupConfigParaCadencia(estagio.followup_config)
       if (appendPassoOnOpen) {
         // "+ Adicionar passo" vindo do Fluxo: preserva os passos existentes e anexa um novo.
@@ -97,6 +106,7 @@ export default function EstagioSettingsModal({
       setAutoCriarLead(false)
       setAutoCriarUsuarios([])
       setAgenteIaAtivo(false)
+      setReuniaoLembretes(reuniaoLembretesPadrao())
       setCadencia(cadenciaPadrao())
     }
     setShowDeleteConfirm(false)
@@ -125,6 +135,7 @@ export default function EstagioSettingsModal({
           auto_criar_lead: autoCriarLead,
           auto_criar_lead_usuarios: autoCriarLead ? autoCriarUsuarios : [],
           agente_ia_ativo: agenteIaAtivo,
+          reuniao_lembretes: lembretesParaConfig(reuniaoLembretes),
         }
       })
     } else {
@@ -374,6 +385,16 @@ export default function EstagioSettingsModal({
                 value={cadencia}
                 onChange={setCadencia}
                 titulo="Follow-up automático"
+              />
+            </div>
+          )}
+
+          {/* Lembretes de reunião — para estágios de "Reunião agendada" */}
+          {mode === 'edit' && (
+            <div className="pt-4 border-t">
+              <ReuniaoLembretesConfig
+                value={reuniaoLembretes}
+                onChange={setReuniaoLembretes}
               />
             </div>
           )}

@@ -198,6 +198,19 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
           Desconectado — aguardando QR Code...
         </div>
       )}
+
+      {/* Aviso de ban / motivo da última desconexão */}
+      {status?.banido && (
+        <div className="flex items-start gap-2 mt-1 p-2 rounded-md bg-red-50 dark:bg-red-900/20 text-xs text-red-700 dark:text-red-300">
+          <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <span><strong>Número bloqueado pela Meta.</strong> A reconexão automática foi suspensa — troque o chip ou reconecte com um novo número.</span>
+        </div>
+      )}
+      {!status?.banido && !isConnected && status?.lastDisconnect && status.lastDisconnect.categoria !== 'rede' && (
+        <div className="mt-1 text-[11px] text-gray-400">
+          Última queda: {status.lastDisconnect.motivo}
+        </div>
+      )}
     </div>
   );
 };
@@ -346,8 +359,8 @@ export const WhatsAppConfig: React.FC = () => {
     }
 
     return (
-      <div className="max-w-5xl mx-auto">
-        <div className="mb-6 flex items-start justify-between ml-10 md:ml-0">
+      <div className="max-w-5xl mx-auto px-4 py-4 sm:px-6">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <MessageSquare className="w-8 h-8 text-green-600" />
@@ -497,13 +510,20 @@ export const WhatsAppConfig: React.FC = () => {
             <>
               <XCircle className="w-12 h-12 text-red-500" />
               <div className="flex-1">
-                <p className="font-semibold text-gray-900">WhatsApp Desconectado</p>
-                <p className="text-sm text-gray-600">
-                  Escaneie o QR Code abaixo para conectar
+                <p className="font-semibold text-gray-900">
+                  {status?.banido ? 'Número bloqueado pela Meta' : 'WhatsApp Desconectado'}
                 </p>
+                <p className="text-sm text-gray-600">
+                  {status?.banido
+                    ? 'A reconexão automática foi suspensa. Troque o chip ou conecte um novo número.'
+                    : 'Escaneie o QR Code abaixo para conectar'}
+                </p>
+                {!status?.banido && status?.lastDisconnect && status.lastDisconnect.categoria !== 'rede' && (
+                  <p className="text-xs text-gray-400 mt-0.5">Última queda: {status.lastDisconnect.motivo}</p>
+                )}
               </div>
-              <div className="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium">
-                Offline
+              <div className={`px-4 py-2 rounded-lg text-sm font-medium ${status?.banido ? 'bg-red-600 text-white' : 'bg-red-100 text-red-700'}`}>
+                {status?.banido ? 'Banido' : 'Offline'}
               </div>
             </>
           )}

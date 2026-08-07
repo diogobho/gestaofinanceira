@@ -6,11 +6,17 @@ const router = Router();
 // Rota publica (sem auth JWT) - autenticada via X-Webhook-Secret header
 router.post('/webhook/whatsapp', webhookController.receberMensagem);
 router.post('/webhook/whatsapp/group-participant-add', webhookController.novoParticipanteGrupo);
+// Telemetria de conexão (logout/ban/rede) empurrada pela instância Baileys
+router.post('/webhook/whatsapp-conexao', webhookController.registrarConexao);
 
 // Webhook do formulário Leadership (WordPress/Elementor) → cria lead no funil Club.
 // urlencoded escopado aqui pois o Elementor envia application/x-www-form-urlencoded
 // (express.json global cobre o caso de envio em JSON).
 router.post('/webhook/form-leadership', urlencoded({ extended: true }), webhookController.receberFormLeadership);
+
+// Webhook de formulário do site → cria lead no funil "Escola Empreendedorismo" (Nome + Telefone).
+// urlencoded escopado (Elementor/HTML enviam x-www-form-urlencoded; express.json global cobre JSON).
+router.post('/webhook/form-escola', urlencoded({ extended: true }), webhookController.receberFormEscola);
 
 // Webhook de compra da Hotmart (evento PURCHASE_APPROVED) → cria lead no funil "Boas vindas".
 // Hotmart envia application/json; autenticado pelo hottok no header X-HOTMART-HOTTOK.

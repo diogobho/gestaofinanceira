@@ -23,7 +23,9 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useUserPhoto } from '@/hooks/useUserPhoto'
 import { TourButton } from '@/components/tour/TourButton'
-import logo from '/logo.png'
+// Símbolo já recortado e quadrado; o logo.png original é 1920x1080 e, em h-8,
+// renderizava o símbolo minúsculo cercado de margem vazia.
+import logo from '/icons/icon-192.png'
 
 // Navegação com permissões associadas
 const navigationItems = [
@@ -118,7 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       >
       <div className="flex items-center justify-between px-4 h-16 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
-          <img src={logo} alt="DuoFuturo" className="h-8 w-auto" />
+          <img src={logo} alt="DuoFuturo" className="h-8 w-8" />
           <span className="text-lg font-bold text-brand-navy dark:text-white">DuoFuturo</span>
         </div>
         {/* Botão fechar - apenas mobile */}

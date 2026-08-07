@@ -42,6 +42,8 @@ const VARIAVEIS = [
   { label: '[PrimeiroNome]', desc: 'Primeiro nome' },
   { label: '[Empresa]', desc: 'Empresa do lead' },
   { label: '[Email]', desc: 'E-mail do lead' },
+  { label: '[Responsavel]', desc: 'Nome do responsável pelo lead' },
+  { label: '[PrimeiroNomeResponsavel]', desc: 'Primeiro nome do responsável' },
 ]
 
 function aplicarPreview(template: string, lead: LeadEmail): string {

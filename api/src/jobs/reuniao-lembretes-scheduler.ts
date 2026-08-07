@@ -40,21 +40,31 @@ interface Marco {
 }
 
 async function processar(): Promise<void> {
+  // Política da empresa: não enviar lembretes de reunião em sábado/domingo (fuso SP).
+  // Um lembrete que cairia no fim de semana simplesmente não sai (a janela passa).
+  const dowSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })).getDay();
+  if (dowSP === 0 || dowSP === 6) {
+    return;
+  }
+
   // Candidatos: 1 linha por lead (a reunião mais recente), já com a distância em minutos
-  // entre agora e a reunião calculada pelo Postgres (mesma convenção do resto do sistema:
-  // data_vencimento comparado direto com NOW()).
+  // entre agora e a reunião calculada pelo Postgres. data_vencimento guarda o horário de
+  // PAREDE de São Paulo (naive) — por isso é interpretado AT TIME ZONE 'America/Sao_Paulo'
+  // para virar o instante correto; a hora exibida (to_char) já é a parede SP.
   const { rows: candidatos } = await query(
     `SELECT DISTINCT ON (l.id)
         l.id  AS lead_id, l.nome, l.telefone, l.email, l.empresa, l.cargo, l.origem,
         l.temperatura, l.valor_potencial, l.moeda, l.cpf_cnpj,
         l.contato_whatsapp_id, l.responsavel_id, l.empresa_id,
+        ur.nome AS responsavel_nome,
         t.id AS tarefa_id, t.responsavel_id AS tarefa_responsavel_id,
         to_char(t.data_vencimento, 'HH24:MI') AS reuniao_hora,
         to_char(t.data_vencimento, 'DD/MM')   AS reuniao_data,
-        EXTRACT(EPOCH FROM (NOW() - t.data_vencimento)) / 60.0 AS min_desde,
+        EXTRACT(EPOCH FROM (NOW() - (t.data_vencimento AT TIME ZONE 'America/Sao_Paulo'))) / 60.0 AS min_desde,
         ef.reuniao_lembretes AS cfg
      FROM estagios_funil ef
      JOIN leads l        ON l.estagio_id = ef.id AND l.arquivado = false
+     LEFT JOIN usuarios ur ON ur.id = l.responsavel_id
      JOIN tarefas_lead t ON t.lead_id = l.id AND t.tipo = 'reuniao'
      WHERE ef.reuniao_lembretes IS NOT NULL
        AND (ef.reuniao_lembretes->>'ativo') = 'true'
@@ -65,6 +75,15 @@ async function processar(): Promise<void> {
   if (candidatos.length === 0) return;
 
   for (const c of candidatos) {
+    // Guarda de horário: reunião sem hora real (meia-noite / madrugada) é quase sempre
+    // "hora não preenchida". Não dispara lembrete — evita "conversa é amanhã às 00:00" e o
+    // lembrete de 24h escapar para as 21h do dia anterior.
+    const hReuniao = parseInt(String(c.reuniao_hora || '').slice(0, 2), 10);
+    if (!Number.isFinite(hReuniao) || hReuniao < 6 || hReuniao >= 22) {
+      console.log(`[ReuniaoLembretes] Lead #${c.lead_id}: reunião sem horário confiável (${c.reuniao_hora}) — lembrete ignorado`);
+      continue;
+    }
+
     const marcos: Marco[] = Array.isArray(c.cfg?.marcos) ? c.cfg.marcos : [];
     const minDesde = Number(c.min_desde); // >0 se a reunião já passou; <0 se ainda vai acontecer
 

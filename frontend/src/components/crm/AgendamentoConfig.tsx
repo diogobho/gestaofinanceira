@@ -35,10 +35,13 @@ export interface AgendamentoValue {
   dias_semana?: number[] | null     // 0=Dom..6=Sáb
 }
 
-// Variáveis de personalização disponíveis (todos os atributos do lead).
+// Variáveis de personalização disponíveis: os atributos do lead e, no fim, quem
+// assina a mensagem — o RESPONSÁVEL do lead, dono do WhatsApp pelo qual ela sai.
+// Espelha VARIAVEIS_DISPONIVEIS de api/src/modules/crm/_shared/agendamento.ts.
 export const VARIAVEIS_AGENDAMENTO = [
   'Nome', 'PrimeiroNome', 'Telefone', 'Email', 'Empresa',
   'Cargo', 'Titulo', 'ValorPotencial', 'Origem', 'CpfCnpj', 'Temperatura',
+  'Responsavel', 'PrimeiroNomeResponsavel',
 ]
 
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab']

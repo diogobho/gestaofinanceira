@@ -4,29 +4,35 @@ import { tarefasService } from '../tarefas/tarefas.service';
 import { followupsService } from '../followups/followups.service';
 import { funisService } from '../funis/funis.service';
 import { receitasService } from '../../receitas/receitas.service';
-import { extrairPassosFollowup } from '../_shared/agendamento';
+import { extrairPassosFollowup, calcularAgendadoPara } from '../_shared/agendamento';
+import { digitosParaGravar, variantesTelefone } from '../_shared/telefone';
 
-function normalizePhone(tel: string | undefined | null): string | null {
-  if (!tel) return null;
-  const digits = tel.replace(/[^0-9]/g, '');
-  if (!digits) return null;
-  return normalizarTelefoneBR(digits) || digits;
+/**
+ * Offset (em dias) de um passo de cadência relativo à ENTRADA no estágio — só definido
+ * para passos base 'entrada', modo 'dias' e unidade 'dia'. Usado para re-encadear a
+ * cadência preservando o intervalo original quando um passo rola do fim de semana.
+ * Retorna null para passos que não se encaixam (base 'anterior', data fixa, minuto/hora).
+ */
+function offsetEntradaDias(p: any): number | null {
+  if ((p.base ?? 'entrada') !== 'entrada') return null;
+  if ((p.modo ?? 'dias') !== 'dias') return null;
+  if ((p.atraso_unidade ?? 'dia') !== 'dia') return null;
+  const n = Number(p.atraso_dias);
+  return Number.isFinite(n) ? Math.max(0, n) : null;
 }
 
-// Normaliza números brasileiros para o formato padrão do WhatsApp (13 dígitos: 55+DDD+9 dígitos).
-// Números com 12 dígitos (55+DDD+8 dígitos — formato antigo) recebem o 9º dígito após o DDD.
-// Números com 10 dígitos (DDD+8 dígitos) também são corrigidos e recebem o prefixo 55.
-function normalizarTelefoneBR(digits: string): string {
-  if (digits.startsWith('55')) {
-    const semPais = digits.slice(2);
-    if (semPais.length === 10) return `55${semPais.slice(0, 2)}9${semPais.slice(2)}`;
-    if (semPais.length === 11) return digits;
-    return digits;
-  }
-  if (digits.length === 10) return `55${digits.slice(0, 2)}9${digits.slice(2)}`;
-  if (digits.length === 11) return `55${digits}`;
-  return digits;
+/**
+ * Origens de lead que pertencem à campanha de indicações (app embaixadores_escola).
+ * "Campanha Agosto" é a edição vigente — vale para os dois destinos, Escola e Club.
+ * "Embaixadores 5 Milhões" é a origem das edições anteriores e segue aceita para que
+ * vendas de leads já cadastrados continuem pontuando.
+ */
+const ORIGENS_EMBAIXADORES = ['Campanha Agosto', 'Embaixadores 5 Milhões'];
+
+function isOrigemEmbaixadores(origem: unknown): boolean {
+  return typeof origem === 'string' && ORIGENS_EMBAIXADORES.includes(origem);
 }
+
 
 export interface Lead {
   id: number;
@@ -147,16 +153,10 @@ export const leadsService = {
   async telefoneExiste(telefone: string, empresaId: number, excludeLeadId?: number, funilId?: number): Promise<{ existe: boolean; lead_id?: number; lead_nome?: string }> {
     if (!telefone) return { existe: false };
 
-    const digits = telefone.replace(/\D/g, '');
-    if (!digits) return { existe: false };
-
-    // Build variants: with and without Brazilian DDI prefix (55)
-    const variants: string[] = [digits];
-    if (digits.startsWith('55') && digits.length >= 12) {
-      variants.push(digits.slice(2));
-    } else if (digits.length >= 8) {
-      variants.push('55' + digits);
-    }
+    // Todas as formas em que o mesmo número pode estar gravado: com/sem DDI 55 e
+    // com/sem o 9º dígito. Só ±55 deixava passar duplicata de lead antigo (12 dígitos).
+    const variants = variantesTelefone(telefone);
+    if (!variants.length) return { existe: false };
 
     let sql = `
       SELECT id, nome FROM leads
@@ -251,19 +251,14 @@ export const leadsService = {
       params.push(searchTerm);
       paramCount++;
 
-      // Busca por telefone: compara apenas dígitos e considera a normalização BR.
-      // Ex.: "55 62 9221-4444" (12 dígitos) deve encontrar o lead salvo como "5562992214444"
-      // (13 dígitos, com o 9º dígito inserido na normalização).
+      // Busca por telefone: compara só dígitos e cobre todas as formas em que o
+      // mesmo número pode estar gravado (com/sem DDI 55, com/sem 9º dígito).
+      // Ex.: procurar "55 62 9221-4444" acha o lead salvo como "5562992214444".
       if (searchDigits.length >= 4) {
         const telDigits = `REGEXP_REPLACE(COALESCE(l.telefone, ''), '[^0-9]', '', 'g')`;
-        cond += ` OR ${telDigits} LIKE '%' || $${paramCount} || '%'`;
-        params.push(searchDigits);
-        paramCount++;
-
-        const searchNorm = normalizePhone(searchDigits);
-        if (searchNorm && searchNorm !== searchDigits) {
+        for (const variante of new Set([searchDigits, ...variantesTelefone(searchDigits)])) {
           cond += ` OR ${telDigits} LIKE '%' || $${paramCount} || '%'`;
-          params.push(searchNorm);
+          params.push(variante);
           paramCount++;
         }
       }
@@ -461,7 +456,7 @@ export const leadsService = {
 
   async create(empresaId: number, usuarioId: number, data: CreateLeadDto, requireTarefa = true): Promise<Lead> {
     // Normalize phone number to 55XXXXXXXXXXX format
-    if (data.telefone) data.telefone = normalizePhone(data.telefone) ?? undefined;
+    if (data.telefone) data.telefone = digitosParaGravar(data.telefone) ?? undefined;
 
     // Verificar duplicata de telefone — apenas dentro do mesmo funil
     if (data.telefone && !data.bypass_duplicata) {
@@ -576,10 +571,36 @@ export const leadsService = {
       if (passos.length === 0) return;
 
       const entrada = new Date();
-      let anterior: Date | null = null;
+      let anterior: Date | null = null;        // agendado do passo anterior (base 'anterior')
+      let prevScheduled: Date | null = null;   // agendado EFETIVO do passo anterior (min-gap)
+      let prevOffsetDias: number | null = null;
       for (let i = 0; i < passos.length; i++) {
         const p = passos[i];
         const base = p.base === 'anterior' && anterior ? anterior : entrada;
+        let quando = new Date(calcularAgendadoPara({
+          modo: p.modo || 'dias',
+          atrasoDias: p.atraso_dias,
+          atrasoUnidade: p.atraso_unidade,
+          dataFixa: p.data_fixa,
+          horaEnvio: p.hora_envio,
+          diasSemana: p.dias_semana,
+        }, base));
+
+        // Re-encadeamento: passos consecutivos em dias não podem colidir quando um rola do
+        // fim de semana (ex.: passo D+2 no domingo → segunda, colidindo com o passo D+3 que
+        // já caía na segunda). Empurra o passo para no mínimo (offset_atual - offset_anterior)
+        // dias após o passo anterior, PRESERVANDO o intervalo original desenhado na cadência.
+        const offDias = offsetEntradaDias(p);
+        if (i > 0 && prevScheduled && offDias != null && prevOffsetDias != null) {
+          const gapDias = Math.max(1, offDias - prevOffsetDias);
+          const minInstante = new Date(calcularAgendadoPara(
+            { modo: 'dias', atrasoDias: gapDias, atrasoUnidade: 'dia',
+              horaEnvio: p.hora_envio, diasSemana: p.dias_semana },
+            prevScheduled
+          ));
+          if (quando < minInstante) quando = minInstante;
+        }
+
         const row = await followupsService.criar({
           leadId, usuarioId, empresaId,
           tipo: p.tipo || 'agente_ia',
@@ -595,11 +616,13 @@ export const leadsService = {
           dataFixa: p.data_fixa,
           horaEnvio: p.hora_envio,
           diasSemana: p.dias_semana,
-          base,
+          agendadoPara: quando.toISOString(),
           passoOrdem: i,
           moverAposEnvio: i === passos.length - 1,
         });
         anterior = new Date(row.agendado_para);
+        prevScheduled = quando;
+        prevOffsetDias = offDias;
       }
     } catch (err: any) {
       console.error(`[Leads] Erro ao criar follow-up de estágio para lead #${leadId}:`, err.message);
@@ -769,7 +792,7 @@ export const leadsService = {
     if (!lead) return null;
 
     // Normalize phone number to 55XXXXXXXXXXX format
-    if (data.telefone) data.telefone = normalizePhone(data.telefone) ?? undefined;
+    if (data.telefone) data.telefone = digitosParaGravar(data.telefone) ?? undefined;
 
     // Verificar duplicata de telefone se estiver alterando — apenas dentro do mesmo funil
     if (data.telefone && data.telefone !== lead.telefone) {
@@ -860,8 +883,9 @@ export const leadsService = {
       );
     }
 
-    // Disparo de webhook para a app de Embaixadores quando o lead vira venda (is_ganho)
-    if (novoEstagio.is_ganho && lead.origem === 'Embaixadores 5 Milhões') {
+    // Disparo de webhook para a app de Embaixadores quando o lead vira venda (is_ganho).
+    // Vale para os dois funis da campanha: Escola Empreendedorismo e Leadership Club.
+    if (novoEstagio.is_ganho && isOrigemEmbaixadores(lead.origem)) {
       this.dispararWebhookEmbaixadores(id).catch((err) => {
         console.error('[Embaixadores] Erro ao disparar webhook de conversão:', err);
       });
@@ -932,6 +956,17 @@ export const leadsService = {
     );
     if (!funilResult.rows[0]) throw new Error('Funil não encontrado');
     const novoFunil = funilResult.rows[0];
+
+    // Regra de duplicidade POR FUNIL também vale na transferência: se o mesmo
+    // telefone já tem lead ativo no funil de destino (ex.: criado pela auto-criação
+    // do WhatsApp segundos antes), bloqueia para não duplicar. Caso real: Jaqueline
+    // Oliveira, 16/07/2026 — auto-lead às 17:47:08 + transferência manual às 17:47:57.
+    if (lead.telefone) {
+      const duplicata = await this.telefoneExiste(lead.telefone, empresaId, id, novoFunilId);
+      if (duplicata.existe) {
+        throw new Error(`Já existe um lead com este telefone no funil de destino: "${duplicata.lead_nome}" (#${duplicata.lead_id})`);
+      }
+    }
 
     // Buscar estágio de entrada do novo funil (is_entrada = true), ou o primeiro
     let estagioResult = await query(

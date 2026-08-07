@@ -57,6 +57,21 @@ const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - 
 // Quanto empurrar pra frente um follow-up com conversa viva (evita retry/log a cada 1min).
 const ADIAR_CONVERSA_ATIVA_MIN = 15;
 
+// Estado de SISTEMA (saldo zerado, credencial inválida, agente desligado) não é falha do
+// lead: o follow-up é pausado (adiado) em vez de queimado. Backoff maior que o de conversa
+// ativa porque recarregar crédito ou religar o agente é intervenção humana, não coisa de minutos.
+const ADIAR_PAUSA_SISTEMA_MIN = 60;
+
+// Detecta erro de saldo zerado / credencial inválida do provedor de IA.
+// Em 07/2026 o saldo da Anthropic zerou e, por cair no ramo "não transitório",
+// 235 follow-ups de 158 leads foram marcados como falhou — status terminal, sem retry —
+// congelando a cadência em silêncio. Esses erros agora pausam em vez de queimar.
+// (O agente desligado na empresa é tratado antes, via retorno 'pausado' do processarFollowUpIA.)
+function isErroDeCredencialOuSaldo(status: number | undefined, msg: string): boolean {
+  if (status === 401 || status === 403) return true;
+  return /credit balance is too low|insufficient[_ ]quota|invalid x-api-key|authentication[_ ]error|permission[_ ]error/i.test(msg);
+}
+
 // Impede que um ciclo lento se sobreponha ao próximo (evita envio duplicado).
 let processando = false;
 
@@ -79,6 +94,9 @@ if (isMainInstance) {
       const intervalos = await followupsService.intervalosFollowupPorEmpresa();
       const ultimoEnvio = await followupsService.ultimoEnvioPorEmpresa();
       const enviadoNesteCiclo = new Set<number>(); // empresa_id que já enviou neste ciclo
+      // Empresa com o agente pausado (sem saldo/credencial ou desligado): os demais
+      // follow-ups dela cairiam igual neste ciclo — pula todos e tenta de novo no próximo.
+      const pausadoNesteCiclo = new Set<number>();
 
       for (const followup of pendentes) {
         try {
@@ -86,6 +104,11 @@ if (isMainInstance) {
 
           // Já enviou para esta empresa neste ciclo → espera o próximo ciclo.
           if (empresaId != null && enviadoNesteCiclo.has(empresaId)) {
+            continue;
+          }
+
+          // Agente da empresa já acusou pausa (sem saldo/credencial ou desligado) neste ciclo.
+          if (empresaId != null && pausadoNesteCiclo.has(empresaId)) {
             continue;
           }
 
@@ -108,6 +131,14 @@ if (isMainInstance) {
             continue;
           }
 
+          // Ordem + no máx. 1 toque de cadência por dia por lead: impede que dois passos
+          // (ex.: passo 0 e passo 1 que colidiram na segunda após o fim de semana) saiam
+          // empilhados/fora de ordem na mesma manhã. Espera o próximo ciclo/dia.
+          if (followup.origem === 'estagio'
+              && !(await followupsService.podeEnviarPassoEstagio(followup.lead_id, followup.passo_ordem))) {
+            continue;
+          }
+
           if (followup.tipo === 'manual') {
             // Conversa viva: se o LEAD mandou mensagem nos últimos 60min, não atropela
             // com mensagem de script — fica pendente e tenta no próximo ciclo.
@@ -125,7 +156,13 @@ if (isMainInstance) {
               console.log(`[FollowUp Scheduler] Manual adiado ${ADIAR_CONVERSA_ATIVA_MIN}min: follow-up #${followup.id} → lead #${followup.lead_id} respondeu há <60min`);
               continue;
             }
-            const leadRow = (await query(`SELECT * FROM leads WHERE id = $1`, [followup.lead_id])).rows[0];
+            // responsavel_nome alimenta a variável [Responsavel] do template.
+            const leadRow = (await query(
+              `SELECT l.*, u.nome AS responsavel_nome
+                 FROM leads l LEFT JOIN usuarios u ON u.id = l.responsavel_id
+                WHERE l.id = $1`,
+              [followup.lead_id]
+            )).rows[0];
             if (!leadRow) {
               await followupsService.marcarFalhou(followup.id, 'Lead não encontrado');
               continue;
@@ -193,6 +230,12 @@ if (isMainInstance) {
             } else if (resultado === 'cancelado') {
               await followupsService.cancelar(followup.id, followup.empresa_id);
               console.log(`[FollowUp Scheduler] IA cancelado: follow-up #${followup.id} → agente inativo para lead #${followup.lead_id}`);
+            } else if (resultado === 'pausado') {
+              // Agente desligado / sem key na empresa: mantém 'pendente' e volta sozinho
+              // quando religarem. Pula o resto da empresa neste ciclo.
+              await followupsService.adiar(followup.id, ADIAR_PAUSA_SISTEMA_MIN);
+              if (empresaId != null) pausadoNesteCiclo.add(empresaId);
+              console.warn(`[FollowUp Scheduler] IA pausado: follow-ups da empresa ${empresaId} adiados ${ADIAR_PAUSA_SISTEMA_MIN}min — agente desligado ou sem API key.`);
             } else {
               // 'adiado': conversa ativa — empurra pra frente em vez de re-tentar a cada 1min
               await followupsService.adiar(followup.id, ADIAR_CONVERSA_ATIVA_MIN);
@@ -200,8 +243,34 @@ if (isMainInstance) {
             }
           }
         } catch (err: any) {
-          console.error(`[FollowUp Scheduler] Erro no follow-up #${followup.id}:`, err.message);
-          await followupsService.marcarFalhou(followup.id, err.message || 'Erro desconhecido');
+          // Erro transitório (API sobrecarregada, timeout de rede) NÃO é falha definitiva:
+          // adia e tenta de novo, em vez de queimar o follow-up. Créditos zerados/400 e
+          // demais erros continuam marcando falhou (para o problema aparecer, não repetir infinito).
+          const msgErro = err?.message || '';
+          // `enviarMensagemOuFalhar` re-lança o erro do axios como Error simples
+          // ("Request failed with status code 503"), perdendo err.status e err.response.status.
+          // Sem extrair o código do texto, uma instância de WhatsApp fora do ar (503)
+          // queimava o follow-up em vez de adiá-lo.
+          const statusDoTexto = Number(/status code (\d{3})/i.exec(msgErro)?.[1]) || undefined;
+          const status = err?.status ?? err?.response?.status ?? statusDoTexto;
+          const transitorio = status === 503 || status === 529 || status === 429
+            || /overloaded|too many requests|timeout|etimedout|econnreset|socket hang up/i.test(msgErro);
+          if (isErroDeCredencialOuSaldo(status, msgErro)) {
+            // Pausa em vez de queimar: o follow-up continua 'pendente' e volta sozinho
+            // assim que a key for recarregada/corrigida.
+            await followupsService.adiar(followup.id, ADIAR_PAUSA_SISTEMA_MIN);
+            if (followup.empresa_id != null) pausadoNesteCiclo.add(followup.empresa_id);
+            console.error(
+              `[FollowUp Scheduler] #${followup.id} SEM SALDO/CREDENCIAL na API de IA (${status ?? 's/status'}) — ` +
+              `follow-ups da empresa ${followup.empresa_id} pausados ${ADIAR_PAUSA_SISTEMA_MIN}min. Recarregue a API key.`
+            );
+          } else if (transitorio) {
+            await followupsService.adiar(followup.id, ADIAR_CONVERSA_ATIVA_MIN);
+            console.warn(`[FollowUp Scheduler] #${followup.id} erro transitório (${status || err.message}) — adiado ${ADIAR_CONVERSA_ATIVA_MIN}min`);
+          } else {
+            console.error(`[FollowUp Scheduler] Erro no follow-up #${followup.id}:`, err.message);
+            await followupsService.marcarFalhou(followup.id, err.message || 'Erro desconhecido');
+          }
         }
       }
     } catch (err: any) {

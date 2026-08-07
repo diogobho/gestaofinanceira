@@ -202,6 +202,32 @@ export const followupsService = {
     return result.rows;
   },
 
+  /**
+   * Um passo de cadência de ESTÁGIO só pode ser enviado agora se:
+   *  (a) não há nenhum passo ANTERIOR (passo_ordem menor) ainda pendente para o mesmo lead
+   *      — garante a ordem, mesmo que o adiar/anti-ban tenha reordenado os horários;
+   *  (b) nenhum passo de estágio já foi ENVIADO hoje (fuso SP) para o lead — no máximo
+   *      um toque de cadência por dia, evitando duas mensagens empilhadas na mesma manhã.
+   * Follow-ups avulsos (origem 'lead', passo_ordem null) não passam por aqui.
+   */
+  async podeEnviarPassoEstagio(leadId: number, passoOrdem: number | null): Promise<boolean> {
+    if (passoOrdem == null) return true;
+    const r = await query(
+      `SELECT
+         (SELECT COUNT(*) FROM followups_agendados
+           WHERE lead_id = $1 AND origem = 'estagio' AND status = 'pendente'
+             AND passo_ordem IS NOT NULL AND passo_ordem < $2) AS anteriores_pendentes,
+         (SELECT COUNT(*) FROM followups_agendados
+           WHERE lead_id = $1 AND origem = 'estagio' AND status = 'enviado'
+             AND enviado_at IS NOT NULL
+             AND (enviado_at AT TIME ZONE 'America/Sao_Paulo')::date
+               = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date) AS enviados_hoje`,
+      [leadId, passoOrdem]
+    );
+    const row = r.rows[0];
+    return Number(row.anteriores_pendentes) === 0 && Number(row.enviados_hoje) === 0;
+  },
+
   /** Intervalo anti-ban (mín/máx em segundos) de follow-up de uma empresa. Default 45/90. */
   async getConfigIntervalo(empresaId: number): Promise<{ min: number; max: number }> {
     const result = await query(

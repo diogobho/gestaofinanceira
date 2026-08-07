@@ -238,7 +238,7 @@ export const Dashboard: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-full min-h-[60vh]">
         <Spinner size="lg" />
       </div>
     )

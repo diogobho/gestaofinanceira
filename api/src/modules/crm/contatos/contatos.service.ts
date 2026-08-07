@@ -2,23 +2,10 @@ import { query } from '../../../config/database';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
+import { vinculoDivergente, erroVinculoDivergente, comDDIParaEnvio, variantesTelefone } from '../_shared/telefone';
 
 const UPLOADS_DIR = '/var/www/apps/gestao_financeira/uploads/whatsapp';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'crm-whatsapp-webhook-secret-2024';
-
-// Normaliza números brasileiros para o formato padrão do WhatsApp (13 dígitos: 55+DDD+9 dígitos).
-// Números com 12 dígitos (55+DDD+8 dígitos — formato antigo) recebem o 9º dígito após o DDD.
-function normalizarTelefoneBR(digits: string): string {
-  if (digits.startsWith('55')) {
-    const semPais = digits.slice(2);
-    if (semPais.length === 10) return `55${semPais.slice(0, 2)}9${semPais.slice(2)}`;
-    if (semPais.length === 11) return digits;
-    return digits;
-  }
-  if (digits.length === 10) return `55${digits.slice(0, 2)}9${digits.slice(2)}`;
-  if (digits.length === 11) return `55${digits}`;
-  return digits;
-}
 
 export interface ContatoWhatsApp {
   id: number;
@@ -211,6 +198,39 @@ export const contatosService = {
     };
   },
 
+  /**
+   * Grava o JID que o WhatsApp confirmou no envio. É a única correção de número
+   * feita automaticamente, porque não é palpite: é o destino real que recebeu a
+   * mensagem. Assim a base vai se acertando sozinha conforme é usada, sem
+   * nenhuma consulta a mais e sem regra de formato.
+   *
+   * Não mexe em grupo nem em @lid (não carregam telefone), e desiste em silêncio
+   * se o JID já pertence a outro contato do mesmo usuário — nesse caso há dois
+   * cadastros para a mesma pessoa, o que é problema de duplicidade, não de formato.
+   */
+  async _corrigirJidConfirmado(contato: any, jidConfirmado?: string): Promise<void> {
+    if (!jidConfirmado || !jidConfirmado.includes('@s.whatsapp.net')) return;
+    if (contato.is_grupo) return;
+
+    const jidCanonico = jidConfirmado.replace('@s.whatsapp.net', '@c.us');
+    if (jidCanonico === contato.whatsapp_id) return;
+
+    const numeroCanonico = jidConfirmado.replace(/@.*$/, '');
+    try {
+      await query(
+        `UPDATE contatos_whatsapp SET whatsapp_id = $1, numero = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3
+           AND NOT EXISTS (
+             SELECT 1 FROM contatos_whatsapp c2
+             WHERE c2.usuario_id = contatos_whatsapp.usuario_id AND c2.whatsapp_id = $1 AND c2.id <> $3
+           )`,
+        [jidCanonico, numeroCanonico, contato.id]
+      );
+    } catch (err: any) {
+      console.warn(`[Contatos] Não foi possível gravar o JID confirmado do contato #${contato.id}: ${err.message}`);
+    }
+  },
+
   async findOrCreateByNumero(numero: string, usuarioId: number, empresaId: number): Promise<ContatoWhatsApp> {
     const originalDigits = numero.replace(/\D/g, '');
 
@@ -218,18 +238,20 @@ export const contatosService = {
       throw new Error('Numero de telefone invalido');
     }
 
-    // Normaliza para o formato padrão BR do WhatsApp (55+DDD+9 dígitos = 13 dígitos).
-    // Números de 12 dígitos (formato antigo sem o 9º dígito) são corrigidos automaticamente.
-    const numeroLimpo = normalizarTelefoneBR(originalDigits);
-
-    // Busca pelo número normalizado (13 dígitos) OU pelo original (para contatos sincronizados do WhatsApp)
+    // Reaproveita contato existente em qualquer das formas do mesmo número
+    // (com/sem DDI 55, com/sem 9º dígito).
     const existing = await query(
-      `SELECT * FROM contatos_whatsapp WHERE (numero = $1 OR numero = $2) AND empresa_id = $3 LIMIT 1`,
-      [numeroLimpo, originalDigits, empresaId]
+      `SELECT * FROM contatos_whatsapp
+       WHERE REGEXP_REPLACE(COALESCE(numero, ''), '[^0-9]', '', 'g') = ANY($1::text[])
+         AND empresa_id = $2 LIMIT 1`,
+      [variantesTelefone(originalDigits), empresaId]
     );
     if (existing.rows[0]) return existing.rows[0];
 
-    const whatsappId = `${numeroLimpo}@c.us`;
+    // O JID precisa de DDI para ter destino; o número em si vai como veio. Se o
+    // WhatsApp responder um JID diferente no primeiro envio, ele é corrigido lá.
+    const numeroLimpo = originalDigits;
+    const whatsappId = `${comDDIParaEnvio(originalDigits)}@c.us`;
 
     const result = await query(
       `INSERT INTO contatos_whatsapp (
@@ -257,6 +279,16 @@ export const contatosService = {
       throw new Error('Contato não encontrado');
     }
 
+    // Vínculo errado manda a mensagem para outra pessoa: barrar antes de enviar.
+    if (leadId) {
+      const leadRes = await query(`SELECT telefone FROM leads WHERE id = $1 AND empresa_id = $2`, [leadId, empresaId]);
+      const telefoneLead = leadRes.rows[0]?.telefone;
+      if (vinculoDivergente(telefoneLead, contato.numero, contato.whatsapp_id)) {
+        // success:false → 400 com texto claro no card; enviarMensagemOuFalhar re-lança nos jobs.
+        return { success: false, error: erroVinculoDivergente(telefoneLead, contato.numero) };
+      }
+    }
+
     // Buscar porta WhatsApp
     const configResult = await query(
       `SELECT whatsapp_porta FROM usuarios WHERE id = $1`,
@@ -280,6 +312,8 @@ export const contatosService = {
       if (!response.data.success) {
         throw new Error(response.data.error || 'Erro ao enviar mensagem');
       }
+
+      await this._corrigirJidConfirmado(contato, response.data.jid);
 
       // Registrar no histórico (com empresa_id)
       await query(
@@ -310,6 +344,10 @@ export const contatosService = {
         messageId: response.data.messageId
       };
     } catch (error: any) {
+      // A API do WhatsApp responde 4xx com o motivo no corpo (ex.: número sem conta).
+      // Sem isso o usuário só veria "Request failed with status code 422".
+      const motivo = error.response?.data?.details || error.response?.data?.error || error.message;
+
       // Registrar erro no histórico
       await query(
         `INSERT INTO historico_mensagens (
@@ -322,13 +360,13 @@ export const contatosService = {
           usuarioId,
           empresaId,
           mensagem,
-          error.message
+          motivo
         ]
       );
 
       return {
         success: false,
-        error: error.message
+        error: motivo
       };
     }
   },
@@ -560,21 +598,13 @@ export const contatosService = {
     const digits = String(leadRes.rows[0]?.telefone || '').replace(/\D/g, '');
     if (!digits) return null;
 
-    // Normaliza para o formato BR com DDI (55 + DDD + número). Rejeita lixo (ex.: número de teste).
-    let norm = digits;
-    if (norm.length === 10 || norm.length === 11) norm = `55${norm}`;
-    if (!norm.startsWith('55') || norm.length < 12 || norm.length > 13) return null;
+    // Rejeita só o que não é telefone (ramal, ID colado, lixo). Número estrangeiro
+    // é aceito: antes a regra exigia DDI 55 e descartava lead de fora do Brasil.
+    if (digits.length < 10 || digits.length > 15) return null;
 
-    // Variantes para casar com um contato já existente (com/sem 55, com/sem 9º dígito).
-    const semDDI = norm.slice(2);
-    const variants = new Set<string>([norm, semDDI]);
-    if (semDDI.length === 11 && semDDI[2] === '9') {
-      const sem9 = semDDI.slice(0, 2) + semDDI.slice(3);
-      variants.add(sem9); variants.add(`55${sem9}`);
-    } else if (semDDI.length === 10) {
-      const com9 = semDDI.slice(0, 2) + '9' + semDDI.slice(2);
-      variants.add(com9); variants.add(`55${com9}`);
-    }
+    // O JID precisa de DDI; o resto do número não é tocado.
+    const norm = comDDIParaEnvio(digits);
+    const variants = new Set<string>(variantesTelefone(digits));
 
     // 1) Tenta reusar um contato individual já existente deste usuário com o mesmo número.
     const existente = await query(

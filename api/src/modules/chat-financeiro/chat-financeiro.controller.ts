@@ -54,7 +54,21 @@ export const chatFinanceiroController = {
     try {
       const empresaId = (req as any).user?.empresa_id;
       const config = await chatFinanceiroService.getConfig(empresaId);
-      res.json(config || {});
+      if (!config) return res.json({});
+
+      // getConfig faz merge com empresa_ia_credenciais — nunca devolver as chaves
+      // em texto puro: esta rota é lida por qualquer usuário autenticado (o chat
+      // consulta o `ativo` para saber se está desligado). Mesmo tratamento que o
+      // agente-ia dá em agente-ia.controller.ts.
+      res.json({
+        ativo: config.ativo,
+        max_tokens: config.max_tokens,
+        contexto_mensagens: config.contexto_mensagens,
+        provider: config.provider,
+        modelo: config.modelo,
+        api_key_configurada: !!config.api_key,
+        gemini_api_key_configurada: !!config.gemini_api_key,
+      });
     } catch (err) {
       next(err);
     }

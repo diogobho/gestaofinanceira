@@ -176,9 +176,15 @@ export function aplicarVariaveisLead(template: string, lead: Record<string, any>
     ? Number(l.valor_potencial).toLocaleString('pt-BR', { style: 'currency', currency: l.moeda || 'BRL' })
     : '';
 
+  // Quem assina a mensagem é o RESPONSÁVEL do lead (é pelo WhatsApp dele que ela sai),
+  // não quem criou o follow-up. Depende de a query trazer `responsavel_nome`.
+  const responsavel = String(l.responsavel_nome ?? '').trim();
+
   const mapa: Record<string, string> = {
     nome,
     primeironome: primeiroNome,
+    responsavel,
+    primeironomeresponsavel: responsavel.split(/\s+/)[0] || responsavel,
     telefone: String(l.telefone ?? ''),
     email: String(l.email ?? ''),
     empresa: String(l.empresa ?? ''),
@@ -200,4 +206,5 @@ export function aplicarVariaveisLead(template: string, lead: Record<string, any>
 export const VARIAVEIS_DISPONIVEIS = [
   'Nome', 'PrimeiroNome', 'Telefone', 'Email', 'Empresa',
   'Cargo', 'Titulo', 'ValorPotencial', 'Origem', 'CpfCnpj', 'Temperatura',
+  'Responsavel', 'PrimeiroNomeResponsavel',
 ];

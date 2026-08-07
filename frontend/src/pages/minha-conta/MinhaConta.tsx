@@ -3,7 +3,7 @@ import { CreditCard, CheckCircle, AlertTriangle, XCircle, Loader2, ExternalLink,
 import { TourHelpButton } from '@/components/tour/TourHelpButton'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { assinaturasApi, Assinatura } from '@/api/assinaturas'
+import { assinaturasApi, Assinatura, calcularPreco } from '@/api/assinaturas'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
@@ -15,17 +15,135 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.E
   expirada: { label: 'Expirada', color: 'text-red-600 bg-red-50 dark:bg-red-900/20', icon: XCircle },
 }
 
+/**
+ * Ajuste da quantidade de usuários contratados (planos Profissional e Enterprise).
+ * Cada usuário é também um número de WhatsApp próprio — por isso a contagem é uma só.
+ * O valor só é enviado ao confirmar: assim o cliente vê o preço antes de cobrar.
+ */
+const GerenciarUsuarios: React.FC<{ assinatura: Assinatura; onAlterado: () => Promise<void> }> = ({
+  assinatura, onAlterado,
+}) => {
+  const plano = assinatura.plano!
+  const contratado = assinatura.usuarios_contratados ?? plano.usuarios_base ?? 0
+  const emUso = assinatura.usuarios_em_uso ?? 0
+  const cortesia = assinatura.usuarios_cortesia ?? 0
+
+  const [qtd, setQtd] = useState(contratado)
+  const [salvando, setSalvando] = useState(false)
+
+  useEffect(() => setQtd(contratado), [contratado])
+
+  // Não dá para reduzir abaixo de quem já existe: o sistema não teria critério
+  // para escolher qual conta desativar.
+  const minimo = Math.max(plano.usuarios_base ?? 1, emUso)
+  const maximo = plano.usuarios_max ?? minimo
+  const precoAtual = calcularPreco(plano, contratado, cortesia)
+  const precoNovo = calcularPreco(plano, qtd, cortesia)
+  const mudou = qtd !== contratado
+
+  const salvar = async () => {
+    setSalvando(true)
+    try {
+      await assinaturasApi.alterarUsuarios(qtd)
+      await onAlterado()
+      toast.success(`Plano atualizado para ${qtd} usuários`)
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Erro ao alterar a quantidade de usuários')
+      setQtd(contratado)
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Quantidade de usuários</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {plano.usuarios_base} inclusos no plano · até {maximo} · R${' '}
+            {Number(plano.preco_usuario_adicional).toFixed(2).replace('.', ',')} por adicional
+          </p>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            aria-label="Remover usuário"
+            onClick={() => setQtd(q => Math.max(minimo, q - 1))}
+            disabled={qtd <= minimo || salvando}
+            className="h-9 w-9 rounded-lg border border-gray-300 text-lg leading-none text-gray-700 disabled:opacity-40 dark:border-gray-600 dark:text-gray-200"
+          >
+            −
+          </button>
+          <span className="w-10 text-center text-lg font-semibold text-gray-900 dark:text-white">{qtd}</span>
+          <button
+            type="button"
+            aria-label="Adicionar usuário"
+            onClick={() => setQtd(q => Math.min(maximo, q + 1))}
+            disabled={qtd >= maximo || salvando}
+            className="h-9 w-9 rounded-lg border border-gray-300 text-lg leading-none text-gray-700 disabled:opacity-40 dark:border-gray-600 dark:text-gray-200"
+          >
+            +
+          </button>
+        </div>
+      </div>
+
+      {cortesia > 0 && (
+        <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
+          {cortesia} usuário{cortesia > 1 ? 's' : ''} de cortesia na sua conta — não {cortesia > 1 ? 'são cobrados' : 'é cobrado'}.
+        </p>
+      )}
+
+      {qtd >= maximo && (
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          Limite do plano {plano.nome}. Para mais usuários, fale com o suporte.
+        </p>
+      )}
+
+      {emUso > (plano.usuarios_base ?? 0) && qtd === minimo && minimo === emUso && (
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          Você tem {emUso} usuários ativos. Para reduzir, desative alguém antes.
+        </p>
+      )}
+
+      {mudou && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+          <p className="text-sm text-gray-700 dark:text-gray-200">
+            R$ {precoAtual.toFixed(2).replace('.', ',')}
+            {' → '}
+            <strong className="text-gray-900 dark:text-white">R$ {precoNovo.toFixed(2).replace('.', ',')}</strong>
+            <span className="text-gray-500 dark:text-gray-400">/mês</span>
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setQtd(contratado)} disabled={salvando}>
+              Cancelar
+            </Button>
+            <Button onClick={salvar} disabled={salvando}>
+              {salvando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirmar
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export const MinhaConta: React.FC = () => {
   const navigate = useNavigate()
   const [assinatura, setAssinatura] = useState<Assinatura | null>(null)
   const [loading, setLoading] = useState(true)
   const [cancelando, setCancelando] = useState(false)
 
+  const carregar = React.useCallback(
+    () => assinaturasApi.getMinhaAssinatura().then(setAssinatura),
+    []
+  )
+
   useEffect(() => {
-    assinaturasApi.getMinhaAssinatura()
-      .then(setAssinatura)
-      .finally(() => setLoading(false))
-  }, [])
+    carregar().finally(() => setLoading(false))
+  }, [carregar])
 
   const handleCancelar = async () => {
     if (!confirm('Tem certeza que deseja cancelar sua assinatura? O acesso será bloqueado imediatamente.')) return
@@ -55,8 +173,8 @@ export const MinhaConta: React.FC = () => {
   const StatusIcon = cfg.icon
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div className="ml-10 md:ml-0 flex items-start justify-between gap-2">
+    <div className="space-y-6 max-w-2xl px-4 py-4 sm:px-6">
+      <div className="flex items-start justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <CreditCard className="w-6 h-6 text-primary-600" />
@@ -86,10 +204,13 @@ export const MinhaConta: React.FC = () => {
             </div>
             <div>
               <p className="text-gray-500 dark:text-gray-400">Valor mensal</p>
+              {/* preco_total já inclui os usuários adicionais; preco_mensal é só a base. */}
               <p className="font-semibold text-gray-900 dark:text-white mt-0.5">
-                {assinatura?.plano?.preco_mensal
-                  ? `R$ ${Number(assinatura.plano.preco_mensal).toFixed(2).replace('.', ',')}`
-                  : '—'}
+                {assinatura?.preco_total != null
+                  ? `R$ ${Number(assinatura.preco_total).toFixed(2).replace('.', ',')}`
+                  : assinatura?.plano?.preco_mensal
+                    ? `R$ ${Number(assinatura.plano.preco_mensal).toFixed(2).replace('.', ',')}`
+                    : '—'}
               </p>
             </div>
             {assinatura?.plano_ativo_ate && (
@@ -100,15 +221,19 @@ export const MinhaConta: React.FC = () => {
                 </p>
               </div>
             )}
-            {assinatura?.plano?.max_usuarios && (
+            {assinatura?.usuarios_contratados != null && (
               <div>
-                <p className="text-gray-500 dark:text-gray-400">Usuários incluídos</p>
+                <p className="text-gray-500 dark:text-gray-400">Usuários</p>
                 <p className="font-semibold text-gray-900 dark:text-white mt-0.5">
-                  {assinatura.plano.max_usuarios}
+                  {assinatura.usuarios_em_uso ?? 0} de {assinatura.usuarios_contratados}
                 </p>
               </div>
             )}
           </div>
+
+          {assinatura?.plano?.customizavel && assinatura.usuarios_contratados != null && (
+            <GerenciarUsuarios assinatura={assinatura} onAlterado={carregar} />
+          )}
 
           {/* Alertas */}
           {(status === 'suspensa') && (

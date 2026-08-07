@@ -83,7 +83,8 @@ const TOOL_DEFINITIONS: Tool[] = [
         },
         titulo: { type: 'string', description: 'Título da tarefa' },
         descricao: { type: 'string', description: 'Descrição opcional da tarefa' },
-        data_vencimento: { type: 'string', description: 'Data de vencimento no formato YYYY-MM-DD' },
+        data_vencimento: { type: 'string', description: 'Data de vencimento no formato YYYY-MM-DD (horário de Brasília)' },
+        horario: { type: 'string', description: 'Horário no formato HH:MM (horário de Brasília). OBRIGATÓRIO quando tipo="reuniao" — é a hora real da reunião; nunca deixe uma reunião sem horário.' },
         prioridade: {
           type: 'string',
           enum: ['baixa', 'normal', 'alta', 'urgente'],
@@ -306,12 +307,21 @@ async function executarFerramenta(
 
       // ── CRM ──────────────────────────────────────────────────────────────
       case 'criar_tarefa': {
+        // Vencimento como horário de PAREDE de São Paulo (a coluna guarda wall-clock SP).
+        // Com horário → 'YYYY-MM-DDTHH:MM:00' (naive SP). Sem horário → só a data (o service
+        // ancora ao meio-dia, evitando cruzar o fuso). Nunca cai em 00:00, que o job de
+        // lembrete de reunião trata como "hora não definida".
+        const horaValida = typeof input.horario === 'string' && /^\d{1,2}:\d{2}$/.test(input.horario.trim());
+        const hhmm = horaValida ? input.horario.trim().padStart(5, '0') : null;
+        const dataVencimento: any = hhmm
+          ? `${input.data_vencimento}T${hhmm}:00`
+          : input.data_vencimento;
         const tarefa = await tarefasService.create(ctx.empresaId, ctx.usuarioId, {
           lead_id: ctx.leadId,
           tipo: input.tipo,
           titulo: input.titulo,
           descricao: input.descricao,
-          data_vencimento: new Date(input.data_vencimento),
+          data_vencimento: dataVencimento,
           prioridade: input.prioridade || 'normal'
         });
         return { sucesso: true, dados: { id: tarefa.id, titulo: tarefa.titulo, tipo: tarefa.tipo, data_vencimento: tarefa.data_vencimento } };
@@ -500,6 +510,25 @@ export const agenteIaService = {
     return { ...behavior, ...(credsRes.rows[0] || {}) } as AgenteIAConfig;
   },
 
+  /**
+   * Quantos follow-ups de IA estão parados na fila esperando o agente voltar.
+   * Enquanto o agente está desligado (ou sem API key), o scheduler devolve 'pausado'
+   * e vai adiando esses registros — eles não se perdem, mas também não saem.
+   *
+   * Conta só os que já venceram ou vencem nas próximas 24h: os agendados para semanas
+   * à frente esperariam de qualquer jeito, e incluí-los inflaria o aviso da interface.
+   */
+  async contarFollowupsPausados(empresaId: number): Promise<number> {
+    const r = await query(
+      `SELECT COUNT(*)::int AS total
+         FROM followups_agendados
+        WHERE empresa_id = $1 AND tipo = 'agente_ia' AND status = 'pendente'
+          AND agendado_para <= NOW() + INTERVAL '24 hours'`,
+      [empresaId]
+    );
+    return r.rows[0]?.total ?? 0;
+  },
+
   async upsertConfig(empresaId: number, data: Partial<AgenteIAConfig>): Promise<AgenteIAConfig> {
     const CRED_FIELDS = ['provider', 'api_key', 'gemini_api_key', 'modelo'];
     const BEHAVIOR_FIELDS = [
@@ -644,6 +673,8 @@ export const agenteIaService = {
     const tomDescricao = tomMap[config.tom] || tomMap['amigavel'];
     const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
     const hoje = agora.toLocaleDateString('pt-BR');
+    const horaAgora = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const periodoDia = agora.getHours() < 12 ? 'manhã' : agora.getHours() < 18 ? 'tarde' : 'noite';
 
     const estagiosStr = estagiosDisponiveis
       .map((e: any) => `  - ID ${e.id}: "${e.nome}"${e.is_ganho ? ' (GANHO)' : ''}${e.is_perdido ? ' (PERDIDO)' : ''}`)
@@ -657,13 +688,14 @@ export const agenteIaService = {
     const nomeIdentidade = responsavelNome || config.nome_agente;
 
     return `Você é ${nomeIdentidade}${config.area_negocio ? `, da ${config.area_negocio}` : ''}.
-Hoje é ${hoje}.
+Hoje é ${hoje} e agora são ${horaAgora} (${periodoDia}) — horário de Brasília (São Paulo).
 
 COMO ESCREVER:
 ${tomDescricao}
 Escreva como uma pessoa real escreveria no WhatsApp. Mensagens curtas. Sem formatação com asteriscos, listas ou emojis forçados. Sem parágrafos longos. Sem linguagem corporativa.
 Nunca comece com: "Olá!", "Entendido!", "Perfeito!", "Claro!", "Com certeza!", "Ótima pergunta!" — essas respostas denunciam um bot.
 Evite repetir o nome da pessoa toda hora.
+Se cumprimentar, use saudação coerente com o horário atual acima (bom dia até 12h, boa tarde entre 12h e 18h, boa noite após 18h). Nunca invente um período do dia diferente do horário informado.
 
 SOBRE QUEM VOCÊ ESTÁ CONVERSANDO:
 - Nome: ${lead.nome}
@@ -1019,15 +1051,21 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
 
     const tagsStr = tags.length > 0 ? tags.join(', ') : 'nenhuma';
     const nomeIdentidade = responsavelNome || config.nome_agente;
-    const hoje = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })).toLocaleDateString('pt-BR');
+    const agoraSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const hoje = agoraSP.toLocaleDateString('pt-BR');
+    const horaAgora = agoraSP.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const periodoDia = agoraSP.getHours() < 12 ? 'manhã' : agoraSP.getHours() < 18 ? 'tarde' : 'noite';
 
     return `Você é ${nomeIdentidade}${config.area_negocio ? `, da ${config.area_negocio}` : ''}.
-Hoje é ${hoje}.
+Hoje é ${hoje} e agora são ${horaAgora} (${periodoDia}) — horário de Brasília (São Paulo).
 
 COMO ESCREVER:
 ${tomDescricao}
 Escreva como uma pessoa real escreveria no WhatsApp. Mensagens curtas. Sem formatação com asteriscos, listas ou emojis forçados. Sem parágrafos longos.
 Nunca comece com: "Olá!", "Entendido!", "Perfeito!", "Claro!", "Com certeza!" — essas respostas denunciam um bot.
+Se cumprimentar, use saudação coerente com o horário atual acima (bom dia até 12h, boa tarde entre 12h e 18h, boa noite após 18h). Nunca invente um período do dia diferente do horário informado.
+Não use aberturas carentes ou robóticas ("eu de novo", "haha", "passou um tempinho desde sua última mensagem") nem estique vogais do nome ("Fulanoooo"). Não repita perguntas que o lead já respondeu.
+Se em algum momento o lead pediu para falar em outro horário ou dia (ex.: "me chama à noite", "quarta-feira"), respeite o combinado: não antecipe e não escreva como se o momento marcado já tivesse chegado.
 
 SOBRE QUEM VOCÊ ESTÁ ESCREVENDO:
 - Nome: ${lead.nome}
@@ -1052,7 +1090,7 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
 - Jamais mencione CRM, tarefas, sistemas ou automação`;
   },
 
-  async processarFollowUpIA(followup: any): Promise<'enviado' | 'adiado' | 'cancelado'> {
+  async processarFollowUpIA(followup: any): Promise<'enviado' | 'adiado' | 'cancelado' | 'pausado'> {
     const leadId = followup.lead_id;
     const usuarioId = followup.usuario_id;
     const empresaId = followup.empresa_id;
@@ -1071,8 +1109,13 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
     const config = await this.getConfig(empresaId);
     const isGemini = config?.provider === 'gemini';
     const hasKey = isGemini ? !!config?.gemini_api_key : !!config?.api_key;
+    // Agente desligado na empresa (ou sem key) é estado de CONFIGURAÇÃO, não falha do lead:
+    // devolve 'pausado' para o scheduler adiar. Antes isso lançava erro e o follow-up era
+    // marcado 'falhou' — status terminal — então desligar o agente pela interface destruía
+    // silenciosamente toda a fila de follow-ups de IA pendentes da empresa.
     if (!config || !config.ativo || !hasKey) {
-      throw new Error(`Agente IA inativo ou sem API key para empresa ${empresaId}`);
+      console.warn(`[AgenteIA] Follow-up #${followup.id}: agente inativo ou sem API key na empresa ${empresaId} — pausado`);
+      return 'pausado';
     }
 
     // Guard anti-atropelo: se houve QUALQUER mensagem (nossa ou do lead) nos últimos

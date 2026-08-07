@@ -17,10 +17,20 @@ export interface WhatsAppUsuarioEmpresa {
   ultimaConexao?: string;
 }
 
+export interface WhatsAppLastDisconnect {
+  code: number | null;
+  motivo: string;
+  categoria: 'ban' | 'logout' | 'sessao' | 'substituida' | 'reinicio' | 'rede' | 'desconhecido';
+  registrado: boolean;
+  at: string;
+}
+
 export interface WhatsAppStatus {
   clientId: string;
   status: 'connected' | 'disconnected';
   hasQrCode: boolean;
+  banido?: boolean;
+  lastDisconnect?: WhatsAppLastDisconnect | null;
   timestamp: string;
 }
 

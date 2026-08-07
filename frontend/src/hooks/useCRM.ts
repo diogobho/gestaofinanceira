@@ -88,7 +88,7 @@ export const useUpdateEstagio = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; estagio_apos_resposta_id?: number | null; estagio_apos_envio_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null; auto_criar_lead?: boolean; auto_criar_lead_usuarios?: number[] | null; agente_ia_ativo?: boolean }> }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; estagio_apos_resposta_id?: number | null; estagio_apos_envio_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null; auto_criar_lead?: boolean; auto_criar_lead_usuarios?: number[] | null; agente_ia_ativo?: boolean; reuniao_lembretes?: import('@/types/crm').ReuniaoLembretesConfig | null }> }) =>
       estagiosApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'estagios'] })
@@ -769,9 +769,15 @@ export const useDeleteFunil = () => {
 
   return useMutation({
     mutationFn: (id: number) => funisApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['crm', 'funis'] })
-      toast.success('Funil excluido!')
+    onSuccess: (data) => {
+      // Apagar o funil apaga os leads dele — o kanban e as listas precisam recarregar.
+      queryClient.invalidateQueries({ queryKey: ['crm'] })
+      const n = data?.leadsRemovidos ?? 0
+      toast.success(
+        n > 0
+          ? `Funil excluído com ${n} lead${n > 1 ? 's' : ''}.`
+          : 'Funil excluído!'
+      )
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erro ao excluir funil')

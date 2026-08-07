@@ -371,7 +371,7 @@ export default function CRMDashboard() {
     <div className="p-6 space-y-6 overflow-auto h-full bg-gray-50">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="ml-10 md:ml-0">
+        <div>
           <h1 className="text-2xl font-bold text-gray-800">Dashboard CRM</h1>
           <p className="text-sm text-gray-500">Visão geral do funil de vendas</p>
         </div>

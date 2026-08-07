@@ -1,12 +1,12 @@
 import { useState, useMemo, useEffect } from 'react'
 import {
   Workflow, Clock, MessageCircle, Bot, Paperclip, ArrowRight,
-  Reply, Send, Plus, Settings2, Trophy, XCircle
+  Reply, Send, Plus, Settings2, Trophy, XCircle, CalendarClock
 } from 'lucide-react'
 import { Spinner } from '@/components/ui'
 import { useFunisAquisicao, useFunisCX, useEstagios } from '@/hooks/useCRM'
 import EstagioSettingsModal from './EstagioSettingsModal'
-import type { EstagioFunil, EstagioFollowupConfig, PassoFollowupConfig } from '@/types/crm'
+import type { EstagioFunil, EstagioFollowupConfig, PassoFollowupConfig, ReuniaoLembretesConfig } from '@/types/crm'
 
 /**
  * Visão "Fluxo": mostra, de forma visual, a cadência de automações de cada estágio
@@ -30,6 +30,30 @@ function rotuloTiming(p: PassoFollowupConfig, idx: number): string {
   const un = UNIDADE_LABEL[p.atraso_unidade || 'dia'] || 'd'
   if (idx === 0 && qtd === 0) return 'D0'
   return `+${qtd}${un}`
+}
+
+interface LembreteView { rotulo: string; grupo: string; mensagem: string; offset: number }
+
+/** Rótulo do offset de um lembrete de reunião (ex.: "−24h", "+2h", "+3d"). */
+function rotuloLembrete(offset: number): string {
+  const abs = Math.abs(offset)
+  const sinal = offset < 0 ? '−' : '+'
+  if (abs !== 0 && abs % 1440 === 0) return `${sinal}${abs / 1440}d`
+  if (abs !== 0 && abs % 60 === 0) return `${sinal}${abs / 60}h`
+  return `${sinal}${abs}min`
+}
+
+/** Lembretes de reunião ativos do estágio, ordenados por instante de disparo. */
+function extrairLembretes(cfg?: ReuniaoLembretesConfig | null): LembreteView[] {
+  if (!cfg || !cfg.ativo || !Array.isArray(cfg.marcos)) return []
+  return [...cfg.marcos]
+    .sort((a, b) => a.offset_min - b.offset_min)
+    .map(m => ({
+      rotulo: rotuloLembrete(m.offset_min),
+      grupo: m.grupo || (m.offset_min < 0 ? 'lembrete' : 'noshow'),
+      mensagem: m.mensagem,
+      offset: m.offset_min,
+    }))
 }
 
 function FluxoAutomacaoView({
@@ -74,8 +98,13 @@ function FluxoAutomacaoView({
     setEditarEstagio(estagio)
   }
 
-  const totalPassos = estagios.reduce((s, e) => s + extrairPassos(e.followup_config).length, 0)
-  const estagiosComAuto = estagios.filter((e) => extrairPassos(e.followup_config).length > 0).length
+  const totalPassos = estagios.reduce(
+    (s, e) => s + extrairPassos(e.followup_config).length + extrairLembretes(e.reuniao_lembretes).length,
+    0
+  )
+  const estagiosComAuto = estagios.filter(
+    (e) => extrairPassos(e.followup_config).length > 0 || extrairLembretes(e.reuniao_lembretes).length > 0
+  ).length
 
   return (
     <div className="space-y-4">
@@ -115,6 +144,7 @@ function FluxoAutomacaoView({
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {estagios.map((estagio, colIdx) => {
             const passos = extrairPassos(estagio.followup_config)
+            const lembretes = extrairLembretes(estagio.reuniao_lembretes)
             const proximo = estagios[colIdx + 1]
             const nomeAposResp = estagio.estagio_apos_resposta_id
               ? nomePorId.get(estagio.estagio_apos_resposta_id)
@@ -156,9 +186,9 @@ function FluxoAutomacaoView({
                   </button>
                 </div>
 
-                {/* Corpo: cadência ou vazio */}
+                {/* Corpo: cadência / lembretes ou vazio */}
                 <div className="flex-1 px-4 py-3">
-                  {passos.length === 0 ? (
+                  {passos.length === 0 && lembretes.length === 0 ? (
                     <button
                       onClick={() => abrirEditor(estagio, true)}
                       className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 py-4 text-xs text-gray-500 hover:border-amber-400 hover:text-amber-600 dark:border-gray-700"
@@ -168,6 +198,23 @@ function FluxoAutomacaoView({
                     </button>
                   ) : (
                     <div className="space-y-2">
+                      {lembretes.map((l, i) => (
+                        <div key={`lb-${i}`} className="flex items-start gap-2 rounded-lg bg-blue-50 px-2.5 py-2 dark:bg-blue-900/20">
+                          <span className="mt-0.5 inline-flex min-w-[34px] justify-center rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                            {l.rotulo}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                <CalendarClock className="h-3 w-3" /> {l.grupo === 'noshow' ? 'No-show' : 'Lembrete'}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 truncate text-xs text-gray-600 dark:text-gray-300" title={l.mensagem}>
+                              {l.mensagem}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
                       {passos.map((p, i) => {
                         const ehIA = (p.tipo || 'manual') === 'agente_ia'
                         const texto = ehIA ? (p.instrucao_ia || 'Instrução do agente IA') : (p.mensagem || 'Mensagem sem texto')
