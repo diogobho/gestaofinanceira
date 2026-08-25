@@ -7,9 +7,19 @@ interface MediaPreviewProps {
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
+/**
+ * URL da mídia com o token anexado.
+ *
+ * `<img>`, `<audio>` e `<video>` são requisições NATIVAS do navegador: elas não
+ * passam pelo axios e não mandam o header `Authorization`. Como a mídia deixou de
+ * ser pública (ver `api/src/modules/midia/midia.routes.ts`), o token tem de viajar
+ * onde o navegador o leve — na query. A alternativa era baixar por XHR e virar
+ * `blob:`, o que quebra o streaming e o seek do áudio.
+ */
 function getMediaUrl(path: string): string {
   if (path.startsWith('http')) return path
-  return `${API_BASE}${path}`
+  const token = localStorage.getItem('token')
+  return `${API_BASE}${path}${token ? `?t=${encodeURIComponent(token)}` : ''}`
 }
 
 export default function MediaPreview({ mensagem }: MediaPreviewProps) {

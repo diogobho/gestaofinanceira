@@ -4,6 +4,16 @@ import toast from 'react-hot-toast'
 import { followupsApi } from '@/api/crm'
 
 const MEDIA_BASE = import.meta.env.VITE_API_URL || ''
+
+/**
+ * A mídia deixou de ser pública: a tag `<img>` é requisição nativa e não manda o
+ * header `Authorization`, então o token vai na query. Mesma regra do `MediaPreview`.
+ */
+function urlMidia(caminho: string): string {
+  if (caminho.startsWith('http')) return caminho
+  const token = localStorage.getItem('token')
+  return `${MEDIA_BASE}${caminho}${token ? `?t=${encodeURIComponent(token)}` : ''}`
+}
 // Formatos aceitos (espelha o filtro do backend / o que o WhatsApp suporta).
 const MEDIA_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,audio/mpeg,audio/ogg,application/pdf,.doc,.docx,.xls,.xlsx'
 
@@ -333,7 +343,7 @@ export default function AgendamentoConfig({
                     <div className="flex items-center gap-2">
                       {value.media_mimetype?.startsWith('image/') ? (
                         <img
-                          src={`${MEDIA_BASE}${value.media_url}`}
+                          src={urlMidia(value.media_url)}
                           alt="anexo"
                           className="h-12 w-12 rounded object-cover border"
                         />

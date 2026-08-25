@@ -18,6 +18,8 @@ import whatsappInstanciasRoutes from './modules/whatsapp/instancias/instancias.r
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
 import crmRoutes from './modules/crm';
 import webhookRoutes from './modules/crm/webhook/webhook.routes';
+import suporteRoutes from './modules/suporte/suporte.routes';
+import midiaRoutes from './modules/midia/midia.routes';
 import chatFinanceiroRoutes from './modules/chat-financeiro/chat-financeiro.routes';
 import configuracoesSmtpRoutes from './modules/configuracoes-smtp/configuracoes-smtp.routes';
 import assinaturasRoutes from './modules/assinaturas/assinaturas.routes';
@@ -50,8 +52,18 @@ app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(checkSubscription);
 
-// Servir arquivos de midia do WhatsApp
-app.use('/uploads', express.static(path.join('/var/www/apps/gestao_financeira/uploads')));
+// Mídia de conversa (áudio/imagem/vídeo/PDF do WhatsApp) — SEMPRE autenticada.
+//
+// Era `express.static` aberto em `/uploads`, espelhando o alias estático que o nginx
+// mantinha em `/api/gestao/uploads/`: 23 GB de mídia de 10 empresas acessíveis sem
+// token. Agora quem serve é `midia.routes`, que autentica e confere no banco de qual
+// empresa é o arquivo antes de entregá-lo. Ver o cabeçalho de `midia.routes.ts`.
+//
+// Montado em `/api` porque o nginx reescreve `/api/gestao/` → `/api/` no proxy, e
+// também na raiz porque `media_url` é gravado como `/uploads/...` (acesso direto à
+// porta 4100 e qualquer consumidor interno).
+app.use('/api', midiaRoutes);
+app.use('/', midiaRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
@@ -107,6 +119,8 @@ app.use('/api/gestao/crm', crmRoutes);
 app.use('/api', chatFinanceiroRoutes);
 app.use('/api/gestao', chatFinanceiroRoutes);
 app.use('/api/configuracoes-smtp', configuracoesSmtpRoutes);
+app.use('/api', suporteRoutes);
+app.use('/api/gestao', suporteRoutes);
 app.use('/api/gestao/configuracoes-smtp', configuracoesSmtpRoutes);
 app.use('/api', assinaturasRoutes);
 app.use('/api/gestao', assinaturasRoutes);
