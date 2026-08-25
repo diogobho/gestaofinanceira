@@ -69,6 +69,23 @@ export interface ReuniaoLembretesConfig {
   marcos: MarcoReuniaoLembrete[];
 }
 
+/**
+ * Categorias de falha que o motor de follow-up grava em `erro_categoria`.
+ * Fonte no backend: `shared/erros.ts` (CategoriaErro) + os estados que o próprio
+ * motor nomeia (`conflito_config`, `config_ausente`, `destino_invalido`) e o
+ * encerramento por lead arquivado.
+ */
+export type FollowupErroCategoria =
+  | 'ia_credencial'
+  | 'canal_indefinido'
+  | 'canal_bloqueado'
+  | 'destino_invalido'
+  | 'transitorio'
+  | 'conflito_config'
+  | 'config_ausente'
+  | 'lead_arquivado'
+  | 'desconhecido';
+
 export interface FollowupAgendado {
   id: number;
   lead_id: number;
@@ -81,8 +98,14 @@ export interface FollowupAgendado {
   media_url?: string | null;
   media_mimetype?: string | null;
   media_filename?: string | null;
-  status: 'pendente' | 'enviado' | 'falhou' | 'cancelado';
+  // 'processando' = reclamado por um ciclo do scheduler (migration 070). Aparece na
+  // listagem, então o type precisa conhecê-lo — sem isso a tela cai no rótulo de
+  // "desconhecido" justamente durante o envio.
+  status: 'pendente' | 'processando' | 'enviado' | 'falhou' | 'cancelado';
   erro?: string;
+  /** Categoria da última falha (migration 070). Ver `utils/followupErros.ts`. */
+  erro_categoria?: FollowupErroCategoria | null;
+  tentativas?: number;
   enviado_at?: string;
   origem: 'lead' | 'estagio';
   modo?: 'dias' | 'data';
@@ -126,6 +149,7 @@ export interface EstagioFunil {
   auto_criar_lead?: boolean;
   auto_criar_lead_usuarios?: number[] | null;
   agente_ia_ativo?: boolean;
+  instrucoes_agente_ia?: string | null;   // orientação do agente reativo neste estágio
   reuniao_lembretes?: ReuniaoLembretesConfig | null;
   created_at: string;
   updated_at: string;
@@ -437,6 +461,9 @@ export interface UpdateTarefaDto {
 // Anotacoes
 
 export type AnotacaoTipo = 'nota' | 'importante' | 'lembrete';
+/** Quem escreveu a anotação (migration 069) — o agente de IA usa isso para não
+ *  confundir os próprios registros automáticos com observações de um vendedor. */
+export type AnotacaoOrigem = 'usuario' | 'agente' | 'sistema';
 
 export interface Anotacao {
   id: number;
@@ -446,6 +473,7 @@ export interface Anotacao {
   usuario_nome?: string;
   conteudo: string;
   tipo: AnotacaoTipo;
+  origem?: AnotacaoOrigem;
   created_at: string;
   updated_at: string;
 }

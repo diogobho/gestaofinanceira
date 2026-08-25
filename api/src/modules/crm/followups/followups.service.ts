@@ -5,6 +5,38 @@ import { calcularAgendadoPara, ModoAgendamento, UnidadeAtraso } from '../_shared
 
 const UPLOADS_DIR = '/var/www/apps/gestao_financeira/uploads/whatsapp';
 
+/**
+ * Teto da janela em que uma saída no histórico ainda pode ser prova de que ESTE
+ * follow-up foi enviado (ver `resolverClaimsOrfaos`).
+ *
+ * É o orçamento de execução de um follow-up (`ORCAMENTO_FOLLOWUP_MS`, 90s) mais uma
+ * folga para o clock skew entre o processo e o Postgres. Uma mensagem que aparece
+ * depois disso não pode ser deste follow-up: o envio dele já teria estourado o
+ * orçamento e sido abandonado. Não importa `ORCAMENTO_FOLLOWUP_MS` de `motor.ts` de
+ * propósito — o service não deve depender do job.
+ */
+export const JANELA_EVIDENCIA_MS = 120_000;
+
+/**
+ * Predicado de EVIDÊNCIA DE ENVIO de um follow-up, exportado para que o service e os
+ * testes de banco usem exatamente a mesma regra. Os testes rodam numa transação
+ * própria (pool separado do service), então sem isto eles reimplementariam a
+ * condição — e uma cópia divergente daria teste verde sobre regra errada, que foi
+ * como a falha do reaper passou batido.
+ *
+ * Parâmetros: $1 lead_id, $2 contato_whatsapp_id (nullable), $3 claim_at,
+ *             $4 janela em milissegundos (texto).
+ */
+export const SQL_EVIDENCIA_ENVIO_FOLLOWUP = `
+  SELECT 1 FROM historico_mensagens
+   WHERE (lead_id = $1 OR ($2::int IS NOT NULL AND contato_whatsapp_id = $2))
+     AND direcao = 'saida' AND erro IS NULL
+     AND grupo_whatsapp_id IS NULL
+     AND origem = 'followup'
+     AND enviado_at >= $3
+     AND enviado_at <= $3::timestamptz + ($4 || ' milliseconds')::interval
+   LIMIT 1`;
+
 export interface CriarFollowupInput {
   leadId: number;
   usuarioId: number;
@@ -40,6 +72,19 @@ export const followupsService = {
       origem = 'lead', modo = 'dias', atrasoDias, atrasoUnidade, dataFixa, horaEnvio,
       diasSemana, base, agendadoPara, passoOrdem, moverAposEnvio,
     } = input;
+
+    // Lead arquivado não entra em régua nenhuma. Sem este guard nascia um registro
+    // que `buscarPendentes` nunca enxergaria (ela filtra `arquivado = false`): um
+    // 'pendente' eterno, contado no dashboard e sem explicação na tela. Vale para os
+    // dois caminhos — a cadência do estágio e o follow-up avulso do card.
+    const alvo = await query(`SELECT arquivado FROM leads WHERE id = $1 AND empresa_id = $2`,
+      [leadId, empresaId]);
+    if (!alvo.rows[0]) {
+      throw new Error('Lead não encontrado para agendar follow-up');
+    }
+    if (alvo.rows[0].arquivado === true) {
+      throw new Error('Lead arquivado não recebe follow-up — reative o lead antes de agendar');
+    }
 
     const quando = agendadoPara || calcularAgendadoPara(
       { modo, atrasoDias, atrasoUnidade, dataFixa, horaEnvio, diasSemana },
@@ -182,13 +227,59 @@ export const followupsService = {
     );
   },
 
-  async buscarPendentes() {
+  /**
+   * Encerra explicitamente os follow-ups pendentes de leads ARQUIVADOS.
+   *
+   * `buscarPendentes` já filtra `l.arquivado = false` — nenhuma mensagem sai para lead
+   * arquivado. O problema era o oposto: o registro nunca RESOLVIA. Ficava 'pendente'
+   * para sempre, contando no card de follow-ups do dashboard e sem nada que explicasse
+   * por que não saía. Havia 23 assim, o mais antigo desde 05/08/2026.
+   *
+   * `leadsService.arquivar()` já cancela a cadência do estágio, mas arquivamento em
+   * massa por SQL cru (foi como 1.058 cards duplicados foram arquivados) não passa por
+   * lá — daí esta limpeza rodar no ciclo, corrigindo o estado independente de COMO o
+   * lead foi arquivado. Cobre as duas origens: a cadência do estágio e o follow-up
+   * avulso criado no card, que o `arquivar()` deixava de fora.
+   *
+   * Encerra como 'cancelado' (não 'falhou'): não houve falha, a régua deixou de valer.
+   * O motivo fica em `erro`/`erro_categoria` para a tela poder explicar, e o registro
+   * continua no histórico — nada é apagado.
+   */
+  async cancelarPorLeadArquivado(): Promise<number> {
+    const r = await query(
+      `UPDATE followups_agendados f
+          SET status = 'cancelado',
+              erro_categoria = 'lead_arquivado',
+              erro = 'Lead arquivado — a régua de follow-up deixou de valer. Reative o lead e reagende se quiser retomar.',
+              claim_at = NULL,
+              updated_at = NOW()
+        FROM leads l
+       WHERE l.id = f.lead_id
+         AND l.arquivado = true
+         AND f.status = 'pendente'`,
+      []
+    );
+    return r.rowCount ?? 0;
+  },
+
+  /**
+   * Fila do ciclo. Só status 'pendente': um registro reclamado por outro ciclo está
+   * em 'processando' e não aparece aqui — é o que impede dois ciclos de pegarem o
+   * mesmo follow-up.
+   *
+   * `remetente_id` é o dono do CHIP que vai enviar (responsável do lead, com
+   * fallback para o usuário do registro). Vem já resolvido porque é a chave do
+   * espaçamento anti-ban e do agrupamento da fila — resolver depois obrigaria a uma
+   * consulta por follow-up só para saber em qual fila ele entra.
+   */
+  async buscarPendentes(limite = 500) {
     const result = await query(
       `SELECT f.*, l.nome as lead_nome, l.telefone as lead_telefone,
               l.email as lead_email, l.notas as lead_notas,
               l.temperatura as lead_temperatura, l.empresa_id,
               l.contato_whatsapp_id, l.funil_id, l.estagio_id, l.cargo,
               l.empresa as lead_empresa,
+              COALESCE(l.responsavel_id, f.usuario_id) AS remetente_id,
               ef.nome as estagio_nome
        FROM followups_agendados f
        JOIN leads l ON l.id = f.lead_id
@@ -196,36 +287,159 @@ export const followupsService = {
        WHERE f.status = 'pendente'
          AND f.agendado_para <= NOW()
          AND l.arquivado = false
-       ORDER BY f.agendado_para ASC`,
-      []
+       ORDER BY f.agendado_para ASC
+       LIMIT $1`,
+      [limite]
     );
     return result.rows;
   },
 
+  // ─── Exclusão mútua ────────────────────────────────────────────────────────
+
   /**
-   * Um passo de cadência de ESTÁGIO só pode ser enviado agora se:
-   *  (a) não há nenhum passo ANTERIOR (passo_ordem menor) ainda pendente para o mesmo lead
-   *      — garante a ordem, mesmo que o adiar/anti-ban tenha reordenado os horários;
-   *  (b) nenhum passo de estágio já foi ENVIADO hoje (fuso SP) para o lead — no máximo
-   *      um toque de cadência por dia, evitando duas mensagens empilhadas na mesma manhã.
+   * RECLAMA o follow-up para este ciclo. Devolve true só para quem venceu.
+   *
+   * `WHERE status = 'pendente'` dentro do próprio UPDATE é o que dá exclusão mútua:
+   * o Postgres serializa as escritas na linha, então de dois ciclos concorrentes um
+   * atualiza e o outro vê `rowCount = 0`. O `continuaPendente()` anterior era
+   * check-then-act — dois processos podiam ler "ainda pendente" e ambos enviar.
+   *
+   * Não incrementa `tentativas`: reclamar não é falhar. Um follow-up adiado por
+   * conversa viva passa por aqui várias vezes e não pode gastar o teto de retry.
+   */
+  async reclamar(id: number): Promise<boolean> {
+    const r = await query(
+      `UPDATE followups_agendados
+          SET status = 'processando', claim_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND status = 'pendente'`,
+      [id]
+    );
+    return (r.rowCount ?? 0) > 0;
+  },
+
+  /** Devolve um follow-up reclamado à fila, opcionalmente com novo horário. */
+  async liberarClaim(id: number, novoInstante?: Date) {
+    await query(
+      `UPDATE followups_agendados
+          SET status = 'pendente', claim_at = NULL, updated_at = NOW(),
+              agendado_para = COALESCE($2, agendado_para)
+        WHERE id = $1 AND status = 'processando'`,
+      [id, novoInstante ? novoInstante.toISOString() : null]
+    );
+  },
+
+  /**
+   * Resolve claims órfãos — registros que ficaram em 'processando' porque o processo
+   * morreu (restart do PM2, OOM) ou porque o orçamento de execução estourou.
+   *
+   * O desempate NÃO é por tempo, é por EVIDÊNCIA: se existe no histórico uma saída
+   * COMPATÍVEL com este follow-up depois do claim, a mensagem saiu — marcar enviado.
+   * Senão, volta para a fila. Chutar "provavelmente não enviou" duplicaria mensagem
+   * para o lead, que é o pior desfecho possível.
+   *
+   * ── O que conta como evidência (e por quê) ─────────────────────────────────
+   * Três filtros, e cada um fecha um jeito de a conclusão sair errada:
+   *
+   * 1. `origem = 'followup'`. Antes bastava QUALQUER saída sem erro. Bastava o
+   *    operador responder no card no mesmo minuto do claim para o reaper concluir
+   *    que o follow-up tinha saído — e ele nunca saía, ficava 'enviado' mentindo.
+   *    Mensagem manual, agente reativo, disparo e lembrete NÃO são prova: cada um
+   *    tem a sua origem (migration 070) e nenhuma delas é este follow-up.
+   * 2. Janela de tempo fechada em `JANELA_EVIDENCIA_MS` a partir do claim. Sem teto
+   *    superior, o envio BEM-SUCEDIDO de um passo POSTERIOR da cadência (que sai
+   *    normalmente, porque um órfão em 'processando' não é 'pendente') virava prova
+   *    do passo órfão. O envio real cabe no orçamento do follow-up; o que aparece
+   *    muito depois é outra mensagem.
+   * 3. `grupo_whatsapp_id IS NULL`: conversa de grupo não é envio 1:1 para o lead.
+   *
+   * ── Risco residual, explícito ──────────────────────────────────────────────
+   * `enviarMensagem` faz POST na instância e SÓ DEPOIS grava o histórico. Se o
+   * processo morrer entre as duas coisas, o WhatsApp aceitou a mensagem e não existe
+   * nenhum registro dela no banco: o reaper devolve o follow-up à fila e o lead
+   * recebe a mensagem DUAS vezes. A janela é de milissegundos e não há como fechá-la
+   * aqui — fechar exigiria outbox transacional ou chave de idempotência enviada à
+   * instância (ela não aceita nenhuma hoje). Escolha consciente: preferimos a
+   * duplicidade rara nessa janela mínima a marcar como enviado um follow-up que não
+   * saiu, que é silencioso e o lead nunca recebe nada.
+   */
+  async resolverClaimsOrfaos(idadeMinutos = 10): Promise<{ enviados: number; devolvidos: number }> {
+    const orfaos = await query(
+      `SELECT f.id, f.lead_id, f.claim_at, l.contato_whatsapp_id
+         FROM followups_agendados f
+         JOIN leads l ON l.id = f.lead_id
+        WHERE f.status = 'processando'
+          AND f.claim_at < NOW() - ($1 || ' minutes')::interval`,
+      [String(Math.max(1, Math.round(idadeMinutos)))]
+    );
+    let enviados = 0, devolvidos = 0;
+    for (const o of orfaos.rows) {
+      const saiu = await query(
+        SQL_EVIDENCIA_ENVIO_FOLLOWUP,
+        [o.lead_id, o.contato_whatsapp_id ?? null, o.claim_at, String(JANELA_EVIDENCIA_MS)]
+      );
+      if (saiu.rows.length > 0) {
+        await query(
+          `UPDATE followups_agendados
+              SET status = 'enviado', enviado_at = COALESCE(enviado_at, claim_at),
+                  claim_at = NULL, updated_at = NOW()
+            WHERE id = $1 AND status = 'processando'`,
+          [o.id]
+        );
+        enviados++;
+      } else {
+        await this.liberarClaim(o.id);
+        devolvidos++;
+      }
+    }
+    if (enviados || devolvidos) {
+      console.log(`[FollowUp] Claims órfãos resolvidos: ${enviados} confirmados como enviados, ${devolvidos} devolvidos à fila`);
+    }
+    return { enviados, devolvidos };
+  },
+
+  /** Registra a falha de uma tentativa e devolve quantas já aconteceram. */
+  async registrarTentativa(id: number, categoria: string, erro: string): Promise<number> {
+    const r = await query(
+      `UPDATE followups_agendados
+          SET tentativas = tentativas + 1, erro_categoria = $2, erro = $3, updated_at = NOW()
+        WHERE id = $1
+        RETURNING tentativas`,
+      [id, categoria.slice(0, 32), (erro || '').slice(0, 2000)]
+    );
+    return Number(r.rows[0]?.tentativas ?? 0);
+  },
+
+  /**
+   * Um passo de cadência de ESTÁGIO só pode ser enviado agora se não há nenhum passo
+   * ANTERIOR (passo_ordem menor) ainda pendente para o mesmo lead — garantia de ORDEM,
+   * mesmo que um adiamento (conversa viva, chip fora do ar) tenha reordenado os horários.
    * Follow-ups avulsos (origem 'lead', passo_ordem null) não passam por aqui.
+   *
+   * NÃO existe mais o limite de "um toque de cadência por dia". Ele era um segundo
+   * bloqueio, por cima do horário desenhado na cadência, e inviabilizava justamente o
+   * caso que a interface sugere por padrão: `passoNovo()` propõe o passo seguinte em
+   * 10 MINUTOS, e o guard adiava esse passo para o dia seguinte — em horário nenhum,
+   * porque o scheduler só pulava o registro (sem reagendar) e reavaliava a cada minuto.
+   * Quem decide o espaçamento é a cadência (data/hora de cada passo) somada ao intervalo
+   * anti-ban da empresa e à janela operacional.
    */
   async podeEnviarPassoEstagio(leadId: number, passoOrdem: number | null): Promise<boolean> {
     if (passoOrdem == null) return true;
     const r = await query(
-      `SELECT
-         (SELECT COUNT(*) FROM followups_agendados
-           WHERE lead_id = $1 AND origem = 'estagio' AND status = 'pendente'
-             AND passo_ordem IS NOT NULL AND passo_ordem < $2) AS anteriores_pendentes,
-         (SELECT COUNT(*) FROM followups_agendados
-           WHERE lead_id = $1 AND origem = 'estagio' AND status = 'enviado'
-             AND enviado_at IS NOT NULL
-             AND (enviado_at AT TIME ZONE 'America/Sao_Paulo')::date
-               = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date) AS enviados_hoje`,
+      // 'processando' conta junto com 'pendente': um passo anterior EM VOO (reclamado
+      // por este ciclo ou órfão de um processo que morreu) não é 'pendente', e sem
+      // ele nesta lista o passo seguinte passava na frente — invertendo a ordem da
+      // cadência justamente quando algo deu errado no passo anterior. Órfão fica em
+      // 'processando' por até 10 min (idade do reaper): esperar é o desfecho certo,
+      // porque a alternativa é falar com o lead fora de ordem.
+      `SELECT COUNT(*)::int AS anteriores_em_aberto
+         FROM followups_agendados
+        WHERE lead_id = $1 AND origem = 'estagio'
+          AND status IN ('pendente', 'processando')
+          AND passo_ordem IS NOT NULL AND passo_ordem < $2`,
       [leadId, passoOrdem]
     );
-    const row = r.rows[0];
-    return Number(row.anteriores_pendentes) === 0 && Number(row.enviados_hoje) === 0;
+    return Number(r.rows[0]?.anteriores_em_aberto ?? 0) === 0;
   },
 
   /** Intervalo anti-ban (mín/máx em segundos) de follow-up de uma empresa. Default 45/90. */
@@ -275,75 +489,152 @@ export const followupsService = {
   },
 
   /**
-   * Instante da última mensagem ENVIADA por empresa (para espaçar os próximos follow-ups).
-   * Considera QUALQUER saída no WhatsApp (follow-up, disparo em massa, lembrete de reunião,
-   * agente IA, chat manual) — não só follow-ups —, senão o anti-ban seria parcial.
-   * Janela de 1h: o intervalo máximo configurável é 3600s e o filtro usa idx_historico_enviado.
+   * Instante da última mensagem AUTOMÁTICA enviada por CHIP.
+   *
+   * Este é o **único** mecanismo de anti-ban do sistema. Duas decisões nele:
+   *
+   * 1. **Por chip (`usuario_id`), não por empresa.** O risco de bloqueio é do NÚMERO
+   *    que envia. Medir por empresa acoplava chips independentes: o chip da Débora
+   *    enviando segurava o follow-up que sairia pelo chip da Jéssica, sem que isso
+   *    reduzisse risco nenhum. Também é o que mantém o isolamento entre chips.
+   *
+   * 2. **Só automação** (`origem IS NOT NULL`, migration 070). Antes contava
+   *    QUALQUER saída, inclusive a conversa manual do operador — e aí um operador
+   *    ativo o dia inteiro empurrava a fila de follow-up indefinidamente, sem erro,
+   *    sem alerta e sem nada na tela. Conversa humana não é rajada de robô: ela não
+   *    entra no espaçamento.
+   *
+   * Linhas anteriores à 070 têm `origem NULL` e ficam de fora de propósito — a
+   * janela é de 1 hora, então elas saem de cena sozinhas logo após o deploy.
    */
-  async ultimoEnvioPorEmpresa(): Promise<Record<number, number>> {
+  async ultimoEnvioAutomaticoPorChip(): Promise<Record<number, number>> {
     const result = await query(
-      `SELECT empresa_id, MAX(enviado_at) AS ultimo
+      `SELECT usuario_id, MAX(enviado_at) AS ultimo
        FROM historico_mensagens
        WHERE direcao = 'saida' AND erro IS NULL
+         AND origem IS NOT NULL AND origem <> 'manual'
          AND enviado_at > NOW() - INTERVAL '1 hour'
-       GROUP BY empresa_id`,
+       GROUP BY usuario_id`,
       []
     );
     const map: Record<number, number> = {};
     for (const r of result.rows) {
-      if (r.empresa_id != null && r.ultimo) map[r.empresa_id] = new Date(r.ultimo).getTime();
+      if (r.usuario_id != null && r.ultimo) map[r.usuario_id] = new Date(r.ultimo).getTime();
     }
     return map;
   },
 
-  async marcarEnviado(id: number) {
+  /**
+   * Fecha o follow-up como enviado. Só sai de 'processando': se algo devolveu o
+   * registro à fila no meio do caminho, esta escrita não acontece e o estado não
+   * mente sobre o que foi feito.
+   */
+  async marcarEnviado(id: number): Promise<boolean> {
+    const r = await query(
+      `UPDATE followups_agendados
+       SET status = 'enviado', enviado_at = NOW(), claim_at = NULL, updated_at = NOW()
+       WHERE id = $1 AND status IN ('processando', 'pendente')`,
+      [id]
+    );
+    return (r.rowCount ?? 0) > 0;
+  },
+
+  /**
+   * Empurra um follow-up pendente para um INSTANTE explícito (conversa viva, erro
+   * transitório, fora da janela operacional).
+   *
+   * Era `adiar(id, minutos)` = NOW() + N minutos. O problema: nada olhava a janela de
+   * envio, então um follow-up adiado várias vezes escorregava para as 22h ou para o
+   * domingo. Quem chama calcula o instante com `proximaJanelaValida`, e por isso o
+   * destino do adiamento é sempre uma hora em que se pode enviar.
+   */
+  async adiarPara(id: number, instante: Date) {
     await query(
       `UPDATE followups_agendados
-       SET status = 'enviado', enviado_at = NOW(), updated_at = NOW()
+       SET agendado_para = $2, status = 'pendente', claim_at = NULL, updated_at = NOW()
+       WHERE id = $1 AND status IN ('pendente', 'processando')`,
+      [id, instante.toISOString()]
+    );
+  },
+
+  async marcarFalhou(id: number, erro: string, categoria?: string) {
+    await query(
+      `UPDATE followups_agendados
+       SET status = 'falhou', erro = $2, erro_categoria = COALESCE($3, erro_categoria),
+           claim_at = NULL, updated_at = NOW()
        WHERE id = $1`,
-      [id]
+      [id, (erro || '').slice(0, 2000), categoria ? categoria.slice(0, 32) : null]
     );
   },
 
   /**
-   * Empurra um follow-up pendente para daqui a N minutos (conversa viva / adiado),
-   * evitando que o scheduler re-tente a cada 1 minuto.
+   * Métricas de follow-ups do dashboard do CRM.
+   *
+   * Aceita os MESMOS filtros da tela. Até 25/08/2026 esta consulta filtrava só
+   * por `empresa_id`: os cinco números ignoravam funil, responsável e período, e
+   * mostravam a empresa inteira mesmo com um funil selecionado.
+   *
+   * Cada contador tem a sua própria data de referência, porque medem coisas
+   * diferentes: pendente/atrasado é `agendado_para` (quando VAI acontecer),
+   * enviado é `enviado_at` e falhado é `updated_at` (quando aconteceu).
+   *
+   * Sem período, "para hoje" e "enviados hoje" continuam sendo o dia de hoje.
+   * COM período, os dois passam a contar o período — senão o número seria a
+   * interseção de "hoje" com um intervalo que pode nem conter hoje, e daria
+   * zero sem explicação. O retorno traz `periodo_ativo` para a tela trocar os
+   * rótulos e não prometer "hoje" quando não é hoje.
    */
-  async adiar(id: number, minutos: number) {
-    await query(
-      `UPDATE followups_agendados
-       SET agendado_para = NOW() + ($2 || ' minutes')::interval, updated_at = NOW()
-       WHERE id = $1 AND status = 'pendente'`,
-      [id, String(Math.max(1, Math.round(minutos)))]
-    );
-  },
+  async metricas(
+    empresaId: number,
+    filtros: { funilId?: number; responsavelId?: number; dataInicio?: string; dataFim?: string } = {}
+  ) {
+    const params: any[] = [empresaId];
+    let escopo = '';
 
-  async marcarFalhou(id: number, erro: string) {
-    await query(
-      `UPDATE followups_agendados
-       SET status = 'falhou', erro = $2, updated_at = NOW()
-       WHERE id = $1`,
-      [id, erro]
-    );
-  },
+    if (filtros.funilId) {
+      params.push(filtros.funilId);
+      escopo += ` AND l.funil_id = $${params.length}`;
+    }
+    if (filtros.responsavelId) {
+      params.push(filtros.responsavelId);
+      escopo += ` AND l.responsavel_id = $${params.length}`;
+    }
 
-  /** Métricas de follow-ups para o dashboard */
-  async metricas(empresaId: number) {
+    const periodoAtivo = Boolean(filtros.dataInicio || filtros.dataFim);
+    /** Recorte de período sobre a coluna de data que aquele contador usa. */
+    const janela = (coluna: string) => {
+      let sql = '';
+      if (filtros.dataInicio) {
+        params.push(filtros.dataInicio);
+        sql += ` AND ${coluna} >= $${params.length}::date`;
+      }
+      if (filtros.dataFim) {
+        params.push(filtros.dataFim);
+        sql += ` AND ${coluna} < ($${params.length}::date + 1)`;
+      }
+      return sql;
+    };
+
+    const hoje = (coluna: string) =>
+      ` AND DATE(${coluna} AT TIME ZONE 'America/Sao_Paulo') = CURRENT_DATE AT TIME ZONE 'America/Sao_Paulo'`;
+
     const result = await query(
       `SELECT
-         COUNT(*) FILTER (WHERE status = 'pendente')                                  AS total_pendentes,
-         COUNT(*) FILTER (WHERE status = 'pendente' AND agendado_para < NOW())        AS total_atrasados,
-         COUNT(*) FILTER (WHERE status = 'pendente'
-                            AND DATE(agendado_para AT TIME ZONE 'America/Sao_Paulo')
-                             = CURRENT_DATE AT TIME ZONE 'America/Sao_Paulo')         AS pendentes_hoje,
-         COUNT(*) FILTER (WHERE status = 'enviado'
-                            AND DATE(enviado_at AT TIME ZONE 'America/Sao_Paulo')
-                             = CURRENT_DATE AT TIME ZONE 'America/Sao_Paulo')         AS enviados_hoje,
-         COUNT(*) FILTER (WHERE status = 'falhou')                                    AS total_falhados
-       FROM followups_agendados
-       WHERE empresa_id = $1`,
-      [empresaId]
+         COUNT(*) FILTER (WHERE f.status = 'pendente' ${janela('f.agendado_para')})   AS total_pendentes,
+         COUNT(*) FILTER (WHERE f.status = 'pendente' AND f.agendado_para < NOW()
+                                ${janela('f.agendado_para')})                        AS total_atrasados,
+         COUNT(*) FILTER (WHERE f.status = 'pendente'
+                                ${periodoAtivo ? janela('f.agendado_para') : hoje('f.agendado_para')})
+                                                                                     AS pendentes_hoje,
+         COUNT(*) FILTER (WHERE f.status = 'enviado'
+                                ${periodoAtivo ? janela('f.enviado_at') : hoje('f.enviado_at')})
+                                                                                     AS enviados_hoje,
+         COUNT(*) FILTER (WHERE f.status = 'falhou' ${janela('f.updated_at')})        AS total_falhados
+       FROM followups_agendados f
+       JOIN leads l ON l.id = f.lead_id
+       WHERE f.empresa_id = $1 ${escopo}`,
+      params
     );
-    return result.rows[0];
+    return { ...result.rows[0], periodo_ativo: periodoAtivo };
   },
 };

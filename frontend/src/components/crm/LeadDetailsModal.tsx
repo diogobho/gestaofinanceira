@@ -17,11 +17,12 @@ import {
   useLeadEnviarMensagem, useLeadEnviarMedia, useLeadHistoricoWhatsApp, useLeadMarcarLido,
   useUsuariosEmpresa, useFunis, useTransferirFunil,
   useFollowupsLead, useCreateFollowup, useCancelarFollowup,
-  useOrigensCatalogo,
+  useOrigensCatalogo, useLead,
 } from '@/hooks/useCRM'
 import GerenciarOrigensModal from './GerenciarOrigensModal'
 import ChatBubble, { ChatDateSeparator } from './ChatBubble'
 import AgenteIALeadToggle from './AgenteIALeadToggle'
+import FollowupFalhadoItem from './FollowupFalhadoItem'
 import { WhatsAppFormatToolbar } from '@/components/ui/WhatsAppFormatToolbar'
 import type { Lead, EstagioFunil, HistoricoMensagem, TarefaTipo, TarefaPrioridade, AnotacaoTipo, LeadOrigem } from '@/types/crm'
 
@@ -51,7 +52,15 @@ const origemConfig: Record<string, { label: string; color: string }> = {
 }
 
 
-export default function LeadDetailsModal({ lead, estagios, isOpen, onClose }: LeadDetailsModalProps) {
+export default function LeadDetailsModal({ lead: leadProp, estagios, isOpen, onClose }: LeadDetailsModalProps) {
+  // A página passa o objeto que estava no card — um retrato do momento do clique,
+  // que não se atualiza quando uma edição daqui invalida a lista. Era por isso que
+  // trocar o responsável parecia não funcionar: o PUT ia, mas o <select> voltava a
+  // ler o valor antigo do retrato. Esta query segue a mesma chave que as mutações
+  // invalidam, então o modal passa a mostrar o lead como ele está no banco.
+  const { data: leadAtualizado } = useLead(leadProp?.id)
+  const lead = leadAtualizado ?? leadProp
+
   const [activeTab, setActiveTab] = useState<'info' | 'tarefas' | 'anotacoes' | 'atividades' | 'mensagem'>('info')
   // Dica de rolagem da barra de abas (mobile): degradê/seta some ao chegar no fim
   const tabsRef = useRef<HTMLDivElement>(null)
@@ -170,6 +179,15 @@ const arquivarLead = useArquivarLead()
       requestAnimationFrame(() => requestAnimationFrame(scrollToBottom))
     }
   }, [historico, activeTab, isOpen])
+
+  // A caixa de mensagem cresce junto com o texto (até o maxHeight do style) e
+  // volta ao tamanho mínimo depois do envio, quando `mensagem` é limpa.
+  useEffect(() => {
+    const el = mensagemTextareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [mensagem, activeTab])
 
   if (!isOpen || !lead) return null
 
@@ -306,7 +324,11 @@ const handleArquivar = async () => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div
+        className={`bg-white rounded-lg shadow-xl w-full flex flex-col ${
+          activeTab === 'mensagem' ? 'max-w-4xl h-[90vh]' : 'max-w-3xl max-h-[90vh]'
+        }`}
+      >
         {/* Header */}
         <div className="p-4 border-b flex items-center justify-between">
           <div>
@@ -422,7 +444,11 @@ const handleArquivar = async () => {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div
+          className={`flex-1 min-h-0 ${
+            activeTab === 'mensagem' ? 'overflow-hidden' : 'overflow-y-auto p-4'
+          }`}
+        >
           {activeTab === 'info' && (
             <div className="space-y-4">
               {/* Contato */}
@@ -518,7 +544,13 @@ const handleArquivar = async () => {
                       <select
                         value={lead.responsavel_id || ''}
                         onChange={(e) => {
-                          updateLead.mutate({ id: lead.id, data: { responsavel_id: Number(e.target.value) } })
+                          // "Sem responsável" vem como '' — mandar null, não 0
+                          // (Number('') === 0 batia na FK e derrubava o update).
+                          const valor = e.target.value
+                          updateLead.mutate({
+                            id: lead.id,
+                            data: { responsavel_id: valor ? Number(valor) : null } as any,
+                          })
                         }}
                         className="px-2 py-0.5 rounded text-xs font-medium border border-gray-200 cursor-pointer bg-white text-gray-700"
                       >
@@ -865,6 +897,14 @@ const handleArquivar = async () => {
                   }
                   const cfg = tipoConfig[anotacao.tipo] || tipoConfig.nota
                   const AnotIcon = cfg.icon
+                  // Anotação automática (follow-up enviado, resultado de formulário) e
+                  // anotação escrita pelo agente não são observações de vendedor — a
+                  // etiqueta evita que quem lê o card confunda as três coisas.
+                  const selo = anotacao.origem === 'sistema'
+                    ? { texto: 'Automático', classe: 'bg-gray-100 text-gray-500' }
+                    : anotacao.origem === 'agente'
+                      ? { texto: 'Agente IA', classe: 'bg-primary-100 text-primary-700' }
+                      : null
 
                   return (
                     <div key={anotacao.id} className="p-3 border rounded-lg bg-white">
@@ -875,8 +915,13 @@ const handleArquivar = async () => {
                           </span>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-gray-800 whitespace-pre-wrap">{anotacao.conteudo}</p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              {anotacao.usuario_nome && <span className="font-medium text-gray-500">{anotacao.usuario_nome} - </span>}
+                            <p className="text-xs text-gray-400 mt-1 flex flex-wrap items-center gap-1">
+                              {selo && (
+                                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${selo.classe}`}>
+                                  {selo.texto}
+                                </span>
+                              )}
+                              {!selo && anotacao.usuario_nome && <span className="font-medium text-gray-500">{anotacao.usuario_nome} - </span>}
                               {new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(anotacao.created_at))}
                             </p>
                           </div>
@@ -918,9 +963,9 @@ const handleArquivar = async () => {
           )}
 
           {activeTab === 'mensagem' && canWhatsApp && (
-            <div className="flex flex-col h-full -m-4">
+            <div className="flex flex-col h-full min-h-0">
               {/* Chat area */}
-              <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 min-h-[350px] max-h-[450px]"
+              <div ref={chatContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 bg-gray-50"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23e5e7eb\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}
               >
                 {mensagensComDatas.length === 0 ? (
@@ -999,10 +1044,10 @@ const handleArquivar = async () => {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex gap-2">
+                  <div className="flex items-end gap-2">
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="p-2 text-gray-500 hover:bg-gray-100 rounded-full"
+                      className="p-2 mb-1 text-gray-500 hover:bg-gray-100 rounded-full shrink-0"
                       title="Anexar arquivo"
                     >
                       <Paperclip size={20} />
@@ -1020,7 +1065,7 @@ const handleArquivar = async () => {
                     />
                     <button
                       onClick={handleToggleRecording}
-                      className={`p-2 rounded-full transition-colors ${
+                      className={`p-2 mb-1 rounded-full transition-colors shrink-0 ${
                         isRecording
                           ? 'text-red-500 bg-red-50 animate-pulse'
                           : 'text-gray-500 hover:bg-gray-100'
@@ -1029,7 +1074,7 @@ const handleArquivar = async () => {
                     >
                       {isRecording ? <Square size={20} /> : <Mic size={20} />}
                     </button>
-                    <div className="flex-1 flex flex-col gap-1">
+                    <div className="flex-1 min-w-0 flex flex-col gap-1">
                       <WhatsAppFormatToolbar
                         textareaRef={mensagemTextareaRef}
                         value={mensagem}
@@ -1041,18 +1086,19 @@ const handleArquivar = async () => {
                         value={mensagem}
                         onChange={(e) => setMensagem(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Digite uma mensagem..."
-                        rows={1}
-                        className="w-full px-3 py-2 border rounded-full text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
-                        style={{ maxHeight: '80px' }}
+                        placeholder="Digite uma mensagem…  (Enter envia • Shift+Enter pula linha)"
+                        rows={2}
+                        className="w-full px-3.5 py-2.5 border rounded-2xl text-sm leading-relaxed focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none overflow-y-auto"
+                        style={{ minHeight: '56px', maxHeight: '160px' }}
                       />
                     </div>
                     <button
                       onClick={handleEnviarMensagem}
                       disabled={!mensagem.trim() || leadEnviarMensagem.isPending}
-                      className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 disabled:opacity-50"
+                      title="Enviar mensagem (Enter)"
+                      className="p-3 mb-1 bg-green-500 text-white rounded-full hover:bg-green-600 disabled:opacity-50 shrink-0 shadow-sm transition-colors"
                     >
-                      <Send size={18} />
+                      <Send size={20} />
                     </button>
                   </div>
                 )}
@@ -1102,22 +1148,14 @@ const handleArquivar = async () => {
                 })}
               </div>
             )}
-            {/* Follow-ups falhados com opção de retry */}
+            {/* Follow-ups falhados: motivo em linguagem de operador + reagendamento.
+                O texto cru de `erro` vinha truncado numa linha e não havia botão
+                nenhum — retomar um follow-up só era possível pela API. */}
             {followups.filter(f => f.status === 'falhou').length > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-red-700">Falhados:</p>
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-red-700 dark:text-red-300">Falhados:</p>
                 {followups.filter(f => f.status === 'falhou').map(f => (
-                  <div key={f.id} className="flex items-center justify-between bg-red-50 rounded px-2 py-1 text-xs border border-red-200 text-red-700">
-                    <span className="flex items-center gap-1 truncate">
-                      <Clock size={11} />
-                      {f.tipo === 'agente_ia' ? 'Agente IA' : 'Manual'} ·{' '}
-                      {new Date(f.agendado_para).toLocaleString('pt-BR', {
-                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-                        timeZone: 'America/Sao_Paulo'
-                      })}
-                      {f.erro && <span className="text-red-400 truncate ml-1">· {f.erro}</span>}
-                    </span>
-                  </div>
+                  <FollowupFalhadoItem key={f.id} followup={f} />
                 ))}
               </div>
             )}

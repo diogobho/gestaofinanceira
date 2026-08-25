@@ -7,9 +7,8 @@ import { leadsService } from '../crm/leads/leads.service';
 import { tarefasService } from '../crm/tarefas/tarefas.service';
 import { anotacoesService } from '../crm/anotacoes/anotacoes.service';
 import { sessoesService } from '../sessoes/sessoes.service';
-import { clientesService } from '../clientes/clientes.service';
-import { receitasService } from '../receitas/receitas.service';
-import { despesasService } from '../despesas/despesas.service';
+import { marcarOrigemErro } from '../../shared/erros';
+import { leadFalouRecentemente, SILENCIO_APOS_LEAD_MIN } from '../crm/_shared/conversa';
 
 // Lock para evitar processamento concorrente do mesmo lead
 
@@ -25,7 +24,8 @@ async function enviarTextoEmPartes(
   empresaId: number,
   contatoId: number,
   texto: string,
-  leadId: number
+  leadId: number,
+  origem: 'agente_ia' | 'followup' = 'agente_ia'
 ): Promise<void> {
   const partes = texto.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
   const blocos = partes.length <= 3
@@ -33,8 +33,41 @@ async function enviarTextoEmPartes(
     : [...partes.slice(0, 2), partes.slice(2).join('\n\n')];
   for (let i = 0; i < blocos.length; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, 1500 + Math.floor(Math.random() * 2500)));
-    await contatosService.enviarMensagemOuFalhar(usuarioId, empresaId, contatoId, blocos[i], leadId);
+    await contatosService.enviarMensagemOuFalhar(usuarioId, empresaId, contatoId, blocos[i], leadId, origem);
   }
+}
+
+// Teto de espera por uma resposta do provedor de IA, igual nos dois fluxos (reativo e
+// follow-up). O SDK da Anthropic assume 10 minutos quando não se diz nada.
+const TIMEOUT_PROVEDOR_MS = 45_000;
+
+/**
+ * Falha que vale re-tentar: sobrecarga do provedor, rate limit, timeout, queda de rede.
+ * Fica de fora tudo que re-tentar não resolve — 400 (inclusive "credit balance is too
+ * low"), 401/403 de credencial — porque aí o retry só queima o job e polui o log.
+ * Mesma classificação que o follow-up scheduler usa; aqui vale para o agente reativo.
+ */
+function ehErroTransitorio(err: any): boolean {
+  const msg: string = err?.message || '';
+  const statusDoTexto = Number(/status code (\d{3})/i.exec(msg)?.[1]) || undefined;
+  const status = err?.status ?? err?.response?.status ?? statusDoTexto;
+  if (status === 429 || status === 500 || status === 502 || status === 503 || status === 529) return true;
+  return /overloaded|too many requests|timeout|etimedout|econnreset|econnrefused|socket hang up|eai_again/i.test(msg);
+}
+
+/**
+ * Data (YYYY-MM-DD) + hora de PAREDE de São Paulo → instante que a coluna
+ * `tarefas_lead.data_vencimento` guarda (naive em UTC, igual ao que o front grava com
+ * `toISOString()` e ao que `getAgendaLead` lê de volta). SP é UTC-3 fixo — o Brasil não
+ * tem horário de verão desde 2019.
+ * Sem hora válida devolve a data crua: o service ancora ao meio-dia UTC (09h em SP) e
+ * nunca cai em 00:00, que o job de lembrete trata como "hora não definida".
+ */
+function vencimentoDeSP(data: string, horario?: string): Date | string {
+  const horaValida = typeof horario === 'string' && /^\d{1,2}:\d{2}$/.test(horario.trim());
+  if (!horaValida) return data;
+  const instante = new Date(`${data}T${horario!.trim().padStart(5, '0')}:00-03:00`);
+  return isNaN(instante.getTime()) ? data : instante;
 }
 
 export interface AgenteIAConfig {
@@ -72,19 +105,19 @@ const TOOL_DEFINITIONS: Tool[] = [
   // ── CRM ──────────────────────────────────────────────────────────────────
   {
     name: 'criar_tarefa',
-    description: 'Cria uma tarefa/atividade vinculada ao lead atual no CRM. Use para agendar ligações, reuniões, follow-ups, propostas, etc.',
+    description: 'Cria uma tarefa/atividade vinculada ao lead atual no CRM: ligação, e-mail, follow-up, proposta, visita. Para REUNIÃO não use esta — use agendar_reuniao, que também liga os lembretes automáticos.',
     input_schema: {
       type: 'object' as const,
       properties: {
         tipo: {
           type: 'string',
-          enum: ['ligacao', 'reuniao', 'email', 'follow_up', 'proposta', 'visita', 'outros'],
-          description: 'Tipo da tarefa'
+          enum: ['ligacao', 'email', 'follow_up', 'proposta', 'visita', 'outros'],
+          description: 'Tipo da tarefa (reunião tem ferramenta própria: agendar_reuniao)'
         },
         titulo: { type: 'string', description: 'Título da tarefa' },
         descricao: { type: 'string', description: 'Descrição opcional da tarefa' },
         data_vencimento: { type: 'string', description: 'Data de vencimento no formato YYYY-MM-DD (horário de Brasília)' },
-        horario: { type: 'string', description: 'Horário no formato HH:MM (horário de Brasília). OBRIGATÓRIO quando tipo="reuniao" — é a hora real da reunião; nunca deixe uma reunião sem horário.' },
+        horario: { type: 'string', description: 'Horário no formato HH:MM (horário de Brasília). Opcional — sem ele a tarefa fica marcada só para o dia.' },
         prioridade: {
           type: 'string',
           enum: ['baixa', 'normal', 'alta', 'urgente'],
@@ -180,119 +213,32 @@ const TOOL_DEFINITIONS: Tool[] = [
 
   // ── Sessões ───────────────────────────────────────────────────────────────
   {
-    name: 'criar_sessao',
-    description: 'Agenda uma sessão ou reunião no módulo financeiro do sistema. Use quando o lead confirmar uma reunião ou sessão de trabalho. NÃO precisa informar cliente_id — ele é resolvido automaticamente pelo sistema.',
+    name: 'agendar_reuniao',
+    description: 'Marca a reunião do lead na agenda. Use assim que o lead confirmar dia e horário. Basta a data e o horário — o resto é preenchido pelo sistema. Os lembretes automáticos (véspera e 1h antes) passam a valer sozinhos. Se já houver reunião marcada para este lead, esta chamada REMARCA a existente em vez de criar outra.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        tipo_sessao: { type: 'string', description: 'Tipo da sessão (ex: reuniao, consultoria, coaching, apresentacao)' },
-        titulo: { type: 'string', description: 'Título da sessão' },
-        data: { type: 'string', description: 'Data da sessão no formato YYYY-MM-DD' },
-        horario: { type: 'string', description: 'Horário da sessão no formato HH:MM' },
-        duracao_minutos: { type: 'number', description: 'Duração da sessão em minutos' },
-        modalidade: { type: 'string', enum: ['online', 'presencial'], description: 'Modalidade da sessão' },
-        plataforma: { type: 'string', description: 'Plataforma online (ex: Google Meet, Zoom, Teams)' },
-        link_sessao: { type: 'string', description: 'Link da reunião online' },
-        descricao: { type: 'string', description: 'Descrição ou pauta da sessão' }
+        data: { type: 'string', description: 'Data da reunião no formato YYYY-MM-DD (horário de Brasília)' },
+        horario: { type: 'string', description: 'Horário da reunião no formato HH:MM (horário de Brasília)' },
+        titulo: { type: 'string', description: 'Opcional. Título da reunião (padrão: "Reunião")' },
+        duracao_minutos: { type: 'number', description: 'Opcional. Duração em minutos (padrão: 60)' },
+        modalidade: { type: 'string', enum: ['online', 'presencial'], description: 'Opcional. Padrão: online' },
+        plataforma: { type: 'string', description: 'Opcional. Ex: Google Meet, Zoom' },
+        link_sessao: { type: 'string', description: 'Opcional. Link da reunião online' },
+        descricao: { type: 'string', description: 'Opcional. Pauta ou observação da reunião' }
       },
-      required: ['tipo_sessao', 'data', 'horario', 'duracao_minutos']
+      required: ['data', 'horario']
     }
   },
-  {
-    name: 'listar_sessoes',
-    description: 'Lista as sessões agendadas no módulo financeiro',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        data_ini: { type: 'string', description: 'Data inicial no formato YYYY-MM-DD' },
-        data_fim: { type: 'string', description: 'Data final no formato YYYY-MM-DD' }
-      }
-    }
-  },
-
-  // ── Clientes ──────────────────────────────────────────────────────────────
-  {
-    name: 'listar_clientes',
-    description: 'Lista os clientes cadastrados no módulo financeiro',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        status: { type: 'string', description: 'Filtrar por status do cliente' }
-      }
-    }
-  },
-  {
-    name: 'buscar_cliente',
-    description: 'Busca um cliente específico pelo ID no módulo financeiro',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        cliente_id: { type: 'number', description: 'ID do cliente' }
-      },
-      required: ['cliente_id']
-    }
-  },
-
-  // ── Financeiro ────────────────────────────────────────────────────────────
-  {
-    name: 'criar_receita',
-    description: 'Registra uma receita ou recebimento no módulo financeiro',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        descricao: { type: 'string', description: 'Descrição da receita' },
-        valor: { type: 'number', description: 'Valor em R$' },
-        data: { type: 'string', description: 'Data no formato YYYY-MM-DD' },
-        fonte: { type: 'string', description: 'Fonte da receita (ex: venda, serviço, consultoria)' },
-        tipo_pagamento: { type: 'string', enum: ['a_vista', 'parcelado'], description: 'Forma de pagamento' },
-        status: { type: 'string', enum: ['pendente', 'pago'], description: 'Status do pagamento' },
-        cliente_id: { type: 'number', description: 'ID do cliente vinculado (opcional)' },
-        numero_parcelas: { type: 'number', description: 'Número de parcelas (se parcelado)' }
-      },
-      required: ['descricao', 'valor', 'data']
-    }
-  },
-  {
-    name: 'listar_receitas',
-    description: 'Lista receitas registradas no módulo financeiro',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        data_ini: { type: 'string', description: 'Data inicial no formato YYYY-MM-DD' },
-        data_fim: { type: 'string', description: 'Data final no formato YYYY-MM-DD' },
-        status: { type: 'string', enum: ['pendente', 'pago'] }
-      }
-    }
-  },
-  {
-    name: 'criar_despesa',
-    description: 'Registra uma despesa ou gasto no módulo financeiro',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        descricao: { type: 'string', description: 'Descrição da despesa' },
-        valor: { type: 'number', description: 'Valor em R$' },
-        data: { type: 'string', description: 'Data no formato YYYY-MM-DD' },
-        categoria: { type: 'string', description: 'Categoria da despesa (ex: marketing, software, pessoal)' },
-        tipo_pagamento: { type: 'string', enum: ['a_vista', 'parcelado'] },
-        status: { type: 'string', enum: ['pendente', 'pago'] }
-      },
-      required: ['descricao', 'valor', 'data']
-    }
-  },
-  {
-    name: 'listar_despesas',
-    description: 'Lista despesas registradas no módulo financeiro',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        data_ini: { type: 'string', description: 'Data inicial no formato YYYY-MM-DD' },
-        data_fim: { type: 'string', description: 'Data final no formato YYYY-MM-DD' },
-        status: { type: 'string', enum: ['pendente', 'pago'] }
-      }
-    }
-  },
-
+  // ── Consulta e escrita no módulo financeiro: NÃO expostas aqui ────────────
+  // Este agente conversa com o LEAD (terceiro não confiável) pelo WhatsApp. Ele tinha
+  // `listar_clientes`, `buscar_cliente`, `listar_sessoes`, `listar_receitas`,
+  // `listar_despesas`, `criar_receita` e `criar_despesa` — ou seja, a carteira de
+  // clientes e o financeiro da empresa a um pedido bem construído de distância
+  // (o prompt não é barreira de segurança). Removidas em 14/08/2026; nenhuma delas
+  // chegou a ser usada em produção. O chat interno (o Duo) continua com o
+  // conjunto financeiro completo em `chat-financeiro.service.ts`, que só o dono da
+  // conta acessa — é lá que essas ferramentas fazem sentido.
 ];
 
 // ─── Execução das ferramentas ─────────────────────────────────────────────────
@@ -307,15 +253,17 @@ async function executarFerramenta(
 
       // ── CRM ──────────────────────────────────────────────────────────────
       case 'criar_tarefa': {
-        // Vencimento como horário de PAREDE de São Paulo (a coluna guarda wall-clock SP).
-        // Com horário → 'YYYY-MM-DDTHH:MM:00' (naive SP). Sem horário → só a data (o service
-        // ancora ao meio-dia, evitando cruzar o fuso). Nunca cai em 00:00, que o job de
-        // lembrete de reunião trata como "hora não definida".
-        const horaValida = typeof input.horario === 'string' && /^\d{1,2}:\d{2}$/.test(input.horario.trim());
-        const hhmm = horaValida ? input.horario.trim().padStart(5, '0') : null;
-        const dataVencimento: any = hhmm
-          ? `${input.data_vencimento}T${hhmm}:00`
-          : input.data_vencimento;
+        // `tarefas_lead.data_vencimento` é naive gravado em UTC — é o que o front manda
+        // (`toISOString()`) e o que `getAgendaLead` lê de volta (AT TIME ZONE 'UTC' →
+        // 'America/Sao_Paulo'). O agente pensa e fala em horário de São Paulo, então a
+        // hora dele é convertida para UTC aqui (SP = UTC-3 fixo; o Brasil não tem mais
+        // horário de verão desde 2019). Antes gravava a parede de SP direto na coluna: a
+        // reunião marcada para as 14h aparecia como 11h para o vendedor e para o próprio
+        // agente no turno seguinte.
+        // Sem horário → só a data (o service ancora ao meio-dia UTC = 09h em SP, mesma
+        // convenção do resto do sistema). Nunca cai em 00:00, que o job de lembrete de
+        // reunião trata como "hora não definida".
+        const dataVencimento: any = vencimentoDeSP(input.data_vencimento, input.horario);
         const tarefa = await tarefasService.create(ctx.empresaId, ctx.usuarioId, {
           lead_id: ctx.leadId,
           tipo: input.tipo,
@@ -352,7 +300,8 @@ async function executarFerramenta(
         const anotacao = await anotacoesService.create(ctx.empresaId, ctx.usuarioId, {
           lead_id: ctx.leadId,
           conteudo: input.conteudo,
-          tipo: input.tipo || 'nota'
+          tipo: input.tipo || 'nota',
+          origem: 'agente'
         });
         return { sucesso: true, dados: { id: anotacao.id, conteudo: anotacao.conteudo, tipo: anotacao.tipo } };
       }
@@ -381,111 +330,86 @@ async function executarFerramenta(
         return { sucesso: true, dados: atividades };
       }
 
-      // ── Sessões ───────────────────────────────────────────────────────────
-      case 'criar_sessao': {
-        // Resolver cliente_id: usa o vinculado ao lead, ou cria um novo
-        let clienteId = ctx.clienteId;
-        if (!clienteId) {
-          // Tenta criar cliente a partir dos dados do lead
-          const novoCliente = await clientesService.create({
-            usuario_id: ctx.usuarioId,
-            nome: ctx.lead.nome,
-            telefone: ctx.lead.telefone || null,
-            email: ctx.lead.email || null,
-            status: 'ativo'
-          });
-          clienteId = novoCliente.id;
+      // ── Reunião ───────────────────────────────────────────────────────────
+      case 'agendar_reuniao': {
+        // Marcar reunião = criar a TAREFA tipo 'reuniao' no lead. É ela que o
+        // reuniao-lembretes-scheduler lê para disparar véspera, 1h antes e resgate de
+        // no-show — então é ela que não pode faltar.
+        //
+        // A sessão do módulo de agenda é um extra: `sessoes.cliente_id` é NOT NULL e
+        // cadastrar cliente exige CPF/CNPJ, que um lead de WhatsApp não tem. A versão
+        // antiga tentava criar o cliente e morria em "Campo cpf_cnpj é obrigatório" — as
+        // duas chamadas que existiram em produção falharam assim e a reunião não foi
+        // marcada. Agora a sessão só é criada quando o lead JÁ é cliente, e a falha dela
+        // nunca derruba o agendamento.
+        if (!input.data) return { sucesso: false, dados: null, erro: 'Informe a data no formato YYYY-MM-DD' };
+        const vencimento = vencimentoDeSP(input.data, input.horario);
+        if (typeof vencimento === 'string') {
+          return { sucesso: false, dados: null, erro: 'Informe o horário da reunião no formato HH:MM (horário de Brasília)' };
         }
-        const sessao = await sessoesService.create({
-          usuario_id: ctx.usuarioId,
-          mentor_id: ctx.usuarioId,
-          cliente_id: clienteId,
-          tipo_sessao: input.tipo_sessao,
-          titulo: input.titulo || input.tipo_sessao,
-          data: input.data,
-          horario: input.horario,
-          duracao_minutos: input.duracao_minutos,
-          modalidade: input.modalidade || 'online',
-          plataforma: input.plataforma || null,
-          link_sessao: input.link_sessao || null,
-          descricao: input.descricao || null,
-          notas_internas: `Criado pelo agente IA — lead ID ${ctx.leadId}`
-        });
-        return { sucesso: true, dados: { id: sessao.id, titulo: sessao.titulo, data: sessao.data, horario: sessao.horario, modalidade: sessao.modalidade } };
-      }
+        const tituloReuniao: string = input.titulo || 'Reunião';
+        const detalhes = [input.descricao, input.plataforma, input.link_sessao].filter(Boolean).join(' — ');
 
-      case 'listar_sessoes': {
-        const filters: any = { usuario_id: ctx.usuarioId };
-        if (input.data_ini) filters.data_ini = input.data_ini;
-        if (input.data_fim) filters.data_fim = input.data_fim;
-        const resultado = await sessoesService.list(filters, 1, 20);
-        return { sucesso: true, dados: resultado.data || resultado };
-      }
+        // Remarcação: com uma reunião pendente no lead, atualiza em vez de criar outra —
+        // duas tarefas significariam duas réguas de lembrete para a mesma pessoa.
+        const reuniaoAtual = await query(
+          `SELECT id FROM tarefas_lead
+            WHERE lead_id = $1 AND empresa_id = $2 AND tipo = 'reuniao' AND status = 'pendente'
+            ORDER BY data_vencimento DESC LIMIT 1`,
+          [ctx.leadId, ctx.empresaId]
+        );
 
-      // ── Clientes ──────────────────────────────────────────────────────────
-      case 'listar_clientes': {
-        const filters: any = { usuario_id: ctx.usuarioId };
-        if (input.status) filters.status = input.status;
-        const clientes = await clientesService.list(filters);
+        const remarcada = !!reuniaoAtual.rows[0];
+        const tarefa = remarcada
+          ? await tarefasService.update(reuniaoAtual.rows[0].id, ctx.empresaId, {
+              titulo: tituloReuniao,
+              data_vencimento: vencimento as any,
+              ...(detalhes ? { descricao: detalhes } : {})
+            })
+          : await tarefasService.create(ctx.empresaId, ctx.usuarioId, {
+              lead_id: ctx.leadId,
+              tipo: 'reuniao',
+              titulo: tituloReuniao,
+              descricao: detalhes || undefined,
+              data_vencimento: vencimento as any,
+              prioridade: 'alta'
+            });
+
+        // Extra, e só se o lead já for cliente: espelha na agenda do módulo de sessões.
+        let sessaoId: string | null = null;
+        if (ctx.clienteId) {
+          try {
+            const sessao = await sessoesService.create({
+              usuario_id: ctx.usuarioId,
+              mentor_id: ctx.usuarioId,
+              cliente_id: ctx.clienteId,
+              tipo_sessao: 'reuniao',
+              titulo: tituloReuniao,
+              data: input.data,
+              horario: input.horario,
+              duracao_minutos: input.duracao_minutos || 60,
+              modalidade: input.modalidade || 'online',
+              plataforma: input.plataforma || null,
+              link_sessao: input.link_sessao || null,
+              descricao: input.descricao || null,
+              notas_internas: `Agendado pelo agente IA — lead ID ${ctx.leadId}`
+            });
+            sessaoId = sessao.id;
+          } catch (e: any) {
+            console.warn(`[AgenteIA] Lead #${ctx.leadId}: reunião marcada, mas espelhar na agenda falhou:`, e.message);
+          }
+        }
+
         return {
           sucesso: true,
-          dados: (Array.isArray(clientes) ? clientes : (clientes as any).data || []).slice(0, 30).map((c: any) => ({
-            id: c.id, nome: c.nome, email: c.email, telefone: c.telefone, status: c.status
-          }))
+          dados: {
+            tarefa_id: tarefa?.id,
+            titulo: tituloReuniao,
+            quando: `${input.data} ${String(input.horario).trim()} (horário de Brasília)`,
+            remarcada,
+            sessao_id: sessaoId
+          }
         };
-      }
-
-      case 'buscar_cliente': {
-        const cliente = await clientesService.getById(String(input.cliente_id), { usuario_id: ctx.usuarioId });
-        if (!cliente) return { sucesso: false, dados: null, erro: 'Cliente não encontrado' };
-        return { sucesso: true, dados: { id: cliente.id, nome: cliente.nome, email: cliente.email, telefone: cliente.telefone, status: cliente.status } };
-      }
-
-      // ── Financeiro ────────────────────────────────────────────────────────
-      case 'criar_receita': {
-        const receita = await receitasService.create({
-          usuario_id: ctx.usuarioId,
-          descricao: input.descricao,
-          valor: input.valor,
-          data: input.data,
-          fonte: input.fonte || null,
-          tipo_pagamento: input.tipo_pagamento || 'a_vista',
-          status: input.status || 'pendente',
-          cliente_id: input.cliente_id || null,
-          numero_parcelas: input.numero_parcelas || null
-        });
-        return { sucesso: true, dados: { id: receita.id, descricao: receita.descricao, valor: receita.valor, status: receita.status } };
-      }
-
-      case 'listar_receitas': {
-        const filters: any = { usuario_id: ctx.usuarioId };
-        if (input.data_ini) filters.data_ini = input.data_ini;
-        if (input.data_fim) filters.data_fim = input.data_fim;
-        if (input.status) filters.status = input.status;
-        const resultado = await receitasService.list(filters, 1, 20);
-        return { sucesso: true, dados: resultado.data || resultado };
-      }
-
-      case 'criar_despesa': {
-        const despesa = await despesasService.create({
-          usuario_id: ctx.usuarioId,
-          descricao: input.descricao,
-          valor: input.valor,
-          data: input.data,
-          categoria: input.categoria || null,
-          tipo_pagamento: input.tipo_pagamento || 'a_vista',
-          status: input.status || 'pendente'
-        });
-        return { sucesso: true, dados: { id: despesa.id, descricao: despesa.descricao, valor: despesa.valor, status: despesa.status } };
-      }
-
-      case 'listar_despesas': {
-        const filters: any = { usuario_id: ctx.usuarioId };
-        if (input.data_ini) filters.data_ini = input.data_ini;
-        if (input.data_fim) filters.data_fim = input.data_fim;
-        if (input.status) filters.status = input.status;
-        const resultado = await despesasService.list(filters, 1, 20);
-        return { sucesso: true, dados: resultado.data || resultado };
       }
 
       default:
@@ -494,6 +418,80 @@ async function executarFerramenta(
   } catch (err: any) {
     return { sucesso: false, dados: null, erro: err.message };
   }
+}
+
+/**
+ * Anotações do lead formatadas para o prompt, com a ORIGEM explícita.
+ *
+ * O agente grava uma anotação a cada follow-up enviado ("Follow-up automático
+ * enviado: ..."), e o prompt injeta as 20 últimas anotações do lead. Sem marcar a
+ * origem, o agente relia as próprias mensagens como se fossem observações escritas
+ * por um vendedor humano — eco que virava contexto falso a cada novo toque.
+ * As anotações continuam no histórico (são rastreabilidade real); o que muda é que
+ * agora ele sabe quem escreveu cada uma.
+ */
+const ROTULO_ORIGEM_ANOTACAO: Record<string, string> = {
+  usuario: 'anotação de um vendedor',
+  agente: 'anotação que VOCÊ mesmo registrou',
+  sistema: 'evento automático do sistema — não é fala de vendedor',
+};
+
+function renderAnotacoes(anotacoes: any[]): string {
+  if (!anotacoes || anotacoes.length === 0) return 'Nenhuma anotação registrada';
+  return anotacoes
+    .map((a: any) => {
+      const origem = ROTULO_ORIGEM_ANOTACAO[a?.origem] ? a.origem : 'usuario';
+      const tipo = a?.tipo && a.tipo !== 'nota' ? ` · ${a.tipo}` : '';
+      return `  [${ROTULO_ORIGEM_ANOTACAO[origem]}${tipo}] ${a?.conteudo ?? ''}`;
+    })
+    .join('\n');
+}
+
+/** Como a hora de uma tarefa deve ser lida (a hora pode não ter sido preenchida). */
+function quandoTarefa(t: any): string {
+  return t?.hora_definida === false
+    ? `${t.quando_data} (dia marcado; a HORA não foi preenchida no sistema)`
+    : t?.quando;
+}
+
+function rotuloTarefa(t: any): string {
+  return `  - ${t.tipo === 'reuniao' ? 'REUNIÃO' : t.tipo}: "${t.titulo}" — ${quandoTarefa(t)}` +
+    `${t.atrasada ? ' (ATRASADA)' : ''}` +
+    `${t.prioridade && t.prioridade !== 'normal' ? ` [${t.prioridade}]` : ''}` +
+    `${t.descricao ? `\n      ${String(t.descricao).slice(0, 200)}` : ''}`;
+}
+
+/**
+ * Blocos de agenda do lead (tarefas pendentes, encerradas, reunião marcada e próxima
+ * mensagem automática) — os MESMOS para o agente reativo e para o de follow-up.
+ * O follow-up escrevia sem nada disso: não sabia da reunião marcada e podia propor
+ * um horário por cima dela ou repetir uma pergunta já respondida.
+ */
+function renderAgenda(agenda?: { pendentes: any[]; concluidas: any[]; proximoFollowup: any | null } | null): {
+  tarefas: string; concluidas: string; avisoReuniao: string; avisoFollowup: string;
+} {
+  const pendentes = agenda?.pendentes ?? [];
+  const concluidas = agenda?.concluidas ?? [];
+  const reuniao = pendentes.find((t: any) => t.tipo === 'reuniao');
+
+  const avisoReuniao = reuniao
+    ? `\nATENÇÃO — ESTE LEAD TEM REUNIÃO MARCADA: ${quandoTarefa(reuniao)}${reuniao.atrasada ? ' (o horário JÁ PASSOU)' : ''}.
+Se ele perguntar sobre data/hora da conversa, use exatamente o que está acima — nunca invente outro horário nem sugira remarcar sem ele pedir. Não crie outra tarefa de reunião: já existe uma.${reuniao.hora_definida === false ? `
+A HORA não está registrada no sistema. Se o título/descrição da tarefa trouxer o horário combinado, use o de lá; se não trouxer, NÃO afirme uma hora — confirme com ele qual ficou combinado.` : ''}\n`
+    : '';
+
+  const avisoFollowup = agenda?.proximoFollowup
+    ? `\nUSO INTERNO — já existe uma mensagem automática programada para sair em ${agenda.proximoFollowup.quando}. Não prometa ao lead um retorno em outra data que conflite com isso, e não mencione esse agendamento.\n`
+    : '';
+
+  return {
+    tarefas: pendentes.length > 0 ? pendentes.map(rotuloTarefa).join('\n') : '  Nenhuma tarefa pendente',
+    concluidas: concluidas.length > 0
+      ? concluidas.map((t: any) => `  - ${t.tipo}: "${t.titulo}" — ${t.quando} (${t.status})`).join('\n')
+      : '  Nenhuma',
+    avisoReuniao,
+    avisoFollowup,
+  };
 }
 
 // ─── Serviço principal ────────────────────────────────────────────────────────
@@ -632,39 +630,87 @@ export const agenteIaService = {
   },
 
   /**
-   * Instrução do PASSO ATUAL da cadência do estágio em que o lead está.
-   * "Passo atual" = último passo de estágio já ENVIADO (o lead segue no contexto
-   * desse toque até o próximo passo disparar). Se nenhum foi enviado ainda, usa o
-   * primeiro passo. Retorna null se o estágio não tem cadência configurada.
-   * Usado para deixar o agente REATIVO ciente de onde a cadência está.
+   * Instrução do agente REATIVO configurada no estágio (`instrucoes_agente_ia`).
+   *
+   * É a única fonte de orientação do reativo. Antes ele emprestava a instrução do
+   * passo atual da cadência, o que misturava dois assuntos diferentes: a cadência
+   * descreve o que ENVIAR sozinho e quando; o reativo precisa saber como RESPONDER
+   * quando o lead escreve. Estágio sem instrução → sem orientação de etapa (o
+   * agente segue só o prompt base e as instruções gerais da empresa).
    */
-  async getInstrucaoCadenciaAtual(leadId: number, estagioId: number): Promise<string | null> {
-    const est = await query(`SELECT followup_config FROM estagios_funil WHERE id = $1`, [estagioId]);
-    const passos = est.rows[0]?.followup_config?.passos;
-    if (!Array.isArray(passos) || passos.length === 0) return null;
+  /**
+   * Agenda do lead para o prompt do agente REATIVO: tarefas (pendentes e as
+   * últimas concluídas) e o próximo follow-up automático já agendado.
+   *
+   * Sem isso o agente respondia no escuro — não sabia da reunião marcada e, ao ser
+   * perguntado "que horas mesmo?", inventava ou criava tarefa duplicada.
+   *
+   * `tarefas_lead.data_vencimento` é `timestamp without time zone` gravado em UTC
+   * (o front manda `toISOString()` e exibe no fuso do navegador). Convertemos para
+   * São Paulo aqui para o agente ler a MESMA hora que o vendedor vê na tela.
+   */
+  async getAgendaLead(leadId: number, empresaId: number, excluirFollowupId?: number | null): Promise<{
+    pendentes: any[]; concluidas: any[]; proximoFollowup: any | null;
+  }> {
+    const FMT = `to_char(data_vencimento AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI')`;
 
-    // Só passos enviados DESDE que o lead entrou no estágio atual — envios da cadência
-    // do estágio anterior não contam (senão o índice apontaria para o passo errado).
-    const sent = await query(
-      `SELECT passo_ordem FROM followups_agendados
-        WHERE lead_id = $1 AND origem = 'estagio' AND status = 'enviado' AND passo_ordem IS NOT NULL
-          AND COALESCE(enviado_at, updated_at) >= COALESCE(
-            (SELECT MAX(a.created_at) FROM atividades_lead a
-              WHERE a.lead_id = $1
-                AND a.tipo IN ('mudanca_estagio', 'transferencia_funil', 'transferencia_automatica')),
-            '-infinity'::timestamptz)
-        ORDER BY passo_ordem DESC LIMIT 1`,
-      [leadId]
+    const [pend, conc, fup] = await Promise.all([
+      query(
+        // hora_definida: no formulário de tarefa a hora vem preenchida com "agora"
+        // quando o vendedor escolhe só a data. Nesse caso o horário gravado não quer
+        // dizer nada (a hora real costuma estar no título) e o agente não pode
+        // anunciá-lo como se fosse combinado.
+        `SELECT tipo, titulo, descricao, prioridade, ${FMT} AS quando,
+                to_char(data_vencimento AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo',
+                        'DD/MM/YYYY') AS quando_data,
+                (data_vencimento < NOW()) AS atrasada,
+                (ABS(EXTRACT(EPOCH FROM (data_vencimento::time - created_at::time))) > 120)
+                  AS hora_definida
+           FROM tarefas_lead
+          WHERE lead_id = $1 AND empresa_id = $2 AND status = 'pendente'
+          ORDER BY data_vencimento ASC LIMIT 10`,
+        [leadId, empresaId]
+      ),
+      query(
+        `SELECT tipo, titulo, status, ${FMT} AS quando
+           FROM tarefas_lead
+          WHERE lead_id = $1 AND empresa_id = $2 AND status <> 'pendente'
+          ORDER BY COALESCE(data_conclusao, data_vencimento) DESC LIMIT 5`,
+        [leadId, empresaId]
+      ),
+      query(
+        // agendado_para é timestamptz (ao contrário de tarefas_lead): uma conversão só.
+        // `excluirFollowupId` tira da lista o follow-up que está sendo gerado AGORA:
+        // ele ainda está 'pendente' e apareceria para o próprio agente como "já existe
+        // uma mensagem automática programada", contradizendo a mensagem que ele escreve.
+        `SELECT to_char(agendado_para AT TIME ZONE 'America/Sao_Paulo',
+                        'DD/MM/YYYY HH24:MI') AS quando
+           FROM followups_agendados
+          WHERE lead_id = $1 AND status = 'pendente'
+            AND ($2::int IS NULL OR id <> $2)
+          ORDER BY agendado_para ASC LIMIT 1`,
+        [leadId, excluirFollowupId ?? null]
+      ),
+    ]);
+
+    return {
+      pendentes: pend.rows,
+      concluidas: conc.rows,
+      proximoFollowup: fup.rows[0] || null,
+    };
+  },
+
+  async getInstrucaoReativaEstagio(estagioId: number): Promise<string | null> {
+    if (!estagioId) return null;
+    const est = await query(
+      `SELECT instrucoes_agente_ia FROM estagios_funil WHERE id = $1`,
+      [estagioId]
     );
-    let idx: number = sent.rows[0]?.passo_ordem ?? 0;
-    if (idx >= passos.length) idx = passos.length - 1;
-
-    const passo = passos[idx] || {};
-    const instrucao = String(passo.instrucao_ia || passo.mensagem || '').trim();
+    const instrucao = String(est.rows[0]?.instrucoes_agente_ia || '').trim();
     return instrucao || null;
   },
 
-  buildSystemPrompt(config: AgenteIAConfig, lead: any, estagio: any, estagiosDisponiveis: any[], anotacoes: any[] = [], tags: string[] = [], responsavelNome?: string, instrucaoCadencia?: string | null): string {
+  buildSystemPrompt(config: AgenteIAConfig, lead: any, estagio: any, estagiosDisponiveis: any[], anotacoes: any[] = [], tags: string[] = [], responsavelNome?: string, instrucaoEstagio?: string | null, agenda?: { pendentes: any[]; concluidas: any[]; proximoFollowup: any | null } | null): string {
     const tomMap: Record<string, string> = {
       formal: 'Use linguagem profissional e respeitosa. Trate pelo nome com "você".',
       casual: 'Seja descontraído, pode usar linguagem informal e gírias leves.',
@@ -680,12 +726,25 @@ export const agenteIaService = {
       .map((e: any) => `  - ID ${e.id}: "${e.nome}"${e.is_ganho ? ' (GANHO)' : ''}${e.is_perdido ? ' (PERDIDO)' : ''}`)
       .join('\n');
 
-    const anotacoesStr = anotacoes.length > 0
-      ? anotacoes.map((a: any) => `  [${a.tipo || 'nota'}] ${a.conteudo}`).join('\n')
-      : 'Nenhuma anotação registrada';
+    const anotacoesStr = renderAnotacoes(anotacoes);
 
     // Usa o nome do responsável atual do lead; fallback para o nome configurado no agente
     const nomeIdentidade = responsavelNome || config.nome_agente;
+
+    // ── Agenda do lead: tarefas e próximo follow-up (mesmos blocos do follow-up) ──
+    const blocos = renderAgenda(agenda);
+    const tarefasStr = blocos.tarefas;
+    const concluidasStr = blocos.concluidas;
+
+    // Datas do relacionamento (o lead percebe quando o vendedor "esquece" o histórico)
+    const dataBR = (v: any) => v ? new Date(v).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : null;
+    const leadDesde = dataBR(lead.created_at);
+    const ultimaRespostaDele = lead.ultima_resposta_cliente_at
+      ? new Date(lead.ultima_resposta_cliente_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : null;
+    const valorStr = lead.valor_potencial != null && Number(lead.valor_potencial) > 0
+      ? Number(lead.valor_potencial).toLocaleString('pt-BR', { style: 'currency', currency: lead.moeda || 'BRL' })
+      : null;
 
     return `Você é ${nomeIdentidade}${config.area_negocio ? `, da ${config.area_negocio}` : ''}.
 Hoje é ${hoje} e agora são ${horaAgora} (${periodoDia}) — horário de Brasília (São Paulo).
@@ -700,16 +759,22 @@ Se cumprimentar, use saudação coerente com o horário atual acima (bom dia at�
 SOBRE QUEM VOCÊ ESTÁ CONVERSANDO:
 - Nome: ${lead.nome}
 - Telefone: ${lead.telefone || 'não informado'}
-- Email: ${lead.email || 'não informado'}
+- Email: ${lead.email || 'não informado'}${lead.empresa ? `\n- Empresa: ${lead.empresa}` : ''}${lead.cargo ? `\n- Cargo: ${lead.cargo}` : ''}
 - Temperatura: ${lead.temperatura || 'não definida'}
 - Estágio no funil: ${estagio?.nome || 'desconhecido'}
-- Tags: ${tags.length > 0 ? tags.join(', ') : 'nenhuma'}
+- Tags: ${tags.length > 0 ? tags.join(', ') : 'nenhuma'}${lead.origem ? `\n- Como chegou até nós: ${lead.origem}` : ''}${valorStr ? `\n- Valor potencial do negócio: ${valorStr}` : ''}${leadDesde ? `\n- É lead desde: ${leadDesde}` : ''}${ultimaRespostaDele ? `\n- Última vez que ELE respondeu: ${ultimaRespostaDele}` : ''}
 - Notas sobre o lead: ${lead.notas || 'nenhuma'}
 
-ANOTAÇÕES DO LEAD (histórico registrado pelos vendedores):
+ANOTAÇÕES DO LEAD (cada linha diz quem a escreveu — vendedor, você, ou um evento automático):
 ${anotacoesStr}
 
-${instrucaoCadencia ? `FOCO DESTA ETAPA DA CONVERSA (o que você deve buscar agora, conforme o passo atual da cadência deste estágio — siga esta orientação ao responder, sem copiá-la literalmente):\n${instrucaoCadencia}\n\n` : ''}ESTÁGIOS DO FUNIL — apenas para uso nas ferramentas, nunca mencione ao lead:
+AGENDA DESTE LEAD — tarefas pendentes (datas e horas em horário de Brasília):
+${tarefasStr}
+
+TAREFAS JÁ ENCERRADAS (contexto do que já foi feito):
+${concluidasStr}
+${blocos.avisoReuniao}${blocos.avisoFollowup}
+${instrucaoEstagio ? `COMO RESPONDER NESTE ESTÁGIO (orientação definida para o estágio "${estagio?.nome || '?'}" — siga ao responder, sem copiá-la literalmente):\n${instrucaoEstagio}\n\n` : ''}ESTÁGIOS DO FUNIL — apenas para uso nas ferramentas, nunca mencione ao lead:
 ${estagiosStr}
 
 ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.system_prompt_extra}\n\n` : ''}REGRAS QUE NUNCA PODEM SER QUEBRADAS:
@@ -717,7 +782,7 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
 2. JAMAIS diga frases como: "Vou registrar isso", "Anotei aqui", "Criei uma tarefa para você", "Movi você para outra etapa", "Agendei no sistema".
 3. Use as ferramentas discretamente. A conversa flui normalmente como se fosse entre duas pessoas.
 4. Ao confirmar uma reunião, simplesmente confirme o horário de forma natural (ex: "Combinado, sexta às 10h então. Até lá!").
-5. Ao agendar sessão, crie também uma tarefa do tipo "reuniao" — tudo sem mencionar ao lead.
+5. Quando o lead fechar dia e horário, chame agendar_reuniao com a data e a hora combinadas (horário de Brasília) — só isso. Ela já registra a reunião e liga os lembretes automáticos; não crie tarefa de reunião à parte nem prometa lembrar depois. Se o lead remarcar, chame agendar_reuniao de novo com o horário novo.
 6. Nunca prometa preços, descontos ou condições não confirmadas.
 7. Se não souber algo, diga que vai verificar — como qualquer pessoa faria.
 8. SEMPRE responda ao lead com uma mensagem de texto, mesmo que curta. Nunca termine o processamento sem enviar uma resposta — mesmo que só vá criar uma anotação interna, ainda assim responda o lead na conversa.`;
@@ -743,7 +808,12 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     const isGemini = config?.provider === 'gemini';
     const hasKey = isGemini ? !!config?.gemini_api_key : !!config?.api_key;
     if (!config || !config.ativo || !hasKey) {
-      console.log(`[AgenteIA] Config inativa ou sem API key para empresa ${empresaId}`);
+      // Distingue os três casos: sem linha em agente_ia_config (empresa nunca configurada,
+      // situação silenciosa que nenhuma tela mostra), desligada, ou ligada mas sem chave.
+      const motivo = !config ? 'empresa sem configuração de agente (agente_ia_config)'
+        : !config.ativo ? 'agente desligado na empresa'
+        : `sem API key do provedor "${config.provider || 'claude'}"`;
+      console.log(`[AgenteIA] Lead #${leadId}: mensagem ignorada — ${motivo} (empresa ${empresaId})`);
       return;
     }
 
@@ -778,14 +848,21 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     }
 
     // 3. Buscar dados do lead e estágio (incluindo nome do responsável atual)
+    // `remetente_nome` é o dono do NÚMERO que recebeu a mensagem — é ele quem vai
+    // responder (enviarTextoEmPartes usa `usuarioId`) e, portanto, é com ele que o lead
+    // pensa que está falando. É essa a identidade do agente. O responsável do lead vem
+    // como segunda opção porque nem sempre é quem opera o número: lead da Jéssica que
+    // escreve no WhatsApp da Débora era respondido pelo número da Débora assinando
+    // "Jéssica".
     const leadResult = await query(
       `SELECT l.*, ef.nome as estagio_nome, ef.is_ganho, ef.is_perdido,
-              u.nome as responsavel_nome
+              u.nome as responsavel_nome, uenv.nome as remetente_nome
        FROM leads l
        LEFT JOIN estagios_funil ef ON ef.id = l.estagio_id
        LEFT JOIN usuarios u ON u.id = l.responsavel_id
+       LEFT JOIN usuarios uenv ON uenv.id = $3
        WHERE l.id = $1 AND l.empresa_id = $2`,
-      [leadId, empresaId]
+      [leadId, empresaId, usuarioId]
     );
     const lead = leadResult.rows[0];
     if (!lead) return;
@@ -806,7 +883,7 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
 
     // 5.2. Anotações do lead
     const anotacoesResult = await query(
-      `SELECT conteudo, tipo, created_at FROM anotacoes_lead
+      `SELECT conteudo, tipo, origem, created_at FROM anotacoes_lead
        WHERE lead_id = $1 ORDER BY created_at DESC LIMIT 20`,
       [leadId]
     );
@@ -821,9 +898,12 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     );
     const tags = tagsResult.rows.map((r: any) => r.nome);
 
-    // 6. Descobrir o passo atual da cadência do estágio (para o reativo seguir a
-    // orientação do toque em que o lead se encontra).
-    const instrucaoCadencia = await this.getInstrucaoCadenciaAtual(leadId, lead.estagio_id);
+    // 6. Instrução do agente REATIVO configurada no estágio em que o lead está.
+    const instrucaoEstagio = await this.getInstrucaoReativaEstagio(lead.estagio_id);
+
+    // 6.1. Agenda do lead (tarefas + próximo follow-up) — o agente precisa saber da
+    // reunião marcada e do que já está agendado antes de responder.
+    const agenda = await this.getAgendaLead(leadId, empresaId);
 
     // Construir system prompt usando o nome do responsável atual do lead
     const systemPrompt = this.buildSystemPrompt(
@@ -833,8 +913,9 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
       estagiosDisponiveis,
       anotacoes,
       tags,
-      lead.responsavel_nome || undefined,
-      instrucaoCadencia
+      lead.remetente_nome || lead.responsavel_nome || undefined,
+      instrucaoEstagio,
+      agenda
     );
 
     // 7. Resolver cliente vinculado ao lead (por telefone)
@@ -879,10 +960,15 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
 
     // 9.5. Guard anti-duplicação: se houve mensagem saída (humano ou outro processo)
     // durante a janela do delay, abortar para evitar dupla resposta.
+    // `erro IS NULL`: só saída BEM-SUCEDIDA conta como "alguém já respondeu". A linha
+    // de falha (o balão vermelho de um 422/500) é registro de tentativa, não de
+    // resposta — e sem este filtro ela abortava o turno do agente, deixando o lead
+    // sem resposta exatamente quando o envio anterior tinha falhado.
     const respHumanoCheck = await query(
       `SELECT id FROM historico_mensagens
        WHERE (contato_whatsapp_id = $3 OR lead_id = $1)
-         AND direcao = 'saida' AND created_at > $2 LIMIT 1`,
+         AND grupo_whatsapp_id IS NULL
+         AND direcao = 'saida' AND erro IS NULL AND created_at > $2 LIMIT 1`,
       [leadId, effectiveTriggerAt, contatoId]
     );
     if (respHumanoCheck.rows.length > 0) {
@@ -894,6 +980,11 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     // 8. Processar mensagem com o provedor configurado
     let finalText = '';
     const deadline = Date.now() + 120_000; // deadline de 2 minutos para o loop agentic
+    // Marca se alguma ferramenta já rodou neste turno. Ferramenta tem efeito colateral
+    // (cria tarefa, move estágio, marca perdido) e não é idempotente: se a API falhar
+    // DEPOIS de uma delas, re-tentar o turno duplicaria a ação. Só re-tentamos falha
+    // transitória que aconteceu antes de qualquer ferramenta.
+    let ferramentaExecutada = false;
 
     try {
       if (config.provider === 'gemini' && config.gemini_api_key) {
@@ -938,6 +1029,7 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
           if (funcCallPart) {
             const { name, args } = funcCallPart.functionCall;
             console.log(`[AgenteIA] Gemini executando ferramenta: ${name}`, args);
+            ferramentaExecutada = true;
             const resultado = await executarFerramenta(name, args, toolCtx);
             await this.logarAcao(leadId, empresaId, name, args, resultado.sucesso, resultado.erro);
             contents.push({
@@ -951,8 +1043,10 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
           break;
         }
       } else {
-        // Claude — agentic loop com tool_use nativo
-        const anthropic = new Anthropic({ apiKey: config.api_key! });
+        // Claude — agentic loop com tool_use nativo.
+        // timeout explícito: o padrão do SDK é 10min, e uma chamada pendurada segurava um
+        // dos 3 slots do worker sem o deadline de 2min (checado só ENTRE iterações) notar.
+        const anthropic = new Anthropic({ apiKey: config.api_key!, timeout: TIMEOUT_PROVEDOR_MS, maxRetries: 1 });
 
         const messages: any[] = [
           ...contexto,
@@ -987,6 +1081,7 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
             for (const block of response.content) {
               if (block.type === 'tool_use') {
                 console.log(`[AgenteIA] Executando ferramenta: ${block.name}`, block.input);
+                ferramentaExecutada = true;
                 const resultado = await executarFerramenta(block.name, block.input, toolCtx);
                 await this.logarAcao(leadId, empresaId, block.name, block.input, resultado.sucesso, resultado.erro);
                 toolResults.push({
@@ -1007,6 +1102,13 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     } catch (err: any) {
       console.error(`[AgenteIA] Erro no agentic loop:`, err.message);
       await this.logarAcao(leadId, empresaId, 'erro_api', { mensagem: mensagemFinal }, false, err.message);
+      // Erro transitório (429, 5xx, timeout de rede) antes de qualquer ferramenta: relança
+      // para a fila re-tentar com backoff. Antes o lead simplesmente ficava sem resposta —
+      // só no histórico havia 34 casos de 429 e 8 de 503 sem nenhum retry.
+      // Depois de uma ferramenta ter rodado, NÃO relança: repetir o turno recriaria tarefa,
+      // moveria estágio de novo etc. Erro permanente (saldo, credencial, 400) também não
+      // relança — re-tentar só queimaria o job e poluiria o log.
+      if (!ferramentaExecutada && ehErroTransitorio(err)) throw err;
       return;
     }
 
@@ -1017,11 +1119,14 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     } else {
       try {
         // Blocos separados por linha em branco saem como mensagens separadas.
-        // Lança em falha de envio — senão a ação seria logada como sucesso com o WhatsApp falhando.
         await enviarTextoEmPartes(usuarioId, empresaId, contatoId, finalText, leadId);
       } catch (err: any) {
+        // Falha de envio NÃO relança: o primeiro bloco pode já ter saído, e re-tentar o job
+        // mandaria a resposta inteira de novo (mensagem duplicada para o lead). Fica o
+        // registro de falha no log de ações e no log do processo.
+        console.error(`[AgenteIA] Lead #${leadId}: falha ao enviar a resposta pelo WhatsApp:`, err.message);
         await this.logarAcao(leadId, empresaId, 'responder', { mensagem: finalText }, false, err.message);
-        throw err;
+        return;
       }
       await this.logarAcao(leadId, empresaId, 'responder', { mensagem: finalText }, true);
     }
@@ -1029,6 +1134,15 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
 
   // ─── Follow-up Agendado via Agente IA ────────────────────────────────────────
 
+  /**
+   * Prompt do follow-up AGENDADO.
+   *
+   * Recebe o mesmo contexto que o agente reativo — instrução do estágio, agenda do lead
+   * (reunião marcada inclusive), anotações com origem e os dados do lead —, além da
+   * instrução do passo da cadência. Antes ele só via nome/telefone/estágio e a instrução
+   * do passo: escrevia sem saber da reunião já marcada e podia propor outro horário por
+   * cima dela, ou repetir pergunta que o lead já tinha respondido.
+   */
   buildSystemPromptFollowUp(
     config: AgenteIAConfig,
     lead: any,
@@ -1036,7 +1150,9 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     instrucaoExtra: string | null,
     anotacoes: any[],
     tags: string[],
-    responsavelNome?: string
+    responsavelNome?: string,
+    instrucaoEstagio?: string | null,
+    agenda?: { pendentes: any[]; concluidas: any[]; proximoFollowup: any | null } | null
   ): string {
     const tomMap: Record<string, string> = {
       formal: 'Use linguagem profissional e respeitosa. Trate pelo nome com "você".',
@@ -1045,11 +1161,20 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     };
     const tomDescricao = tomMap[config.tom] || tomMap['amigavel'];
 
-    const anotacoesStr = anotacoes.length > 0
-      ? anotacoes.map((a: any) => `  [${a.tipo || 'nota'}] ${a.conteudo}`).join('\n')
-      : 'Nenhuma anotação registrada';
+    const anotacoesStr = renderAnotacoes(anotacoes);
+    const blocos = renderAgenda(agenda);
 
     const tagsStr = tags.length > 0 ? tags.join(', ') : 'nenhuma';
+
+    // Datas do relacionamento — o lead percebe quando "esquecem" o histórico dele.
+    const dataBR = (v: any) => v ? new Date(v).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : null;
+    const leadDesde = dataBR(lead.created_at);
+    const ultimaRespostaDele = lead.ultima_resposta_cliente_at
+      ? new Date(lead.ultima_resposta_cliente_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : null;
+    const valorStr = lead.valor_potencial != null && Number(lead.valor_potencial) > 0
+      ? Number(lead.valor_potencial).toLocaleString('pt-BR', { style: 'currency', currency: lead.moeda || 'BRL' })
+      : null;
     const nomeIdentidade = responsavelNome || config.nome_agente;
     const agoraSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
     const hoje = agoraSP.toLocaleDateString('pt-BR');
@@ -1075,22 +1200,29 @@ SOBRE QUEM VOCÊ ESTÁ ESCREVENDO:
 - Email: ${lead.lead_email || lead.email || 'não informado'}
 - Temperatura: ${lead.lead_temperatura || lead.temperatura || 'não definida'}
 - Estágio no funil: ${estagio?.nome || estagio?.estagio_nome || 'desconhecido'}
-- Tags: ${tagsStr}
+- Tags: ${tagsStr}${lead.origem ? `\n- Como chegou até nós: ${lead.origem}` : ''}${valorStr ? `\n- Valor potencial do negócio: ${valorStr}` : ''}${leadDesde ? `\n- É lead desde: ${leadDesde}` : ''}${ultimaRespostaDele ? `\n- Última vez que ELE respondeu: ${ultimaRespostaDele}` : ''}
 - Notas internas: ${lead.lead_notas || lead.notas || 'nenhuma'}
 
-ANOTAÇÕES DO LEAD (histórico registrado pelos vendedores):
+ANOTAÇÕES DO LEAD (cada linha diz quem a escreveu — vendedor, você, ou um evento automático):
 ${anotacoesStr}
 
+AGENDA DESTE LEAD — tarefas pendentes (datas e horas em horário de Brasília):
+${blocos.tarefas}
+
+TAREFAS JÁ ENCERRADAS (contexto do que já foi feito):
+${blocos.concluidas}
+${blocos.avisoReuniao}${blocos.avisoFollowup}
 HISTÓRICO RECENTE DA CONVERSA está nas mensagens abaixo.
 
-${instrucaoExtra ? `INSTRUÇÃO ESPECÍFICA PARA ESTE FOLLOW-UP:\n${instrucaoExtra}\n\n` : ''}${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.system_prompt_extra}\n\n` : ''}SUA TAREFA:
+${instrucaoEstagio ? `COMO AGIR NESTE ESTÁGIO (orientação definida para o estágio "${estagio?.nome || estagio?.estagio_nome || '?'}" — siga, sem copiá-la literalmente):\n${instrucaoEstagio}\n\n` : ''}${instrucaoExtra ? `INSTRUÇÃO ESPECÍFICA PARA ESTE FOLLOW-UP:\n${instrucaoExtra}\n\n` : ''}${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.system_prompt_extra}\n\n` : ''}SUA TAREFA:
 Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO que você sabe sobre ele — a conversa, as anotações e o contexto geral.
 - Seja específico ao contexto, não genérico
 - Mensagem curta, com propósito claro
+- Se há reunião marcada, trate-a como combinada: nunca proponha outro horário nem peça para remarcar por conta própria
 - Jamais mencione CRM, tarefas, sistemas ou automação`;
   },
 
-  async processarFollowUpIA(followup: any): Promise<'enviado' | 'adiado' | 'cancelado' | 'pausado'> {
+  async processarFollowUpIA(followup: any): Promise<'enviado' | 'adiado' | 'cancelado' | 'pausado' | 'config_ausente'> {
     const leadId = followup.lead_id;
     const usuarioId = followup.usuario_id;
     const empresaId = followup.empresa_id;
@@ -1109,28 +1241,40 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
     const config = await this.getConfig(empresaId);
     const isGemini = config?.provider === 'gemini';
     const hasKey = isGemini ? !!config?.gemini_api_key : !!config?.api_key;
-    // Agente desligado na empresa (ou sem key) é estado de CONFIGURAÇÃO, não falha do lead:
-    // devolve 'pausado' para o scheduler adiar. Antes isso lançava erro e o follow-up era
-    // marcado 'falhou' — status terminal — então desligar o agente pela interface destruía
-    // silenciosamente toda a fila de follow-ups de IA pendentes da empresa.
-    if (!config || !config.ativo || !hasKey) {
-      console.warn(`[AgenteIA] Follow-up #${followup.id}: agente inativo ou sem API key na empresa ${empresaId} — pausado`);
+    // Duas situações diferentes, dois desfechos diferentes.
+    //
+    // SEM LINHA em agente_ia_config: a empresa nunca configurou agente nenhum. Não há
+    // o que "voltar a ligar", então adiar é churn puro — a empresa 32 tinha 66
+    // follow-ups nesse estado, um sendo adiado por minuto, todo dia, sem nada na tela.
+    // Devolve 'config_ausente' e o motor transforma em falha explícita e reagendável.
+    //
+    // AGENTE DESLIGADO ou SEM KEY: estado transitório de verdade — alguém desligou e
+    // pode religar hoje. Segue 'pausado' (adia, não queima tentativa). Antes disso
+    // lançava erro e o follow-up virava 'falhou': desligar o agente pela interface
+    // destruía silenciosamente a fila de IA inteira da empresa.
+    if (!config) {
+      console.error(`[AgenteIA] Follow-up #${followup.id}: empresa ${empresaId} sem agente_ia_config — falha explícita (config_ausente)`);
+      return 'config_ausente';
+    }
+    if (!config.ativo || !hasKey) {
+      const motivo = !config.ativo ? 'agente desligado na empresa'
+        : `sem API key do provedor "${config.provider || 'claude'}"`;
+      console.warn(`[AgenteIA] Follow-up #${followup.id}: pausado — ${motivo} (empresa ${empresaId})`);
       return 'pausado';
     }
 
-    // Guard anti-atropelo: se houve QUALQUER mensagem (nossa ou do lead) nos últimos
-    // 60min, a conversa está viva — adiar sem falhar. Cobre tanto o empilhamento de
-    // envios quanto interromper um lead que acabou de responder. Checa por CONTATO:
-    // a entrada pode estar gravada no lead de outro funil do mesmo contato.
-    const msgRecente = await query(
-      `SELECT id FROM historico_mensagens
-       WHERE (lead_id = $1 OR ($2::int IS NOT NULL AND contato_whatsapp_id = $2))
-         AND created_at > NOW() - INTERVAL '60 minutes'
-       LIMIT 1`,
-      [leadId, followup.contato_whatsapp_id ?? null]
-    );
-    if (msgRecente.rows.length > 0) {
-      console.log(`[AgenteIA] Follow-up #${followup.id}: conversa ativa nos últimos 60min — adiado`);
+    // Anti-atropelo: adia se o LEAD falou há pouco — mesma regra do ramo manual,
+    // agora em `_shared/conversa.ts`.
+    //
+    // Até 25/08/2026 esta consulta olhava QUALQUER mensagem dos últimos 60min,
+    // inclusive as NOSSAS. Isso era um segundo teto de ritmo — "um toque por hora" —
+    // que ninguém configurou e que valia só para o ramo de IA: como a tela propõe o
+    // passo seguinte da cadência em 10 MINUTOS (`passoNovo()`), todo passo curto de IA
+    // era empurrado 15 min por vez até fechar 60 min do envio anterior. Quem governa o
+    // ritmo é a cadência (horário do passo) + o espaçamento anti-ban por chip; nossa
+    // própria mensagem não pode bloquear o passo que o administrador desenhou.
+    if (await leadFalouRecentemente(leadId, followup.contato_whatsapp_id)) {
+      console.log(`[AgenteIA] Follow-up #${followup.id}: o lead falou nos últimos ${SILENCIO_APOS_LEAD_MIN}min — adiado`);
       return 'adiado';
     }
 
@@ -1139,7 +1283,7 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
 
     // Buscar anotações do lead
     const anotacoesResult = await query(
-      `SELECT conteudo, tipo, created_at FROM anotacoes_lead
+      `SELECT conteudo, tipo, origem, created_at FROM anotacoes_lead
        WHERE lead_id = $1 ORDER BY created_at DESC LIMIT 20`,
       [leadId]
     );
@@ -1154,13 +1298,32 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
     );
     const tags = tagsResult.rows.map((r: any) => r.nome);
 
-    // Buscar nome + id do responsável atual do lead (a msg sai pelo WhatsApp dele)
-    const responsavelResult = await query(
-      `SELECT u.nome, l.responsavel_id FROM leads l JOIN usuarios u ON u.id = l.responsavel_id WHERE l.id = $1`,
-      [leadId]
+    // Lead COMPLETO. O registro que o scheduler carrega traz só um subconjunto
+    // (`l.nome as lead_nome`, sem origem/valor/datas) — e o prompt lia `lead.nome`,
+    // que nesse formato nem existe: saía "Nome: undefined" para todo follow-up de IA.
+    // Quem envia é o responsável do lead; sem responsável, o usuário do follow-up.
+    // A identidade do agente é o NOME DE QUEM ENVIA — assinar com outro nome faria o lead
+    // receber uma mensagem de um número se apresentando como outra pessoa.
+    const remetenteResult = await query(
+      `SELECT l.*, COALESCE(l.responsavel_id, $2) AS remetente_id, u.nome AS remetente_nome
+         FROM leads l
+         LEFT JOIN usuarios u ON u.id = COALESCE(l.responsavel_id, $2)
+        WHERE l.id = $1`,
+      [leadId, usuarioId]
     );
-    const responsavelNome: string | undefined = responsavelResult.rows[0]?.nome || undefined;
-    const remetenteId: number = responsavelResult.rows[0]?.responsavel_id || usuarioId;
+    const leadRow = remetenteResult.rows[0];
+    const responsavelNome: string | undefined = leadRow?.remetente_nome || undefined;
+    const remetenteId: number = leadRow?.remetente_id || usuarioId;
+    // O registro do follow-up entra primeiro para o lead fresco do banco prevalecer.
+    const leadCompleto = { ...followup, ...(leadRow || {}) };
+
+    // Orientação do ESTÁGIO em que o lead está (a mesma que o agente reativo usa) e
+    // agenda do lead — reunião marcada, tarefas pendentes e o que já foi feito.
+    // Sem os dois, o follow-up escrevia às cegas.
+    const [instrucaoEstagio, agenda] = await Promise.all([
+      this.getInstrucaoReativaEstagio(followup.estagio_id ?? leadRow?.estagio_id),
+      this.getAgendaLead(leadId, empresaId, followup.id),
+    ]);
 
     // Montar estagio info
     const estagio = {
@@ -1168,7 +1331,8 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
     };
 
     const systemPrompt = this.buildSystemPromptFollowUp(
-      config, followup, estagio, followup.instrucao_ia, anotacoes, tags, responsavelNome
+      config, leadCompleto, estagio, followup.instrucao_ia, anotacoes, tags, responsavelNome,
+      instrucaoEstagio, agenda
     );
 
     let texto = '';
@@ -1184,34 +1348,46 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
       conversa.push({ role: 'user', content: '(Escreva agora a mensagem de follow-up para este lead.)' });
     }
 
-    if (config.provider === 'gemini' && config.gemini_api_key) {
-      const contents = conversa.map((m: any) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }));
-      const geminiResp = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/${config.modelo || 'gemini-2.5-flash'}:generateContent?key=${config.gemini_api_key}`,
-        {
-          contents,
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: { maxOutputTokens: Math.min(config.max_tokens, 512), temperature: 0.75 },
-        },
-        { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
-      );
-      texto = (geminiResp.data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-    } else {
-      const anthropic = new Anthropic({ apiKey: config.api_key! });
-      const response = await anthropic.messages.create({
-        model: config.modelo || 'claude-sonnet-4-6',
-        max_tokens: Math.min(config.max_tokens, 512),
-        system: systemPrompt,
-        messages: conversa,
-      });
-      texto = response.content
-        .filter((b: any) => b.type === 'text')
-        .map((b: any) => b.text)
-        .join('')
-        .trim();
+    // Toda falha do PROVEDOR sai daqui carimbada com origem 'ia'. É o que permite ao
+    // scheduler distinguir um 403 de credencial/saldo (pausa a empresa) de um 403 do
+    // WhatsApp (chip bloqueado), que têm o mesmo código e destinos opostos.
+    try {
+      if (config.provider === 'gemini' && config.gemini_api_key) {
+        const contents = conversa.map((m: any) => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }],
+        }));
+        const geminiResp = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/${config.modelo || 'gemini-2.5-flash'}:generateContent?key=${config.gemini_api_key}`,
+          {
+            contents,
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            generationConfig: { maxOutputTokens: Math.min(config.max_tokens, 512), temperature: 0.75 },
+          },
+          { headers: { 'Content-Type': 'application/json' }, timeout: TIMEOUT_PROVEDOR_MS }
+        );
+        texto = (geminiResp.data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+      } else {
+        // timeout explícito: o padrão do SDK é 10 MINUTOS. Uma chamada pendurada segurava
+        // o ciclo inteiro do scheduler (que roda com trava de não-sobreposição) — ou seja,
+        // um follow-up travava a fila de TODAS as empresas. Mesmo valor do agente reativo.
+        const anthropic = new Anthropic({
+          apiKey: config.api_key!, timeout: TIMEOUT_PROVEDOR_MS, maxRetries: 1,
+        });
+        const response = await anthropic.messages.create({
+          model: config.modelo || 'claude-sonnet-4-6',
+          max_tokens: Math.min(config.max_tokens, 512),
+          system: systemPrompt,
+          messages: conversa,
+        });
+        texto = response.content
+          .filter((b: any) => b.type === 'text')
+          .map((b: any) => b.text)
+          .join('')
+          .trim();
+      }
+    } catch (err: any) {
+      throw marcarOrigemErro(err, 'ia');
     }
 
     if (!texto) throw new Error('IA não retornou nenhuma mensagem');
@@ -1221,16 +1397,20 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
     // Blocos separados por linha em branco saem como mensagens separadas.
     // Lança em falha de envio — senão o follow-up seria marcado como enviado com o WhatsApp falhando.
     await enviarTextoEmPartes(
-      remetenteId, empresaId, followup.contato_whatsapp_id, texto, leadId
+      remetenteId, empresaId, followup.contato_whatsapp_id, texto, leadId, 'followup'
     );
     await this.logarAcao(leadId, empresaId, 'followup_ia', { texto, followup_id: followup.id }, true);
 
     // Registrar anotação no lead para rastreabilidade no CRM
     try {
+      // origem 'sistema': fica no histórico (é rastreabilidade), mas o prompt a rotula
+      // como evento automático — antes o agente relia as próprias mensagens como se
+      // fossem observações escritas por um vendedor.
       await anotacoesService.create(empresaId, usuarioId, {
         lead_id: leadId,
         conteudo: `Follow-up automático enviado: "${texto.substring(0, 200)}${texto.length > 200 ? '...' : ''}"`,
-        tipo: 'nota'
+        tipo: 'nota',
+        origem: 'sistema'
       });
     } catch (e: any) {
       console.warn(`[AgenteIA] Follow-up #${followup.id}: erro ao criar anotação:`, e.message);
