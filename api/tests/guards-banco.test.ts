@@ -301,6 +301,49 @@ describe('Claim atômico e reaper', () => {
     assert.equal(await temEvidencia(id), false, 'balão de falha não é prova de entrega');
   });
 
+  // ── Reagendamento manual (a tela de follow-up falhado) ────────────────────
+  test('reagendar limpa erro E erro_categoria, e preserva tentativas', async (t) => {
+    if (pular()) return t.skip('sem banco alcançável');
+    const id = await criarFollowup();
+    // Simula o estado real de um follow-up queimado pelo motor.
+    await c!.query(
+      `UPDATE followups_agendados
+          SET status = 'falhou', erro = 'Canal de WhatsApp indisponível: chip BANIDO',
+              erro_categoria = 'canal_bloqueado', tentativas = 3, claim_at = now()
+        WHERE id = $1`, [id]);
+
+    // Mesmo UPDATE de `followupsService.reagendar`.
+    await c!.query(
+      `UPDATE followups_agendados
+          SET agendado_para = now() + INTERVAL '1 hour', status = 'pendente',
+              erro = NULL, erro_categoria = NULL, claim_at = NULL, updated_at = NOW()
+        WHERE id = $1 AND status IN ('falhou','cancelado')`, [id]);
+
+    const r = await c!.query(
+      `SELECT status, erro, erro_categoria, tentativas, claim_at
+         FROM followups_agendados WHERE id = $1`, [id]);
+    const f = r.rows[0];
+    assert.equal(f.status, 'pendente');
+    assert.equal(f.erro, null, 'a mensagem de erro anterior sai');
+    assert.equal(f.erro_categoria, null,
+      'a CATEGORIA também sai — antes ficava obsoleta num registro pendente');
+    assert.equal(f.claim_at, null, 'claim de um ciclo morto não pode voltar para a fila');
+    assert.equal(f.tentativas, 3,
+      'tentativas NÃO zera: é o histórico que impede um registro problemático de circular para sempre');
+  });
+
+  test('reagendar não toca em follow-up pendente ou enviado', async (t) => {
+    if (pular()) return t.skip('sem banco alcançável');
+    for (const status of ['pendente', 'enviado', 'processando']) {
+      const id = await criarFollowup();
+      await c!.query(`UPDATE followups_agendados SET status = $2 WHERE id = $1`, [id, status]);
+      const r = await c!.query(
+        `UPDATE followups_agendados SET status = 'pendente', erro = NULL, erro_categoria = NULL
+          WHERE id = $1 AND status IN ('falhou','cancelado')`, [id]);
+      assert.equal(r.rowCount, 0, `status '${status}' não é reagendável`);
+    }
+  });
+
   test("o status 'processando' é aceito pela constraint", async (t) => {
     if (pular()) return t.skip('sem banco alcançável');
     const id = await criarFollowup();

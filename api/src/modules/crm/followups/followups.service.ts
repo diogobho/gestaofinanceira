@@ -206,11 +206,25 @@ export const followupsService = {
     return result.rows[0];
   },
 
-  /** Reagenda um follow-up falho ou cancelado */
+  /**
+   * Reagenda um follow-up falho ou cancelado.
+   *
+   * Limpa `erro` E `erro_categoria` juntos. Antes só `erro` era zerado, e o
+   * registro voltava para a fila carregando a categoria da falha anterior — um
+   * 'pendente' com `erro_categoria = 'canal_bloqueado'` no banco. Não quebrava
+   * nada porque a tela só lê a categoria quando o status é 'falhou', mas era dado
+   * obsoleto esperando para enganar a próxima consulta que o lesse.
+   *
+   * `tentativas` NÃO é zerado, de propósito: é o histórico de quantas vezes este
+   * follow-up já falhou, e é ele que impede um registro problemático de circular
+   * para sempre a cada reagendamento manual. Quem reagenda um follow-up que já
+   * gastou 8 tentativas precisa ter corrigido a causa — o teto continua valendo.
+   */
   async reagendar(id: number, empresaId: number, agendadoPara: string) {
     const result = await query(
       `UPDATE followups_agendados
-       SET agendado_para = $3, status = 'pendente', erro = NULL, updated_at = NOW()
+       SET agendado_para = $3, status = 'pendente',
+           erro = NULL, erro_categoria = NULL, claim_at = NULL, updated_at = NOW()
        WHERE id = $1 AND empresa_id = $2 AND status IN ('falhou', 'cancelado')
        RETURNING *`,
       [id, empresaId, agendadoPara]

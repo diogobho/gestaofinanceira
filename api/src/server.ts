@@ -43,6 +43,9 @@ import './jobs/disparo-scheduler';
 // Lembretes de reunião agendada (-24h/-1h + no-show)
 import './jobs/reuniao-lembretes-scheduler';
 
+// Limpeza de anexos órfãos do suporte (diário, 04:00)
+import './jobs/suporte-limpeza-scheduler';
+
 // Agente IA — worker BullMQ
 import { iniciarWorkerAgente } from './modules/agente-ia/agente-ia.queue';
 

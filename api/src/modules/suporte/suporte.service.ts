@@ -952,6 +952,28 @@ export const suporteService = {
       mimetype: params.mimetype,
       tamanhoBytes: params.tamanhoBytes,
     });
+
+    // ── Anexo da ABERTURA: vincula na hora ──────────────────────────────────
+    // Na abertura o upload acontece depois de `criar` (o ticket precisa existir
+    // para a autorização saber de quem é o arquivo), então ele nasce órfão. Se
+    // ficasse órfão para sempre, "anexo órfão" deixaria de significar "resíduo de
+    // falha" — e a limpeza periódica apagaria o print da abertura junto.
+    //
+    // A regra é uma só: ticket com UMA mensagem só pode ser a de abertura, e é a
+    // ela que o arquivo pertence. Com duas ou mais, o upload é de uma resposta em
+    // curso e quem vincula é a mensagem que vem a seguir — se ela não vier, o
+    // órfão é resíduo de verdade e a limpeza o remove.
+    const msgs = await query(
+      `SELECT id FROM ticket_mensagens WHERE ticket_id = $1 ORDER BY created_at ASC, id ASC LIMIT 2`,
+      [params.ticketId]
+    );
+    if (msgs.rows.length === 1) {
+      await query(
+        `UPDATE ticket_anexos SET mensagem_id = $1 WHERE id = $2 AND mensagem_id IS NULL`,
+        [msgs.rows[0].id, anexo.id]
+      );
+      anexo.mensagem_id = msgs.rows[0].id;
+    }
     await this.registrarEvento(params.ticketId, `Anexo adicionado: ${params.nomeOriginal}.`, { usuarioId: params.usuarioId });
     return anexo;
   },
@@ -1011,6 +1033,52 @@ export const suporteService = {
       empresaId ? [anexoId, empresaId] : [anexoId]
     );
     return res.rows[0] || null;
+  },
+
+  /**
+   * Remove anexos que ficaram sem mensagem — resíduo de um envio que falhou entre
+   * o upload e a gravação da mensagem.
+   *
+   * ── Por que 48 horas ────────────────────────────────────────────────────────
+   * No fluxo real, upload e mensagem acontecem no MESMO clique: o frontend sobe os
+   * arquivos e chama `/mensagens` em seguida, com segundos de intervalo. A janela
+   * de risco é essa. 48h é cerca de cinco mil vezes maior que ela — margem para o
+   * caso improvável de alguém subir o arquivo, ser interrompido e voltar depois, e
+   * ainda deixa um dia útil inteiro para alguém dizer "meu print desapareceu"
+   * antes de o arquivo sair. Com o volume atual (um anexo) o custo de guardar é
+   * zero, então o conservador é gratuito.
+   *
+   * Anexo de mensagem existente NUNCA é tocado: `mensagem_id IS NULL` é a única
+   * condição de seleção, e desde que o anexo de abertura passou a ser vinculado no
+   * upload, órfão só existe por falha.
+   *
+   * O arquivo sai antes do registro. Se o `unlink` falhar (permissão, disco), o
+   * registro fica e a rotina tenta de novo amanhã — o inverso deixaria arquivo no
+   * disco sem nada no banco apontando para ele, e aí ninguém mais o encontra.
+   */
+  async limparAnexosOrfaos(horas = 48): Promise<{ removidos: number; falhas: number }> {
+    const orfaos = await query(
+      `SELECT id, caminho FROM ticket_anexos
+        WHERE mensagem_id IS NULL
+          AND created_at < now() - ($1 || ' hours')::interval`,
+      [String(Math.max(1, Math.round(horas)))]
+    );
+    let removidos = 0, falhas = 0;
+    for (const a of orfaos.rows) {
+      try {
+        const absoluto = this.caminhoAbsolutoAnexo(a.caminho);
+        if (absoluto) await fs.promises.unlink(absoluto).catch(() => {});
+        await query(`DELETE FROM ticket_anexos WHERE id = $1`, [a.id]);
+        removidos++;
+      } catch (err: any) {
+        falhas++;
+        console.warn(`[suporte] anexo órfão ${a.id} não removido —`, err?.message || err);
+      }
+    }
+    if (removidos || falhas) {
+      console.log(`[suporte] anexos órfãos: ${removidos} removido(s), ${falhas} falha(s)`);
+    }
+    return { removidos, falhas };
   },
 
   // ── IA copiloto do atendente (Fase 6) ──────────────────────────────────────
