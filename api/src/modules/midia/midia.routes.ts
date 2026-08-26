@@ -37,32 +37,12 @@
 import path from 'path';
 import fs from 'fs';
 import { Router, Response } from 'express';
-import { AuthRequest, authRequired } from '../../middlewares/auth.middleware';
-import { verifyAccessToken } from '../../config/jwt';
+import { AuthRequest, authRequiredOuTokenNaQuery } from '../../middlewares/auth.middleware';
 import { query } from '../../config/database';
 
 const RAIZ = '/var/www/apps/gestao_financeira/uploads';
 
 const router = Router();
-
-/**
- * Aceita o token no header (XHR) OU em `?t=` (tag de mídia do navegador).
- * Delega ao `authRequired` quando o header existe, para não haver duas
- * implementações de "o que é um token válido".
- */
-function autenticarMidia(req: AuthRequest, res: Response, next: () => void) {
-  if (req.headers.authorization) return authRequired(req, res, next as any);
-  const t = req.query.t;
-  if (typeof t !== 'string' || !t) {
-    return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Token não fornecido' });
-  }
-  try {
-    req.user = verifyAccessToken(t);
-    return next();
-  } catch {
-    return res.status(401).json({ code: 'INVALID_TOKEN', message: 'Token inválido ou expirado' });
-  }
-}
 
 /**
  * De qual empresa é este arquivo? Procura nos três lugares que guardam
@@ -100,7 +80,7 @@ async function empresaDonaDoArquivo(relativo: string): Promise<number | null> {
   return null;
 }
 
-router.get('/uploads/*', autenticarMidia as any, async (req: AuthRequest, res: Response) => {
+router.get('/uploads/*', authRequiredOuTokenNaQuery, async (req: AuthRequest, res: Response) => {
   try {
     const solicitado = (req.params as any)[0] as string;
 

@@ -1,11 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { LifeBuoy, Plus, Send, RefreshCw, Loader2, ArrowLeft, CheckCircle2, Bot, User, Headset } from 'lucide-react'
+import {
+  LifeBuoy, Plus, Send, RefreshCw, Loader2, ArrowLeft, CheckCircle2, Bot, User, Headset,
+  Paperclip, Info, Lock, X, Sparkles, AlertTriangle,
+} from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
 import { Button, Card, EstadoVazio, Modal, ModalFooter, Input, Select, Textarea } from '@/components/ui'
 import {
-  suporteApi, ROTULO_STATUS, ROTULO_CATEGORIA,
-  type Ticket, type TicketMensagem, type StatusTicket,
+  suporteApi, ROTULO_STATUS, ROTULO_CATEGORIA, ROTULO_PRIORIDADE, urlAnexo,
+  type Ticket, type TicketMensagem, type StatusTicket, type TicketAnexo,
+  type SugestaoIA, type MetricasSuporte,
 } from '@/api/suporte'
 
 /**
@@ -36,12 +40,87 @@ const CATEGORIAS = [
   { value: 'sugestao', label: 'Sugestão — ideia de melhoria' },
 ]
 
+/** Minutos → texto curto. Média de horas em "312 min" não se lê. */
+function duracao(minutos: number): string {
+  if (minutos < 60) return `${minutos} min`
+  if (minutos < 60 * 24) return `${(minutos / 60).toFixed(1).replace('.0', '')} h`
+  return `${(minutos / 60 / 24).toFixed(1).replace('.0', '')} d`
+}
+
 function quando(iso: string): string {
   const d = new Date(iso)
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+/** Anexo: imagem abre como miniatura clicável; o resto vira linha de arquivo. */
+function Anexos({ anexos }: { anexos: TicketAnexo[] }) {
+  if (!anexos?.length) return null
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-2">
+      {anexos.map(a => {
+        const url = urlAnexo(a.id)
+        const ehImagem = a.mimetype.startsWith('image/')
+        return (
+          <a
+            key={a.id}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`${a.nome_original} · ${(a.tamanho_bytes / 1024).toFixed(0)} KB`}
+            className="group block"
+          >
+            {ehImagem ? (
+              <img
+                src={url}
+                alt={a.nome_original}
+                loading="lazy"
+                className="h-24 w-24 rounded-lg border border-gray-200 object-cover transition-opacity group-hover:opacity-80 dark:border-gray-600"
+              />
+            ) : (
+              <span className="inline-flex max-w-[220px] items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200">
+                <Paperclip className="h-3 w-3 shrink-0" />
+                <span className="truncate">{a.nome_original}</span>
+              </span>
+            )}
+          </a>
+        )
+      })}
+    </div>
+  )
+}
+
 function Balao({ m }: { m: TicketMensagem }) {
+  // Evento do sistema não é fala de ninguém: vira uma linha discreta no meio da
+  // conversa, para a ordem dos fatos ficar legível sem competir com as mensagens.
+  if (m.tipo === 'evento') {
+    return (
+      <div className="flex items-center justify-center">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-[11px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+          <Info className="h-3 w-3" /> {m.conteudo} · {quando(m.created_at)}
+        </span>
+      </div>
+    )
+  }
+
+  // Nota interna: só a equipe recebe do backend (`visivel_cliente = false`), mas o
+  // visual precisa deixar isso óbvio para ninguém escrever ali achando que o
+  // cliente vai ler.
+  if (m.tipo === 'nota_interna') {
+    return (
+      <div className="flex justify-start">
+        <div className="max-w-[85%]">
+          <span className="flex items-center gap-1 px-1 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+            <Lock className="h-3 w-3" /> Nota interna{m.autor_nome ? ` · ${m.autor_nome}` : ''} · {quando(m.created_at)} · o cliente não vê
+          </span>
+          <div className="mt-1 whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+            {m.conteudo}
+          </div>
+          <Anexos anexos={m.anexos || []} />
+        </div>
+      </div>
+    )
+  }
+
   const doCliente = m.autor === 'cliente'
   const Icone = m.autor === 'agente_ia' ? Bot : m.autor === 'suporte' ? Headset : User
   const rotulo = m.autor === 'agente_ia'
@@ -67,6 +146,7 @@ function Balao({ m }: { m: TicketMensagem }) {
         >
           {m.conteudo}
         </div>
+        <Anexos anexos={m.anexos || []} />
       </div>
     </div>
   )
@@ -82,25 +162,42 @@ export const Suporte: React.FC = () => {
   const [resposta, setResposta] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [novoAberto, setNovoAberto] = useState(false)
+  const [filtroStatus, setFiltroStatus] = useState('todos')
+  const [arquivos, setArquivos] = useState<File[]>([])
+  const [interna, setInterna] = useState(false)
+  const [sugestao, setSugestao] = useState<SugestaoIA | null>(null)
+  const [pedindoSugestao, setPedindoSugestao] = useState(false)
+  const [metricas, setMetricas] = useState<MetricasSuporte | null>(null)
   const fimDaConversa = useRef<HTMLDivElement>(null)
+  const inputArquivo = useRef<HTMLInputElement>(null)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
     try {
-      const { tickets, atendente } = await suporteApi.listar()
+      const { tickets, atendente } = await suporteApi.listar(filtroStatus)
       setTickets(tickets)
       setAtendente(atendente)
+      // Métricas só interessam a quem atende; para o cliente seriam números do
+      // próprio chamado, que ele já vê na lista.
+      if (atendente) {
+        suporteApi.metricas().then(setMetricas).catch(() => setMetricas(null))
+      }
     } catch {
       toast.error('Não foi possível carregar seus chamados')
     } finally {
       setCarregando(false)
     }
-  }, [])
+  }, [filtroStatus])
 
   useEffect(() => { carregar() }, [carregar])
 
   const abrirConversa = useCallback(async (id: number) => {
     setCarregandoConversa(true)
+    // Sugestão e anexo pertencem ao chamado que estava aberto: levá-los para o
+    // próximo seria anexar arquivo no ticket errado.
+    setSugestao(null)
+    setArquivos([])
+    setInterna(false)
     try {
       const { ticket, mensagens } = await suporteApi.detalhe(id)
       setSelecionado(ticket)
@@ -121,13 +218,66 @@ export const Suporte: React.FC = () => {
     if (!texto || !selecionado || enviando) return
     setEnviando(true)
     try {
-      const nova = await suporteApi.responder(selecionado.id, texto)
-      setMensagens(prev => [...prev, nova])
+      // Anexo sobe ANTES da mensagem: o id de cada arquivo é o que amarra os dois.
+      // Se o upload falhar, a mensagem não é enviada — melhor o usuário tentar de
+      // novo do que receber um texto que promete um print que não chegou.
+      const anexoIds: number[] = []
+      for (const arq of arquivos) {
+        const anexo = await suporteApi.subirAnexo(selecionado.id, arq)
+        anexoIds.push(anexo.id)
+      }
+      await suporteApi.responder(selecionado.id, texto, {
+        anexoIds: anexoIds.length ? anexoIds : undefined,
+        interna: interna || undefined,
+      })
+      // Recarrega a conversa em vez de só empilhar: a resposta pode ter gerado
+      // evento de status, e o anexo vem resolvido pelo backend.
+      const { ticket, mensagens: msgs } = await suporteApi.detalhe(selecionado.id)
+      setSelecionado(ticket)
+      setMensagens(msgs)
       setResposta('')
+      setArquivos([])
+      setInterna(false)
+      carregar()
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Erro ao enviar a resposta')
     } finally {
       setEnviando(false)
+    }
+  }
+
+  const escolherArquivos = (lista: FileList | null) => {
+    if (!lista?.length) return
+    // Teto no cliente só para dar erro imediato; quem decide é o backend, que lê a
+    // assinatura do arquivo — MIME e extensão são afirmações de quem envia.
+    const aceitos: File[] = []
+    for (const f of Array.from(lista)) {
+      if (f.size > 10 * 1024 * 1024) { toast.error(`"${f.name}" passa de 10 MB`); continue }
+      aceitos.push(f)
+    }
+    setArquivos(prev => [...prev, ...aceitos].slice(0, 3))
+    if (inputArquivo.current) inputArquivo.current.value = ''
+  }
+
+  const pedirSugestao = async () => {
+    if (!selecionado || pedindoSugestao) return
+    setPedindoSugestao(true)
+    try {
+      setSugestao(await suporteApi.sugestaoIA(selecionado.id))
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Não foi possível pedir a sugestão')
+    } finally {
+      setPedindoSugestao(false)
+    }
+  }
+
+  const mudarPrioridade = async (prioridade: string) => {
+    if (!selecionado) return
+    try {
+      setSelecionado(await suporteApi.alterarPrioridade(selecionado.id, prioridade))
+      carregar()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro ao alterar a prioridade')
     }
   }
 
@@ -155,13 +305,57 @@ export const Suporte: React.FC = () => {
         }
       />
 
+      {/* Métricas da Central. Média só de quem já foi respondido — chamado sem
+          resposta não tem tempo de resposta, e contá-lo como zero mentiria. */}
+      {atendente && metricas && (
+        <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+          {[
+            { r: 'Na fila', v: String(metricas.na_fila), destaque: metricas.na_fila > 0 },
+            { r: 'Com o cliente', v: String(metricas.com_cliente) },
+            { r: 'Sem 1ª resposta', v: String(metricas.sem_resposta), destaque: metricas.sem_resposta > 0 },
+            { r: 'Prioridade alta', v: String(metricas.abertos_alta), destaque: metricas.abertos_alta > 0 },
+            { r: '1ª resposta', v: metricas.min_primeira_resposta != null ? duracao(metricas.min_primeira_resposta) : '—' },
+            { r: 'Resolução', v: metricas.min_resolucao != null ? duracao(metricas.min_resolucao) : '—' },
+          ].map(c => (
+            <div
+              key={c.r}
+              className={`rounded-xl border p-3 ${
+                c.destaque
+                  ? 'border-amber-200 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10'
+                  : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800'
+              }`}
+            >
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">{c.r}</p>
+              <p className={`mt-0.5 text-lg font-semibold ${c.destaque ? 'text-amber-800 dark:text-amber-200' : 'text-gray-900 dark:text-white'}`}>
+                {c.v}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="mt-4 grid gap-4 lg:grid-cols-[360px_1fr]">
         {/* Lista — no celular some quando há conversa aberta */}
         <Card className={`${selecionado ? 'hidden lg:block' : ''} overflow-hidden`}>
           <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
             <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-              Meus chamados {tickets.length > 0 && <span className="text-gray-400">({tickets.length})</span>}
+              {atendente ? 'Central de suporte' : 'Meus chamados'}{' '}
+              {tickets.length > 0 && <span className="text-gray-400">({tickets.length})</span>}
             </span>
+            <div className="flex items-center gap-1.5">
+            <select
+              value={filtroStatus}
+              onChange={e => setFiltroStatus(e.target.value)}
+              aria-label="Filtrar por status"
+              className="rounded-lg border border-gray-300 bg-white px-1.5 py-1 text-xs text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+            >
+              <option value="todos">Todos</option>
+              <option value="aguardando_suporte">Na fila</option>
+              <option value="aguardando_cliente">Com o cliente</option>
+              <option value="aberto">Abertos</option>
+              <option value="resolvido">Resolvidos</option>
+              <option value="fechado">Fechados</option>
+            </select>
             <button
               onClick={carregar}
               className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -170,6 +364,7 @@ export const Suporte: React.FC = () => {
             >
               <RefreshCw size={14} className={carregando ? 'animate-spin' : ''} />
             </button>
+            </div>
           </div>
 
           {carregando ? (
@@ -243,10 +438,43 @@ export const Suporte: React.FC = () => {
                     </p>
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                   <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${CORES_STATUS[selecionado.status]}`}>
                     {ROTULO_STATUS[selecionado.status]}
                   </span>
+                  {/* Prioridade é da equipe: o cliente não escolhe na abertura,
+                      justamente para "urgente" continuar querendo dizer algo. */}
+                  {atendente ? (
+                    <select
+                      value={selecionado.prioridade}
+                      onChange={e => mudarPrioridade(e.target.value)}
+                      aria-label="Prioridade"
+                      className={`rounded-lg border px-1.5 py-1 text-[10px] font-semibold ${
+                        selecionado.prioridade === 'alta'
+                          ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300'
+                          : 'border-gray-300 bg-white text-gray-600 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      {['baixa', 'normal', 'alta'].map(p => (
+                        <option key={p} value={p}>{ROTULO_PRIORIDADE[p]}</option>
+                      ))}
+                    </select>
+                  ) : selecionado.prioridade === 'alta' && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-[10px] font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-300">
+                      <AlertTriangle className="h-3 w-3" /> Alta
+                    </span>
+                  )}
+                  {atendente && (
+                    <button
+                      onClick={pedirSugestao}
+                      disabled={pedindoSugestao}
+                      title="Pedir à IA um resumo e um rascunho de resposta"
+                      className="inline-flex items-center gap-1 rounded-lg border border-violet-300 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50 dark:border-violet-500/40 dark:text-violet-300 dark:hover:bg-violet-500/10"
+                    >
+                      {pedindoSugestao ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                      Sugestão
+                    </button>
+                  )}
                   {selecionado.status !== 'resolvido' && selecionado.status !== 'fechado' ? (
                     <button
                       onClick={() => mudarStatus('resolvido')}
@@ -264,6 +492,67 @@ export const Suporte: React.FC = () => {
                   )}
                 </div>
               </div>
+
+              {/* Copiloto: SUGERE, nunca envia. O rascunho vai para a caixa de
+                  texto e a pessoa revisa antes de mandar — premissa da fase 6. */}
+              {atendente && sugestao && (
+                <div className="border-b border-violet-200 bg-violet-50 px-4 py-3 dark:border-violet-500/30 dark:bg-violet-500/10">
+                  {!sugestao.disponivel ? (
+                    <p className="flex items-start gap-2 text-xs text-violet-800 dark:text-violet-200">
+                      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {sugestao.motivo}
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="flex items-center gap-1.5 text-xs font-semibold text-violet-900 dark:text-violet-100">
+                          <Sparkles className="h-3.5 w-3.5" /> Sugestão da IA — revise antes de enviar
+                        </p>
+                        <button
+                          onClick={() => setSugestao(null)}
+                          className="rounded p-0.5 text-violet-600 hover:bg-violet-100 dark:text-violet-300 dark:hover:bg-violet-500/20"
+                          aria-label="Fechar sugestão"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {sugestao.resumo && (
+                        <p className="text-xs leading-relaxed text-violet-900 dark:text-violet-100">
+                          <strong>Resumo:</strong> {sugestao.resumo}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                        {sugestao.classificacao && (
+                          <span className="rounded-full bg-white px-2 py-0.5 font-medium text-violet-700 dark:bg-violet-500/20 dark:text-violet-200">
+                            categoria sugerida: {ROTULO_CATEGORIA[sugestao.classificacao] || sugestao.classificacao}
+                          </span>
+                        )}
+                        {sugestao.prioridade_sugerida && (
+                          <button
+                            onClick={() => mudarPrioridade(sugestao.prioridade_sugerida!)}
+                            className="rounded-full bg-white px-2 py-0.5 font-medium text-violet-700 hover:bg-violet-100 dark:bg-violet-500/20 dark:text-violet-200"
+                            title="Aplicar esta prioridade"
+                          >
+                            prioridade sugerida: {ROTULO_PRIORIDADE[sugestao.prioridade_sugerida] || sugestao.prioridade_sugerida} · aplicar
+                          </button>
+                        )}
+                      </div>
+                      {sugestao.resposta_sugerida && (
+                        <>
+                          <p className="whitespace-pre-wrap rounded-lg border border-violet-200 bg-white p-2 text-xs leading-relaxed text-gray-700 dark:border-violet-500/30 dark:bg-gray-800 dark:text-gray-200">
+                            {sugestao.resposta_sugerida}
+                          </p>
+                          <button
+                            onClick={() => { setResposta(sugestao.resposta_sugerida!); setSugestao(null) }}
+                            className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700"
+                          >
+                            Usar como rascunho
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex-1 space-y-4 overflow-y-auto bg-gray-50 p-4 dark:bg-gray-900">
                 {carregandoConversa && mensagens.length === 0 ? (
@@ -290,7 +579,59 @@ export const Suporte: React.FC = () => {
                 </div>
               ) : (
                 <div className="border-t border-gray-200 bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] dark:border-gray-700 dark:bg-gray-800">
+                  {/* Arquivos escolhidos, antes do envio: dá para tirar um sem
+                      perder o texto já escrito. */}
+                  {arquivos.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                      {arquivos.map((a, i) => (
+                        <span
+                          key={`${a.name}-${i}`}
+                          className="inline-flex max-w-[200px] items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                        >
+                          <Paperclip className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{a.name}</span>
+                          <button
+                            onClick={() => setArquivos(prev => prev.filter((_, j) => j !== i))}
+                            aria-label={`Remover ${a.name}`}
+                            className="rounded p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {atendente && (
+                    <label className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={interna}
+                        onChange={e => setInterna(e.target.checked)}
+                        className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <Lock className="h-3 w-3" /> Nota interna — o cliente não vê e o chamado não muda de status
+                    </label>
+                  )}
+
                   <div className="flex items-end gap-2">
+                    <input
+                      ref={inputArquivo}
+                      type="file"
+                      multiple
+                      accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+                      onChange={e => escolherArquivos(e.target.files)}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => inputArquivo.current?.click()}
+                      title="Anexar print ou PDF (até 10 MB, no máximo 3)"
+                      aria-label="Anexar arquivo"
+                      disabled={arquivos.length >= 3}
+                      className="rounded-xl border border-gray-300 p-2.5 text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-40 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </button>
                     <textarea
                       value={resposta}
                       onChange={e => setResposta(e.target.value)}
@@ -298,7 +639,7 @@ export const Suporte: React.FC = () => {
                         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarResposta() }
                       }}
                       rows={2}
-                      placeholder={atendente ? 'Responder como suporte…' : 'Escreva sua resposta…'}
+                      placeholder={interna ? 'Nota interna da equipe…' : atendente ? 'Responder como suporte…' : 'Escreva sua resposta…'}
                       aria-label="Sua mensagem"
                       className="max-h-32 flex-1 resize-none rounded-xl border border-gray-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 sm:text-sm"
                     />
@@ -342,9 +683,10 @@ function NovoChamadoModal({
   const [categoria, setCategoria] = useState('duvida')
   const [mensagem, setMensagem] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [arquivos, setArquivos] = useState<File[]>([])
 
   useEffect(() => {
-    if (aberto) { setAssunto(''); setCategoria('duvida'); setMensagem('') }
+    if (aberto) { setAssunto(''); setCategoria('duvida'); setMensagem(''); setArquivos([]) }
   }, [aberto])
 
   const criar = async () => {
@@ -353,7 +695,23 @@ function NovoChamadoModal({
     setSalvando(true)
     try {
       const ticket = await suporteApi.criar({ assunto: assunto.trim(), categoria, mensagem: mensagem.trim() })
-      toast.success('Chamado aberto — já está com a nossa equipe')
+
+      // O anexo só pode subir DEPOIS: o ticket precisa existir para a autorização
+      // saber de quem é o arquivo. Falha aqui não desfaz o chamado — ele já está
+      // na fila da equipe, e perder o chamado por causa do print seria pior.
+      let anexosComFalha = 0
+      for (const arq of arquivos) {
+        try {
+          await suporteApi.subirAnexo(ticket.id, arq)
+        } catch {
+          anexosComFalha++
+        }
+      }
+      if (anexosComFalha > 0) {
+        toast.error(`Chamado aberto, mas ${anexosComFalha} anexo(s) não subiram. Você pode enviá-los na conversa.`)
+      } else {
+        toast.success('Chamado aberto — já está com a nossa equipe')
+      }
       onCriado(ticket)
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Erro ao abrir o chamado')
@@ -392,6 +750,52 @@ function NovoChamadoModal({
           rows={6}
           placeholder="Conte o que você tentou fazer, o que aconteceu e em qual tela. Quanto mais detalhe, mais rápido resolvemos."
         />
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Anexos <span className="font-normal text-gray-400">(opcional)</span>
+          </label>
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+            Um print da tela costuma resolver o chamado em uma ida e volta a menos.
+            Imagem ou PDF, até 10 MB, no máximo 3 arquivos.
+          </p>
+          <input
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+            onChange={e => {
+              const lista = e.target.files
+              if (!lista?.length) return
+              const aceitos = Array.from(lista).filter(f => {
+                if (f.size > 10 * 1024 * 1024) { toast.error(`"${f.name}" passa de 10 MB`); return false }
+                return true
+              })
+              setArquivos(prev => [...prev, ...aceitos].slice(0, 3))
+              e.target.value = ''
+            }}
+            className="block w-full cursor-pointer rounded-xl border border-gray-300 p-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+          />
+          {arquivos.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {arquivos.map((a, i) => (
+                <span
+                  key={`${a.name}-${i}`}
+                  className="inline-flex max-w-[220px] items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                >
+                  <Paperclip className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{a.name}</span>
+                  <button
+                    onClick={() => setArquivos(prev => prev.filter((_, j) => j !== i))}
+                    aria-label={`Remover ${a.name}`}
+                    className="rounded p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <ModalFooter>

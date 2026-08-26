@@ -51,6 +51,13 @@ backups/
 *.sql
 *.dump
 
+# ...MENOS as migrations: elas são CÓDIGO, não dado.
+# O `*.sql` acima existe para nenhum dump com dado de cliente entrar no repo por
+# acidente, e isso continua valendo. Só que ele pegava as migrations junto, e o
+# efeito era o esquema do banco inteiro existindo apenas em disco: 72 migrations,
+# nenhuma versionada, nenhuma forma de saber em que estado um checkout está.
+!api/migrations/*.sql
+
 # Credenciais / segredos
 CREDENCIAIS.md
 *.pem

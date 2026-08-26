@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import { randomUUID } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { pool, query } from '../../config/database';
 import { enviarEmail, remetenteDuoFuturo } from '../../services/email.service';
@@ -28,6 +31,7 @@ import { enviarEmail, remetenteDuoFuturo } from '../../services/email.service';
 
 export type StatusTicket = 'aberto' | 'aguardando_cliente' | 'aguardando_suporte' | 'resolvido' | 'fechado';
 export type AutorMensagem = 'cliente' | 'agente_ia' | 'suporte';
+export type TipoMensagem = 'mensagem' | 'nota_interna' | 'evento';
 
 export interface Ticket {
   id: number;
@@ -42,6 +46,7 @@ export interface Ticket {
   created_at: string;
   updated_at: string;
   resolvido_at: string | null;
+  primeira_resposta_at: string | null;
   usuario_nome?: string;
   empresa_nome?: string;
   total_mensagens?: number;
@@ -54,13 +59,54 @@ export interface TicketMensagem {
   usuario_id: number | null;
   conteudo: string;
   automatica: boolean;
+  tipo: TipoMensagem;
+  visivel_cliente: boolean;
   created_at: string;
   autor_nome?: string;
+  anexos?: TicketAnexo[];
+}
+
+export interface TicketAnexo {
+  id: number;
+  ticket_id: number;
+  mensagem_id: number | null;
+  nome_original: string;
+  mimetype: string;
+  tamanho_bytes: number;
+  created_at: string;
 }
 
 const CATEGORIAS = ['duvida', 'problema', 'sugestao', 'cobranca'];
 const PRIORIDADES = ['baixa', 'normal', 'alta'];
 const EMAIL_SUPORTE = process.env.EMAIL_SUPORTE || 'suporte@duofuturo.tech';
+
+// ── Anexos ──────────────────────────────────────────────────────────────────
+// Fora de /uploads/whatsapp de propósito: são coisas diferentes, com donos e
+// regras de acesso diferentes, e misturá-las tornaria a autorização ambígua.
+const ANEXOS_DIR = '/var/www/apps/gestao_financeira/uploads/suporte';
+const ANEXO_TAMANHO_MAX = 10 * 1024 * 1024; // 10 MB — print de tela não passa disso
+const ANEXO_EXTENSOES = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.pdf']);
+const ANEXO_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf']);
+const EXTENSAO_POR_MIME: Record<string, string> = {
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp',
+  'image/gif': '.gif', 'application/pdf': '.pdf',
+};
+
+/**
+ * Tipo REAL pelos primeiros bytes (magic number). Devolve null para qualquer coisa
+ * que não seja imagem aceita ou PDF — inclusive script, ELF e ZIP disfarçados.
+ */
+function tipoPelaAssinatura(b: Buffer): string | null {
+  if (b.length < 4) return null;
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.subarray(0, 4).toString('ascii') === '%PDF') return 'application/pdf';
+  if (b.subarray(0, 3).toString('ascii') === 'GIF') return 'image/gif';
+  // WEBP: "RIFF" .... "WEBP"
+  if (b.length >= 12 && b.subarray(0, 4).toString('ascii') === 'RIFF'
+      && b.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  return null;
+}
 
 /** Frase que a IA usa quando decide que o caso é de gente. */
 const MARCA_ESCALAR = '[ESCALAR]';
@@ -75,6 +121,15 @@ const RESPOSTA_AUTOMATICA_IA = process.env.SUPORTE_IA_RESPOSTA_AUTOMATICA === 't
 
 /** Status em que o chamado está na fila da equipe. */
 const FILA_HUMANA = 'aguardando_suporte';
+
+/** Como o status aparece no texto do evento — o valor cru não é para ser lido. */
+const ROTULO_STATUS_EVENTO: Record<string, string> = {
+  aberto: 'aberto',
+  aguardando_cliente: 'aguardando o cliente',
+  aguardando_suporte: 'na fila da equipe',
+  resolvido: 'resolvido',
+  fechado: 'fechado',
+};
 
 /**
  * Transição de status disparada por uma MENSAGEM nova, com `resolvido_at` derivado
@@ -432,16 +487,104 @@ export const suporteService = {
    * Sem `empresaId` (só o atendente), lê qualquer chamado.
    */
   async getMensagens(ticketId: number, empresaId?: number): Promise<TicketMensagem[]> {
+    // `empresaId` presente = é o CLIENTE lendo: some com o que não é para ele.
+    // O filtro de visibilidade vive aqui, no SQL, e não na tela — nota interna que
+    // chega ao navegador já vazou, mesmo que a interface não a desenhe.
+    const doCliente = empresaId != null;
     const res = await query(
       `SELECT m.*, u.nome AS autor_nome
          FROM ticket_mensagens m
          LEFT JOIN usuarios u ON u.id = m.usuario_id
         WHERE m.ticket_id = $1
-          ${empresaId ? 'AND EXISTS (SELECT 1 FROM tickets t WHERE t.id = m.ticket_id AND t.empresa_id = $2)' : ''}
+          ${doCliente ? 'AND m.visivel_cliente = true' : ''}
+          ${doCliente ? 'AND EXISTS (SELECT 1 FROM tickets t WHERE t.id = m.ticket_id AND t.empresa_id = $2)' : ''}
         ORDER BY m.created_at ASC, m.id ASC`,
-      empresaId ? [ticketId, empresaId] : [ticketId]
+      doCliente ? [ticketId, empresaId] : [ticketId]
     );
-    return res.rows;
+    const mensagens: TicketMensagem[] = res.rows;
+    if (mensagens.length === 0) return mensagens;
+
+    // Anexos numa consulta só, distribuídos em memória: uma query por mensagem
+    // faria N+1 num histórico que cresce sem teto.
+    //
+    // Inclui os ÓRFÃOS (`mensagem_id IS NULL`) de propósito. Na abertura do chamado
+    // o anexo é enviado DEPOIS de o ticket existir — a primeira mensagem já foi
+    // gravada dentro da transação de `criar`, então não há como amarrá-lo a ela no
+    // momento do upload. Órfão é, por definição, anexo da abertura: ele é exibido
+    // na primeira mensagem do histórico.
+    const anexos = await query(
+      `SELECT id, ticket_id, mensagem_id, nome_original, mimetype, tamanho_bytes, created_at
+         FROM ticket_anexos
+        WHERE ticket_id = $1 AND (mensagem_id IS NULL OR mensagem_id = ANY($2::int[]))
+        ORDER BY id ASC`,
+      [ticketId, mensagens.map((m) => m.id)]
+    );
+    const porMensagem = new Map<number, TicketAnexo[]>();
+    const primeiraId = mensagens[0].id;
+    for (const a of anexos.rows) {
+      const alvo = a.mensagem_id ?? primeiraId;
+      const lista = porMensagem.get(alvo) || [];
+      lista.push(a);
+      porMensagem.set(alvo, lista);
+    }
+    for (const m of mensagens) m.anexos = porMensagem.get(m.id) || [];
+    return mensagens;
+  },
+
+  /**
+   * Evento do sistema no MESMO histórico: "resolvido por X", "prioridade → alta".
+   *
+   * Entra como linha de `tipo = 'evento'` em vez de tabela de auditoria separada,
+   * porque o valor está em ler a ordem dos fatos junto com a conversa. `autor` é
+   * quem provocou o evento — sem usuário (job, automação) fica 'suporte'.
+   */
+  async registrarEvento(
+    ticketId: number, texto: string,
+    opcoes: { usuarioId?: number; visivelCliente?: boolean } = {}
+  ): Promise<void> {
+    try {
+      await this.adicionarMensagem(ticketId, {
+        autor: 'suporte',
+        usuarioId: opcoes.usuarioId,
+        conteudo: texto,
+        automatica: true,
+        tipo: 'evento',
+        // Padrão: evento é interno. Quem quer contar ao cliente pede explicitamente.
+        visivelCliente: opcoes.visivelCliente ?? false,
+      });
+    } catch (err: any) {
+      // Evento é registro, não operação: falhar aqui não pode derrubar a ação que
+      // o gerou (mudar status, subir anexo). Fica no log e a vida segue.
+      console.warn(`[suporte] evento não registrado no ticket ${ticketId} —`, err?.message || err);
+    }
+  },
+
+  /** Nota interna da equipe. Nunca vai ao cliente e nunca muda o status. */
+  async notaInterna(ticketId: number, usuarioId: number, conteudo: string): Promise<TicketMensagem> {
+    return this.adicionarMensagem(ticketId, {
+      autor: 'suporte', usuarioId, conteudo, tipo: 'nota_interna', visivelCliente: false,
+    });
+  },
+
+  /**
+   * Prioridade é da EQUIPE (o cliente não escolhe — ver `criar`). A mudança fica
+   * registrada como evento interno, senão "por que este chamado é alta?" não tem
+   * resposta depois.
+   */
+  async alterarPrioridade(ticketId: number, prioridade: string, usuarioId: number): Promise<Ticket | null> {
+    if (!PRIORIDADES.includes(prioridade)) {
+      throw new ErroValidacao('Prioridade inválida');
+    }
+    const atual = await this.getById(ticketId);
+    if (!atual) throw new ErroValidacao('Chamado não encontrado');
+    if (atual.prioridade === prioridade) return atual;
+
+    const res = await query(
+      `UPDATE tickets SET prioridade = $2, updated_at = now() WHERE id = $1 RETURNING *`,
+      [ticketId, prioridade]
+    );
+    await this.registrarEvento(ticketId, `Prioridade alterada de ${atual.prioridade} para ${prioridade}.`, { usuarioId });
+    return res.rows[0] || null;
   },
 
   async adicionarMensagem(
@@ -452,16 +595,48 @@ export const suporteService = {
       conteudo: string;
       automatica?: boolean;
       novoStatus?: StatusTicket;
+      /** 'mensagem' (fala com o cliente) | 'nota_interna' | 'evento'. Default 'mensagem'. */
+      tipo?: TipoMensagem;
+      /** Sobrescreve a visibilidade. Nota interna é forçada a false, sempre. */
+      visivelCliente?: boolean;
+      /** Anexos já enviados que passam a pertencer a esta mensagem. */
+      anexoIds?: number[];
     }
   ): Promise<TicketMensagem> {
     const conteudo = String(params.conteudo || '').trim();
     if (!conteudo) throw new ErroValidacao('A mensagem não pode ficar vazia');
 
+    const tipo: TipoMensagem = params.tipo || 'mensagem';
+    // Nota interna nunca é visível ao cliente — o banco também recusa (constraint
+    // `ticket_mensagens_nota_privada`), mas errar aqui devolveria um 500 em vez de
+    // um comportamento correto.
+    const visivel = tipo === 'nota_interna' ? false : (params.visivelCliente ?? true);
+
     const res = await query(
-      `INSERT INTO ticket_mensagens (ticket_id, autor, usuario_id, conteudo, automatica)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [ticketId, params.autor, params.usuarioId || null, conteudo, !!params.automatica]
+      `INSERT INTO ticket_mensagens (ticket_id, autor, usuario_id, conteudo, automatica, tipo, visivel_cliente)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [ticketId, params.autor, params.usuarioId || null, conteudo, !!params.automatica, tipo, visivel]
     );
+
+    // Anexos: amarra os órfãos a esta mensagem. O `ticket_id` no WHERE impede que
+    // um id de anexo de OUTRO chamado seja pendurado aqui — o id vem do cliente.
+    if (params.anexoIds?.length) {
+      await query(
+        `UPDATE ticket_anexos SET mensagem_id = $1
+          WHERE id = ANY($2::int[]) AND ticket_id = $3 AND mensagem_id IS NULL`,
+        [res.rows[0].id, params.anexoIds, ticketId]
+      );
+    }
+
+    // Primeira resposta da EQUIPE, carimbada uma única vez (base da métrica de
+    // tempo de primeira resposta). `IS NULL` no WHERE é o que garante "uma vez".
+    if (params.autor === 'suporte' && tipo === 'mensagem') {
+      await query(
+        `UPDATE tickets SET primeira_resposta_at = now()
+          WHERE id = $1 AND primeira_resposta_at IS NULL`,
+        [ticketId]
+      );
+    }
 
     if (params.novoStatus) {
       // `resolvido_at` acompanha o status, sempre. Antes só `alterarStatus` tocava
@@ -485,7 +660,7 @@ export const suporteService = {
    * novo se não sair aviso. Por isso aqui é `avisarEquipe` direto, e não
    * `marcarParaEquipe` (que só avisa quando o status muda).
    */
-  async responderComoCliente(ticketId: number, usuarioId: number, conteudo: string): Promise<TicketMensagem> {
+  async responderComoCliente(ticketId: number, usuarioId: number, conteudo: string, anexoIds?: number[]): Promise<TicketMensagem> {
     const ticket = await this.getById(ticketId);
     if (!ticket) throw new ErroValidacao('Chamado não encontrado');
     if (ticket.status === 'fechado') throw new ErroValidacao('Este chamado está fechado. Abra um novo.');
@@ -494,7 +669,7 @@ export const suporteService = {
     // nos chamados que ainda não são de gente — e ela mesma decide o destino.
     const comEquipe = ticket.status === FILA_HUMANA;
     if (RESPOSTA_AUTOMATICA_IA && !comEquipe) {
-      const msg = await this.adicionarMensagem(ticketId, { autor: 'cliente', usuarioId, conteudo, novoStatus: 'aberto' });
+      const msg = await this.adicionarMensagem(ticketId, { autor: 'cliente', usuarioId, conteudo, novoStatus: 'aberto', anexoIds });
       void this.responderComIA(ticketId);
       return msg;
     }
@@ -504,18 +679,20 @@ export const suporteService = {
       usuarioId,
       conteudo,
       novoStatus: FILA_HUMANA,
+      anexoIds,
     });
     void this.avisarEquipe(ticketId, 'o cliente respondeu', conteudo);
     return msg;
   },
 
   /** Resposta da equipe. Tira o ticket da fila e devolve a bola ao cliente. */
-  async responderComoSuporte(ticketId: number, usuarioId: number, conteudo: string): Promise<TicketMensagem> {
+  async responderComoSuporte(ticketId: number, usuarioId: number, conteudo: string, anexoIds?: number[]): Promise<TicketMensagem> {
     const msg = await this.adicionarMensagem(ticketId, {
       autor: 'suporte',
       usuarioId,
       conteudo,
       novoStatus: 'aguardando_cliente',
+      anexoIds,
     });
     void this.enviarEmailResposta(ticketId, conteudo, 'a equipe de suporte');
     return msg;
@@ -531,7 +708,7 @@ export const suporteService = {
    * "Reabrir" devolvia 400. Ninguém percebeu porque não havia chamado nenhum
    * no banco para clicar — apareceu na bateria de testes da fase 0.
    */
-  async alterarStatus(ticketId: number, status: StatusTicket, empresaId?: number): Promise<Ticket | null> {
+  async alterarStatus(ticketId: number, status: StatusTicket, empresaId?: number, usuarioId?: number): Promise<Ticket | null> {
     const res = await query(
       `UPDATE tickets
           SET status = $2::varchar,
@@ -542,7 +719,16 @@ export const suporteService = {
         RETURNING *`,
       empresaId ? [ticketId, status, empresaId] : [ticketId, status]
     );
-    return res.rows[0] || null;
+    const atualizado = res.rows[0] || null;
+    // Registra no histórico apenas quando a transição aconteceu de fato. Chamado
+    // resolvido é a única transição que o cliente precisa ver acontecer.
+    if (atualizado) {
+      await this.registrarEvento(ticketId, `Chamado marcado como ${ROTULO_STATUS_EVENTO[status] || status}.`, {
+        usuarioId,
+        visivelCliente: status === 'resolvido' || status === 'fechado',
+      });
+    }
+    return atualizado;
   },
 
   // ── e-mails ───────────────────────────────────────────────────────────────
@@ -688,6 +874,270 @@ export const suporteService = {
       [ticketId]
     );
     return res.rows[0]?.conteudo || null;
+  },
+
+  // ── Anexos (Fase 4) ────────────────────────────────────────────────────────
+
+  /**
+   * Validação do arquivo, na ordem em que fica mais barato recusar.
+   *
+   * MIME e extensão são AFIRMAÇÕES de quem envia — `curl -F "f=@x.sh;type=image/png"`
+   * passa nos dois. Por isso a última checagem lê os primeiros bytes: assinatura
+   * (magic number) é a única coisa que diz o que o arquivo é de fato. Aceitamos só
+   * imagem e PDF, que é o que um print de tela precisa; nada que o sistema
+   * operacional possa querer executar.
+   */
+  async validarArquivoAnexo(
+    arquivo: { path: string; originalname: string; mimetype: string; size: number }
+  ): Promise<{ ok: boolean; erro?: string; mimetype?: string }> {
+    if (arquivo.size > ANEXO_TAMANHO_MAX) {
+      return { ok: false, erro: `Arquivo muito grande. O limite é ${Math.floor(ANEXO_TAMANHO_MAX / 1024 / 1024)} MB.` };
+    }
+    const ext = path.extname(arquivo.originalname || '').toLowerCase();
+    if (!ANEXO_EXTENSOES.has(ext)) {
+      return { ok: false, erro: 'Formato não aceito. Envie imagem (PNG, JPG, WEBP, GIF) ou PDF.' };
+    }
+    if (!ANEXO_MIMES.has(arquivo.mimetype)) {
+      return { ok: false, erro: 'Formato não aceito. Envie imagem (PNG, JPG, WEBP, GIF) ou PDF.' };
+    }
+
+    // Assinatura real do conteúdo.
+    let cabecalho: Buffer;
+    try {
+      const fd = await fs.promises.open(arquivo.path, 'r');
+      try {
+        const buf = Buffer.alloc(12);
+        const { bytesRead } = await fd.read(buf, 0, 12, 0);
+        cabecalho = buf.subarray(0, bytesRead);
+      } finally {
+        await fd.close();
+      }
+    } catch {
+      return { ok: false, erro: 'Não foi possível ler o arquivo enviado.' };
+    }
+
+    const real = tipoPelaAssinatura(cabecalho);
+    if (!real) {
+      return { ok: false, erro: 'O conteúdo do arquivo não é uma imagem nem um PDF.' };
+    }
+    // O MIME que vale é o DETECTADO, não o declarado: é ele que vai para o banco e
+    // volta no Content-Type do download.
+    return { ok: true, mimetype: real };
+  },
+
+  /**
+   * Move o temporário do multer para a pasta da empresa com nome UUID e registra.
+   *
+   * Nunca reaproveita o nome do cliente no filesystem, e a pasta é por empresa —
+   * o que mantém a árvore legível e dá um segundo recorte natural.
+   */
+  async moverERegistrarAnexo(params: {
+    ticketId: number; empresaId: number; usuarioId: number;
+    arquivoTemporario: string; nomeOriginal: string; mimetype: string; tamanhoBytes: number;
+  }): Promise<TicketAnexo> {
+    const pasta = path.join(ANEXOS_DIR, String(params.empresaId));
+    await fs.promises.mkdir(pasta, { recursive: true });
+
+    const ext = EXTENSAO_POR_MIME[params.mimetype] || '.bin';
+    const nome = `${randomUUID()}${ext}`;
+    await fs.promises.copyFile(params.arquivoTemporario, path.join(pasta, nome));
+
+    const relativo = `/uploads/suporte/${params.empresaId}/${nome}`;
+    const anexo = await this.registrarAnexo({
+      ticketId: params.ticketId,
+      empresaId: params.empresaId,
+      usuarioId: params.usuarioId,
+      caminho: relativo,
+      nomeOriginal: params.nomeOriginal || nome,
+      mimetype: params.mimetype,
+      tamanhoBytes: params.tamanhoBytes,
+    });
+    await this.registrarEvento(params.ticketId, `Anexo adicionado: ${params.nomeOriginal}.`, { usuarioId: params.usuarioId });
+    return anexo;
+  },
+
+  /**
+   * Caminho absoluto de um anexo, confinado em ANEXOS_DIR.
+   *
+   * O `caminho` vem do banco (foi o servidor que o gerou), mas a checagem de
+   * confinamento fica aqui de qualquer jeito: é barata e transforma um eventual
+   * registro adulterado em 404 em vez de leitura de arquivo arbitrário.
+   */
+  caminhoAbsolutoAnexo(relativo: string): string | null {
+    const semPrefixo = relativo.replace(/^\/uploads\/suporte\/?/, '');
+    const absoluto = path.resolve(ANEXOS_DIR, semPrefixo);
+    if (absoluto !== ANEXOS_DIR && !absoluto.startsWith(ANEXOS_DIR + path.sep)) return null;
+    return absoluto;
+  },
+
+  /**
+   * Registra um anexo já gravado no disco.
+   *
+   * O nome no filesystem é gerado aqui (UUID), NUNCA derivado do nome que o
+   * cliente mandou: nome de arquivo é entrada não confiável — path traversal,
+   * extensão dupla (`foto.png.sh`), caractere de controle, nome vazio. O nome
+   * original vira só rótulo de exibição e nunca toca o disco.
+   */
+  async registrarAnexo(params: {
+    ticketId: number; empresaId: number; usuarioId: number;
+    caminho: string; nomeOriginal: string; mimetype: string; tamanhoBytes: number;
+  }): Promise<TicketAnexo> {
+    const res = await query(
+      `INSERT INTO ticket_anexos
+         (ticket_id, empresa_id, usuario_id, caminho, nome_original, mimetype, tamanho_bytes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id, ticket_id, mensagem_id, nome_original, mimetype, tamanho_bytes, created_at`,
+      [params.ticketId, params.empresaId, params.usuarioId, params.caminho,
+       params.nomeOriginal.slice(0, 255), params.mimetype.slice(0, 120), params.tamanhoBytes]
+    );
+    return res.rows[0];
+  },
+
+  /**
+   * Anexo para download, com a autorização já resolvida.
+   *
+   * `empresaId` informado = cliente: só anexo de chamado da empresa dele. Sem ele
+   * (atendente) qualquer anexo. A checagem é por JOIN no ticket, não pelo caminho
+   * no disco — caminho é dado, não permissão.
+   */
+  async getAnexoParaDownload(
+    anexoId: number, empresaId?: number
+  ): Promise<{ caminho: string; nome_original: string; mimetype: string } | null> {
+    const res = await query(
+      `SELECT a.caminho, a.nome_original, a.mimetype
+         FROM ticket_anexos a
+         JOIN tickets t ON t.id = a.ticket_id
+        WHERE a.id = $1 ${empresaId ? 'AND t.empresa_id = $2' : ''}`,
+      empresaId ? [anexoId, empresaId] : [anexoId]
+    );
+    return res.rows[0] || null;
+  },
+
+  // ── IA copiloto do atendente (Fase 6) ──────────────────────────────────────
+
+  /**
+   * A IA ASSISTE quem atende — não responde o cliente.
+   *
+   * Devolve classificação, prioridade sugerida, resumo e um rascunho de resposta
+   * para o atendente revisar. Nada daqui é enviado a ninguém: o rascunho volta
+   * como texto na tela e só sai se uma pessoa clicar em enviar. É a premissa 4, e
+   * é o oposto da `responderComIA`, que fala com o cliente e segue desligada por
+   * padrão (`SUPORTE_IA_RESPOSTA_AUTOMATICA`).
+   *
+   * Nunca lança por falta de IA: sem chave configurada devolve `disponivel: false`
+   * com o motivo, e a Central continua funcionando sem o painel. Atendimento não
+   * pode depender da IA — mesma regra da fase 0.
+   */
+  async sugestaoParaAtendente(ticketId: number): Promise<{
+    disponivel: boolean;
+    motivo?: string;
+    classificacao?: string;
+    prioridade_sugerida?: string;
+    resumo?: string;
+    resposta_sugerida?: string;
+  }> {
+    const ticket = await this.getById(ticketId);
+    if (!ticket) throw new ErroValidacao('Chamado não encontrado');
+
+    const creds = await credenciaisIA();
+    if (!creds) {
+      return { disponivel: false, motivo: 'A chave de IA do suporte (SUPORTE_IA_API_KEY) não está configurada.' };
+    }
+
+    // O histórico da IA inclui nota interna de propósito: é contexto do atendente,
+    // e o resultado não vai ao cliente sem revisão humana.
+    const hist = await query(
+      `SELECT autor, tipo, conteudo FROM ticket_mensagens
+        WHERE ticket_id = $1 ORDER BY created_at ASC, id ASC LIMIT 40`,
+      [ticketId]
+    );
+    const conversa = hist.rows
+      .map((m: any) => `[${m.tipo === 'nota_interna' ? 'nota interna da equipe' : m.autor}] ${m.conteudo}`)
+      .join('\n');
+
+    const sistema = `Você ajuda a EQUIPE de suporte da DuoFuturo a atender um chamado do Gestão Financeira CRM.
+Você NÃO fala com o cliente: o que você escrever é lido por um atendente humano, que revisa antes de enviar.
+
+Devolva SOMENTE um JSON válido, sem cercas de código, com estas chaves:
+{"classificacao":"duvida|problema|sugestao|cobranca","prioridade_sugerida":"baixa|normal|alta","resumo":"...","resposta_sugerida":"..."}
+
+- "resumo": o problema em no máximo 2 frases, para quem nunca leu o chamado.
+- "resposta_sugerida": rascunho em português do Brasil, direto, no máximo 3
+  parágrafos curtos, passo a passo numerado quando for "como faço X".
+- Prioridade alta é para dinheiro (cobrança, reembolso, cancelamento), suspeita de
+  perda de dados ou operação parada. Não infle: se for dúvida de uso, é normal.
+- Nunca invente prazo, valor, política de reembolso ou combinado comercial. Se
+  faltar informação, diga no resumo o que precisa ser perguntado.`;
+
+    try {
+      const anthropic = new Anthropic({ apiKey: creds.apiKey, timeout: 45_000, maxRetries: 1 });
+      const r = await anthropic.messages.create({
+        model: creds.modelo,
+        max_tokens: 1024,
+        system: sistema,
+        messages: [{
+          role: 'user',
+          content: `Chamado #${ticket.id} — "${ticket.assunto}" (categoria ${ticket.categoria}, prioridade atual ${ticket.prioridade}).\nEmpresa: ${ticket.empresa_nome}. Quem abriu: ${ticket.usuario_nome}.\n\nHistórico:\n${conversa}`,
+        }],
+      });
+      const bruto = r.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
+
+      // O modelo às vezes embrulha o JSON em cerca de código, apesar da instrução.
+      const limpo = bruto.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      const dados = JSON.parse(limpo);
+      return {
+        disponivel: true,
+        classificacao: CATEGORIAS.includes(dados.classificacao) ? dados.classificacao : undefined,
+        prioridade_sugerida: PRIORIDADES.includes(dados.prioridade_sugerida) ? dados.prioridade_sugerida : undefined,
+        resumo: typeof dados.resumo === 'string' ? dados.resumo : undefined,
+        resposta_sugerida: typeof dados.resposta_sugerida === 'string' ? dados.resposta_sugerida : undefined,
+      };
+    } catch (err: any) {
+      // Inclui JSON malformado: o atendente vê "não foi possível" e atende do
+      // mesmo jeito. Melhor sem sugestão do que com sugestão inventada.
+      console.warn(`[suporte] copiloto falhou no ticket ${ticketId} —`, err?.message || err);
+      return { disponivel: false, motivo: 'Não foi possível gerar a sugestão agora. Você pode atender normalmente.' };
+    }
+  },
+
+  // ── Métricas (Fase 7) ──────────────────────────────────────────────────────
+
+  /**
+   * Números da Central. `empresaId` restringe a uma empresa (visão do cliente);
+   * sem ele, é o consolidado do atendimento.
+   *
+   * Tempo de primeira resposta usa `primeira_resposta_at` (carimbado uma vez na
+   * primeira fala da equipe) e tempo de resolução usa `resolvido_at` — que desde
+   * 25/08 é limpo quando o chamado reabre, então reaberto não conta como resolvido.
+   * Sem essa correção estas duas médias seriam otimistas e ninguém perceberia.
+   */
+  async metricas(empresaId?: number): Promise<any> {
+    const cond = empresaId ? 'WHERE empresa_id = $1' : '';
+    const vals = empresaId ? [empresaId] : [];
+    const res = await query(
+      `SELECT
+         COUNT(*)::int                                                      AS total,
+         COUNT(*) FILTER (WHERE status = 'aguardando_suporte')::int         AS na_fila,
+         COUNT(*) FILTER (WHERE status = 'aguardando_cliente')::int         AS com_cliente,
+         COUNT(*) FILTER (WHERE status IN ('resolvido','fechado'))::int     AS encerrados,
+         COUNT(*) FILTER (WHERE prioridade = 'alta'
+                            AND status NOT IN ('resolvido','fechado'))::int AS abertos_alta,
+         -- Só quem já foi respondido entra na média; chamado ainda sem resposta
+         -- não tem tempo de resposta, e tratá-lo como zero mentiria para baixo.
+         ROUND(AVG(EXTRACT(EPOCH FROM (primeira_resposta_at - created_at)) / 60.0)
+               FILTER (WHERE primeira_resposta_at IS NOT NULL))::int        AS min_primeira_resposta,
+         ROUND(AVG(EXTRACT(EPOCH FROM (resolvido_at - created_at)) / 60.0)
+               FILTER (WHERE resolvido_at IS NOT NULL))::int                AS min_resolucao,
+         COUNT(*) FILTER (WHERE primeira_resposta_at IS NULL
+                            AND status NOT IN ('resolvido','fechado'))::int AS sem_resposta
+       FROM tickets ${cond}`,
+      vals
+    );
+    const porCategoria = await query(
+      `SELECT categoria, COUNT(*)::int AS total FROM tickets ${cond} GROUP BY categoria ORDER BY total DESC`,
+      vals
+    );
+    return { ...res.rows[0], por_categoria: porCategoria.rows };
   },
 
   async emailDoUsuario(usuarioId: number): Promise<string | null> {
