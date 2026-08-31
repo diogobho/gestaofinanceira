@@ -51,7 +51,31 @@ import { iniciarWorkerAgente } from './modules/agente-ia/agente-ia.queue';
 
 const app = express();
 
-app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
+// Os webhooks públicos de captação (`/crm/webhook/form-*`) são chamados de fora, e não
+// só pelo servidor do WordPress: a página do cliente pode postar direto do JavaScript.
+// Nesse caso o POST urlencoded é "simple request" — ele CHEGA e o lead é criado —, mas
+// sem `Access-Control-Allow-Origin` o navegador proíbe a página de LER a resposta: o
+// fetch estoura, o formulário mostra "não conseguimos enviar" e a pessoa reenvia. Foi o
+// que aconteceu com escolapanthers.com.br em 31/08/2026: 3 envios, 1 lead + 2 anexos.
+//
+// Nessas rotas a origem é livre; em todo o resto valem as origens do .env. É um
+// middleware só, com origem decidida por requisição, porque dois `cors` empilhados
+// mandariam DOIS `Access-Control-Allow-Origin` quando a origem também estivesse na lista
+// (o caso de `/crm/webhook/secret`, que a app chama autenticada) — e navegador nenhum
+// aceita o header duplicado.
+//
+// Liberar aqui não afrouxa nada: a rota é autenticada por secret na URL ou no header, o
+// corpo vem do próprio visitante e a resposta não passa de `{success, lead_id}`. Sem
+// `credentials`, que é justamente o que não se combina com origem curinga.
+const EH_WEBHOOK_PUBLICO = /^\/api\/(?:gestao\/)?crm\/webhook\/form-[a-z-]+\/?$/;
+
+app.use(cors((req, callback) => {
+  if (EH_WEBHOOK_PUBLICO.test(req.path)) {
+    callback(null, { origin: '*', methods: ['POST', 'OPTIONS'] });
+    return;
+  }
+  callback(null, { origin: env.CORS_ORIGINS, credentials: true });
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(checkSubscription);
 
