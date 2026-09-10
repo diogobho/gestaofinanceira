@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MessageSquare, CheckCircle, XCircle, RefreshCw, Send, AlertCircle, User } from 'lucide-react';
+import { MessageSquare, CheckCircle, XCircle, RefreshCw, Send, AlertCircle, User, Cloud } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { TourHelpButton } from '@/components/tour/TourHelpButton';
@@ -371,6 +372,15 @@ export const WhatsAppConfig: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-2 mt-1">
+            {/* API oficial da Meta — conta da DuoFuturo, nao da empresa cliente. */}
+            {(user?.nivel === 'super_admin' || user?.acesso_cloud_api) && (
+              <Link to="/whatsapp/meta">
+                <Button variant="outline" size="sm" className="flex items-center gap-2">
+                  <Cloud className="w-4 h-4" />
+                  Cloud API
+                </Button>
+              </Link>
+            )}
             <TourHelpButton tourId="whatsapp" />
             <Button variant="outline" size="sm" onClick={loadEmpresaUsuarios} className="flex items-center gap-2">
               <RefreshCw className="w-4 h-4" />

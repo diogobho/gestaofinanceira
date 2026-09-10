@@ -26,6 +26,8 @@ export interface User {
   nivel?: 'super_admin' | 'admin_empresa' | 'admin' | 'usuario'
   tipo_usuario?: 'master' | 'comum'
   permissoes?: UserPermissoes
+  /** Painel da Cloud API da DuoFuturo: super_admin ou revisor liberado no .env */
+  acesso_cloud_api?: boolean
   taxa_horaria?: number
   comissao_percentual?: number
   especialidades?: string

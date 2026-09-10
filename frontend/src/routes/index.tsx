@@ -15,6 +15,7 @@ import { SessionsList } from '@/pages/sessoes/SessionsList'
 import { UserManagement } from '@/pages/admin/UserManagement'
 import { UserProfile } from '@/pages/perfil/UserProfile'
 import { WhatsAppConfig } from '@/pages/whatsapp/WhatsAppConfig'
+import { MetaCloudApi } from '@/pages/whatsapp/MetaCloudApi'
 import { CRMDashboard, CRMComAbas } from '@/pages/crm'
 import { AgenteFinanceiro } from '@/pages/agente/AgenteFinanceiro'
 import { EmailConfig } from '@/pages/configuracoes/EmailConfig'
@@ -100,6 +101,16 @@ const AppRoutes: React.FC = () => {
           element={
             <PrivateRoute requiredPermission="whatsapp">
               <WhatsAppConfig />
+            </PrivateRoute>
+          }
+        />
+        {/* API oficial da Meta. Quem barra de verdade e o backend (super_admin);
+            a propria pagina mostra "acesso restrito" para nao piscar conteudo. */}
+        <Route
+          path="/whatsapp/meta"
+          element={
+            <PrivateRoute>
+              <MetaCloudApi />
             </PrivateRoute>
           }
         />

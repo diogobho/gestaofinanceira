@@ -4,6 +4,7 @@ import { signAccessToken } from '../../config/jwt';
 import { assinaturasService } from '../assinaturas/assinaturas.service';
 import { asaasService } from '../../services/asaas.service';
 import { addMonthsClamped } from '../../shared/utils';
+import { podeUsarCloudApi } from '../whatsapp/meta/acesso';
 
 // Versão vigente dos Termos de Uso / Política de Privacidade (atualize ao publicar nova versão).
 export const TERMOS_VERSAO = '1.0';
@@ -47,6 +48,7 @@ export const authService = {
         empresa_id: user.empresa_id,
         tipo_usuario: user.tipo_usuario || 'comum',
         permissoes: user.permissoes || {},
+        acesso_cloud_api: podeUsarCloudApi(user),
         empresa: empresaInfo
       }
     };
@@ -264,6 +266,7 @@ export const authService = {
       empresa_id: user.empresa_id,
       tipo_usuario: user.tipo_usuario || 'comum',
       permissoes: user.permissoes || {},
+      acesso_cloud_api: podeUsarCloudApi(user),
       empresa: user.empresa_nome ? { id: user.empresa_id, nome: user.empresa_nome } : null
     };
   }
