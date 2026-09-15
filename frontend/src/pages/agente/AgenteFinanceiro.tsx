@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { useAbaNaUrl } from '@/hooks/useEstadoNaUrl'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import {
@@ -1699,7 +1700,6 @@ function ComoFunciona() {
 // ─── Componente principal ──────────────────────────────────────────────────────
 
 export const AgenteFinanceiro: React.FC = () => {
-  const [aba, setAba] = useState<Aba>('assistente')
   const { user } = useAuth()
 
   // Configurar o agente é exclusivo do CREATOR (o dono) — mesma regra do backend em
@@ -1711,6 +1711,8 @@ export const AgenteFinanceiro: React.FC = () => {
     ...(podeConfigurar ? [{ key: 'configurar' as Aba, label: 'Configurar Agente' }] : []),
     { key: 'como-funciona', label: 'Como Funciona' },
   ]
+  // Na URL, para o F5 reabrir a mesma aba; só vale aba que este papel enxerga.
+  const [aba, setAba] = useAbaNaUrl<Aba>('aba', 'assistente', tabs.map((t) => t.key))
 
   // h-full, não h-screen: a área útil já vem descontada da barra de topo do mobile.
   return (

@@ -358,12 +358,14 @@ export interface ParticipanteGrupo {
   id: string;
   number: string;
   isAdmin: boolean;
+  /** Nome que a conta já tem para o número (contato, agenda do chip ou lead) */
+  nome?: string | null;
 }
 
 export interface ImportarParticipantesResult {
-  importados: number;
-  ignorados: number;
-  erros: number;
+  criados: number;
+  jaExistem: number;
+  comNome: number;
 }
 
 // Resultado da sincronização

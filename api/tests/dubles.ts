@@ -8,7 +8,7 @@
  */
 
 import { PortasMotor, PortaFollowups, ResultadoDespacho } from '../src/jobs/followup/motor';
-import { JanelaOperacional, JANELA_PADRAO } from '../src/modules/crm/_shared/agendamento';
+import { JanelaOperacional, JANELA_PADRAO, reancorarCadencia } from '../src/modules/crm/_shared/agendamento';
 import { DiagnosticoChip } from '../src/modules/crm/_shared/chip';
 
 export interface FollowupFalso {
@@ -31,7 +31,14 @@ export interface FollowupFalso {
   enviado_at?: Date | null;
   contato_whatsapp_id?: number | null;
   mensagem?: string;
+  modo?: string | null;
+  atraso_dias?: number | null;
+  atraso_unidade?: string | null;
+  hora_envio?: string | null;
 }
+
+/** Canal que caiu: é o que a retomada (#78) devolve à fila quando o chip volta. */
+const CATEGORIAS_CANAL = ['canal_bloqueado', 'canal_indefinido'];
 
 /**
  * Instante de referência de TODO cenário: terça, 25/08/2026, 13:00 em São Paulo —
@@ -84,10 +91,13 @@ export class RepoFalso implements PortaFollowups {
       .sort((a, b) => a.agendado_para.getTime() - b.agendado_para.getTime())
       .map((f) => ({ ...f }));
   }
-  /** Espelha `UPDATE ... WHERE status='pendente'`: só o primeiro vence. */
+  /**
+   * Espelha `UPDATE ... WHERE status='pendente' AND agendado_para <= NOW()`: só o
+   * primeiro vence, e registro reagendado para o futuro no meio do ciclo não sai.
+   */
   async reclamar(id: number) {
     const f = this.acha(id);
-    if (!f || f.status !== 'pendente') return false;
+    if (!f || f.status !== 'pendente' || f.agendado_para.getTime() > this.agora()) return false;
     f.status = 'processando';
     // Relógio do repositório, não o de parede: `claim_at` é o que o reaper compara
     // com o histórico, então ele tem de andar junto com o tempo simulado.
@@ -140,11 +150,45 @@ export class RepoFalso implements PortaFollowups {
   async podeEnviarPassoEstagio(leadId: number, passoOrdem: number | null) {
     if (passoOrdem == null) return true;
     // Espelha o service: 'processando' conta junto com 'pendente', senão um passo
-    // anterior em voo deixaria o seguinte passar na frente.
+    // anterior em voo deixaria o seguinte passar na frente. E o toque que falhou com o
+    // chip fora do ar também segura, enquanto for retomável.
     return !this.registros.some((f) =>
       f.lead_id === leadId && f.origem === 'estagio'
-      && (f.status === 'pendente' || f.status === 'processando')
-      && f.passo_ordem != null && f.passo_ordem < passoOrdem);
+      && f.passo_ordem != null && f.passo_ordem < passoOrdem
+      && (f.status === 'pendente' || f.status === 'processando' || this.retomavel(f)));
+  }
+  /** Espelha SQL_FALHA_CANAL_RETOMAVEL (sem estágio nem idade: os cenários não mudam de estágio). */
+  private retomavel(f: FollowupFalso) {
+    return f.status === 'falhou' && f.origem === 'estagio' && f.passo_ordem != null
+      && CATEGORIAS_CANAL.includes(f.erro_categoria || '')
+      && !this.registros.some((g) => g.lead_id === f.lead_id && g.origem === 'estagio'
+        && g.status === 'enviado' && (g.passo_ordem ?? -1) > (f.passo_ordem ?? -1));
+  }
+  async falhasDeCanalRetomaveis() {
+    return this.registros.filter((f) => this.retomavel(f))
+      .map((f) => ({ id: f.id, chip: f.remetente_id ?? f.usuario_id }));
+  }
+  async retomarFalhasDeCanal(ids: number[]) {
+    let n = 0;
+    for (const f of this.registros) {
+      if (!ids.includes(f.id) || !this.retomavel(f)) continue;
+      f.status = 'pendente';
+      f.agendado_para = new Date(this.agora());
+      f.tentativas = 0;
+      f.erro = null;
+      f.erro_categoria = null;
+      n++;
+    }
+    return n;
+  }
+  /** Usa a MESMA função pura do service; a cadência dos cenários é toda base 'entrada'. */
+  async reancorarPassosSeguintes(enviado: any, em: Date) {
+    if (enviado.passo_ordem == null) return [];
+    const seguintes = this.registros.filter((f) => f.lead_id === enviado.lead_id
+      && f.origem === 'estagio' && f.status === 'pendente' && (f.passo_ordem ?? -1) > enviado.passo_ordem);
+    const mover = reancorarCadencia(enviado, seguintes, [], em);
+    for (const m of mover) this.acha(m.id)!.agendado_para = m.agendadoPara;
+    return mover.map((m) => m.id);
   }
   async intervalosFollowupPorEmpresa() { return this.intervalos; }
   async ultimoEnvioAutomaticoPorChip() { return this.ultimoEnvio; }
@@ -159,6 +203,8 @@ export interface OpcoesPortas {
   janela?: JanelaOperacional;
   despachar?: (f: any) => Promise<ResultadoDespacho>;
   chip?: DiagnosticoChip;
+  /** Diagnóstico por chip, quando o cenário precisa de chips em estados diferentes. */
+  chipPorId?: Record<number, DiagnosticoChip>;
   orcamentoFollowupMs?: number;
 }
 
@@ -184,7 +230,7 @@ export function portasDeTeste(o: OpcoesPortas): PortasDeTeste {
       return o.despachar ? o.despachar(f) : 'enviado';
     },
     aposEnvio: async () => {},
-    diagnosticarChip: async () => o.chip ?? {
+    diagnosticarChip: async (chipId: number) => (o.chipPorId?.[chipId]) ?? o.chip ?? {
       estado: 'reconectando', exigeIntervencao: false, motivo: 'instância reiniciando', porta: 3011,
     },
     agora: () => relogio,

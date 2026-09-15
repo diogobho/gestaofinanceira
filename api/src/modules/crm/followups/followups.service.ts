@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { query } from '../../../config/database';
-import { calcularAgendadoPara, ModoAgendamento, UnidadeAtraso } from '../_shared/agendamento';
+import { calcularAgendadoPara, extrairPassosFollowup, reancorarCadencia, ToqueCadencia, ModoAgendamento, UnidadeAtraso } from '../_shared/agendamento';
 
 const UPLOADS_DIR = '/var/www/apps/gestao_financeira/uploads/whatsapp';
 
@@ -36,6 +36,43 @@ export const SQL_EVIDENCIA_ENVIO_FOLLOWUP = `
      AND enviado_at >= $3
      AND enviado_at <= $3::timestamptz + ($4 || ' milliseconds')::interval
    LIMIT 1`;
+
+/**
+ * Por quantos dias um toque que falhou com o chip fora do ar ainda é RETOMADO quando o
+ * número volta. Depois disso a mensagem envelheceu ("passando para saber se viu minha
+ * mensagem" 20 dias depois não faz sentido) e a cadência segue do passo seguinte.
+ */
+export const DIAS_RETOMADA_CANAL = 15;
+
+/**
+ * Predicado (alias `f`) do toque que falhou porque o CHIP estava fora do ar e que ainda
+ * é a vez dele na cadência (#78, 15/09/2026). Antes, 'falhou' era terminal para a ordem:
+ * o passo seguinte ficava livre, e a cadência pulava a mensagem como se tivesse saído.
+ *
+ * - só falha de canal: número inexistente, conflito de config etc. não voltam sozinhos;
+ * - a cadência ainda vale: o lead não mudou de estágio depois que o toque nasceu (os
+ *   toques nascem ~10ms ANTES do registro da mudança, daí a folga de 1 minuto);
+ * - nenhum passo POSTERIOR da mesma cadência já saiu — retomar agora seria falar fora
+ *   de ordem (é o passado anterior a esta regra);
+ * - falha recente (`DIAS_RETOMADA_CANAL`).
+ *
+ * O MESMO predicado segura o passo seguinte (`podeEnviarPassoEstagio`) e decide quem é
+ * retomado (`falhasDeCanalRetomaveis`) — se divergissem, um lead ficaria preso para sempre.
+ */
+const SQL_FALHA_CANAL_RETOMAVEL = `
+  f.status = 'falhou' AND f.origem = 'estagio' AND f.passo_ordem IS NOT NULL
+  AND f.erro_categoria IN ('canal_bloqueado', 'canal_indefinido')
+  AND f.updated_at > NOW() - INTERVAL '${DIAS_RETOMADA_CANAL} days'
+  AND NOT EXISTS (
+    SELECT 1 FROM atividades_lead a
+     WHERE a.lead_id = f.lead_id
+       AND a.tipo IN ('mudanca_estagio', 'transferencia_funil')
+       AND a.created_at > f.created_at + INTERVAL '1 minute')
+  AND NOT EXISTS (
+    SELECT 1 FROM followups_agendados g
+     WHERE g.lead_id = f.lead_id AND g.origem = 'estagio' AND g.status = 'enviado'
+       AND g.passo_ordem > f.passo_ordem
+       AND g.created_at >= f.created_at - INTERVAL '1 minute')`;
 
 export interface CriarFollowupInput {
   leadId: number;
@@ -325,7 +362,7 @@ export const followupsService = {
     const r = await query(
       `UPDATE followups_agendados
           SET status = 'processando', claim_at = NOW(), updated_at = NOW()
-        WHERE id = $1 AND status = 'pendente'`,
+        WHERE id = $1 AND status = 'pendente' AND agendado_para <= NOW()`,
       [id]
     );
     return (r.rowCount ?? 0) > 0;
@@ -446,14 +483,74 @@ export const followupsService = {
       // cadência justamente quando algo deu errado no passo anterior. Órfão fica em
       // 'processando' por até 10 min (idade do reaper): esperar é o desfecho certo,
       // porque a alternativa é falar com o lead fora de ordem.
+      //
+      // Toque anterior que falhou com o chip fora do ar também segura (#78): ele é
+      // retomado quando o número volta (`falhasDeCanalRetomaveis`), e até lá a vez é dele.
       `SELECT COUNT(*)::int AS anteriores_em_aberto
-         FROM followups_agendados
-        WHERE lead_id = $1 AND origem = 'estagio'
-          AND status IN ('pendente', 'processando')
-          AND passo_ordem IS NOT NULL AND passo_ordem < $2`,
+         FROM followups_agendados f
+        WHERE f.lead_id = $1 AND f.origem = 'estagio'
+          AND f.passo_ordem IS NOT NULL AND f.passo_ordem < $2
+          AND (f.status IN ('pendente', 'processando') OR (${SQL_FALHA_CANAL_RETOMAVEL}))`,
       [leadId, passoOrdem]
     );
     return Number(r.rows[0]?.anteriores_em_aberto ?? 0) === 0;
+  },
+
+  /** Toques que falharam com o chip fora do ar e ainda podem ser retomados, com o chip que os envia. */
+  async falhasDeCanalRetomaveis(): Promise<Array<{ id: number; chip: number }>> {
+    const r = await query(
+      `SELECT f.id, COALESCE(l.responsavel_id, f.usuario_id) AS chip
+         FROM followups_agendados f
+         JOIN leads l ON l.id = f.lead_id AND l.arquivado = false
+        WHERE ${SQL_FALHA_CANAL_RETOMAVEL}`
+    );
+    return r.rows.map((x: any) => ({ id: Number(x.id), chip: Number(x.chip) }));
+  },
+
+  /**
+   * Devolve à fila, para agora, toques que falharam com o chip fora do ar — chamado
+   * quando o chip volta. Os passos seguintes se reajustam a partir do envio real
+   * (`reancorarPassosSeguintes`), então retomar vários de uma vez não vira rajada.
+   */
+  async retomarFalhasDeCanal(ids: number[]): Promise<number> {
+    if (!ids.length) return 0;
+    const r = await query(
+      `UPDATE followups_agendados f
+          SET status = 'pendente', agendado_para = NOW(), tentativas = 0,
+              erro = NULL, erro_categoria = NULL, claim_at = NULL, updated_at = NOW()
+        WHERE f.id = ANY($1::int[]) AND ${SQL_FALHA_CANAL_RETOMAVEL}`,
+      [ids]
+    );
+    return r.rowCount ?? 0;
+  },
+
+  /**
+   * Depois que um passo de cadência sai, os seguintes contam o intervalo a partir do
+   * envio real (#77). A regra é a função pura `reancorarCadencia`; aqui só busca e grava.
+   */
+  async reancorarPassosSeguintes(enviado: ToqueCadencia & { lead_id: number }, enviadoEm: Date): Promise<number[]> {
+    if (enviado.passo_ordem == null) return [];
+    const r = await query(
+      `SELECT f.id, f.passo_ordem, f.agendado_para, f.modo, f.atraso_dias, f.atraso_unidade,
+              f.hora_envio, f.dias_semana, ef.followup_config
+         FROM followups_agendados f
+         JOIN leads l ON l.id = f.lead_id
+         LEFT JOIN estagios_funil ef ON ef.id = l.estagio_id
+        WHERE f.lead_id = $1 AND f.origem = 'estagio' AND f.status = 'pendente'
+          AND f.passo_ordem > $2`,
+      [enviado.lead_id, enviado.passo_ordem]
+    );
+    if (!r.rows.length) return [];
+
+    const mover = reancorarCadencia(enviado, r.rows, extrairPassosFollowup(r.rows[0].followup_config), enviadoEm);
+    for (const m of mover) {
+      await query(
+        `UPDATE followups_agendados SET agendado_para = $1, updated_at = NOW()
+          WHERE id = $2 AND status = 'pendente'`,
+        [m.agendadoPara.toISOString(), m.id]
+      );
+    }
+    return mover.map((m) => m.id);
   },
 
   /** Intervalo anti-ban (mín/máx em segundos) de follow-up de uma empresa. Default 45/90. */

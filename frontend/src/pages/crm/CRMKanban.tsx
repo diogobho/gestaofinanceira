@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { MessageCircle, Plus, RefreshCw, BarChart3, Upload, Settings, Search, Send, Mail, Bell, LayoutGrid, LayoutList, Workflow } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useKanban, useFunilStats, useRegistrarWebhook, useFunisAquisicao, useUsuariosEmpresa, useReorderEstagios } from '@/hooks/useCRM'
+import { useAbaNaUrl, useFunilNaUrl } from '@/hooks/useEstadoNaUrl'
+import OrdenarCards, { ORDENS_CARDS } from '@/components/crm/OrdenarCards'
 import KanbanBoard from '@/components/crm/KanbanBoard'
 import KanbanFilters from '@/components/crm/KanbanFilters'
 import CRMListView from '@/components/crm/CRMListView'
@@ -24,15 +26,20 @@ import type { FiltrosLead } from '@/api/crm'
 export default function CRMKanban() {
   const [filtros, setFiltros] = useState<FiltrosLead>({})
   const [searchInput, setSearchInput] = useState('')
-  const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'fluxo'>('kanban')
-  const [selectedFunilId, setSelectedFunilId] = useState<number | undefined>()
+  // Funil e visão moram na URL: o F5 reabre no mesmo lugar.
+  const [viewMode, setViewMode] = useAbaNaUrl('visao', 'kanban', ['kanban', 'list', 'fluxo'] as const)
+  // Ordem dos cards (#59): na URL como o funil, e fora de `filtros` — limpar filtro não a desfaz.
+  const [ordem, setOrdem] = useAbaNaUrl('ordem', 'manual', ORDENS_CARDS)
+  const filtrosComOrdem = useMemo(() => (ordem === 'manual' ? filtros : { ...filtros, ordenar: ordem }), [filtros, ordem])
   const [showFunilFormModal, setShowFunilFormModal] = useState(false)
   const [editingFunil, setEditingFunil] = useState<Funil | null>(null)
   const [deletingFunil, setDeletingFunil] = useState<Funil | null>(null)
 
-  const { data: funisList = [] } = useFunisAquisicao()
+  const { data: funisCarregados } = useFunisAquisicao()
+  const funisList = funisCarregados ?? []
+  const [selectedFunilId, setSelectedFunilId] = useFunilNaUrl('aquisicao', funisCarregados)
   const { data: usuariosEmpresa = [] } = useUsuariosEmpresa()
-  const { funil, colunas, isLoading, isError, moverLead, refetch, loadMore, loadingMore } = useKanban(filtros, selectedFunilId)
+  const { funil, colunas, isLoading, isError, moverLead, refetch, loadMore, loadingMore } = useKanban(filtrosComOrdem, selectedFunilId)
   const reorderEstagios = useReorderEstagios()
 
   // Auto-registrar webhook ao montar o CRM
@@ -277,6 +284,11 @@ export default function CRMKanban() {
                 <Workflow size={15} />
                 <span className="hidden sm:inline text-xs">Fluxo</span>
               </button>
+            </div>
+
+            {/* Ordem dos cards */}
+            <div className="shrink-0">
+              <OrdenarCards valor={ordem} onChange={setOrdem} />
             </div>
 
             {/* Filtros */}

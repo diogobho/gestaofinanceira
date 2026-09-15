@@ -144,6 +144,26 @@ export interface FiltrosLead {
   com_mensagens_nao_lidas?: boolean;
   com_telefone?: boolean;
   sem_nome_real?: boolean;
+  ordenar?: OrdemCards;
+}
+
+/**
+ * Ordem dos cards dentro da coluna (#59, 15/09/2026). 'manual' é a de sempre (arrastar);
+ * as outras ignoram `ordem_estagio`. O valor vira ORDER BY, então só entra por aqui —
+ * `normalizarOrdem` reduz qualquer entrada a um destes nomes.
+ */
+export type OrdemCards = 'manual' | 'recentes' | 'mensagem';
+
+const ORDEM_SQL: Record<OrdemCards, string> = {
+  // `id` desempata: lead de webhook nasce com ordem_estagio = 0 e, sem desempate, a
+  // coluna saía numa ordem diferente a cada carga.
+  manual: 'l.ordem_estagio ASC, l.id ASC',
+  recentes: 'l.created_at DESC, l.id DESC',
+  mensagem: 'cw.ultima_mensagem_at DESC NULLS LAST, l.created_at DESC, l.id DESC',
+};
+
+export function normalizarOrdem(valor: unknown): OrdemCards {
+  return valor === 'recentes' || valor === 'mensagem' ? valor : 'manual';
 }
 
 export const leadsService = {
@@ -354,7 +374,7 @@ export const leadsService = {
         SELECT
           ${this._selectColumns()},
           COUNT(*) OVER (PARTITION BY l.estagio_id) AS total_no_estagio,
-          ROW_NUMBER() OVER (PARTITION BY l.estagio_id ORDER BY l.ordem_estagio ASC) AS rn
+          ROW_NUMBER() OVER (PARTITION BY l.estagio_id ORDER BY ${ORDEM_SQL[normalizarOrdem(filtros?.ordenar)]}) AS rn
         FROM leads l
         JOIN estagios_funil e ON l.estagio_id = e.id
         LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
@@ -395,7 +415,7 @@ export const leadsService = {
       LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
       LEFT JOIN usuarios ur ON l.responsavel_id = ur.id
       ${whereClause}
-      ORDER BY l.ordem_estagio ASC
+      ORDER BY ${ORDEM_SQL[normalizarOrdem(filtros?.ordenar)]}
       LIMIT $${limitParam} OFFSET $${offsetParam}`,
       params
     );

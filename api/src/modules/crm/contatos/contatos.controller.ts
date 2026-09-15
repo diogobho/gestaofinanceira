@@ -230,7 +230,7 @@ export const contatosController = {
     try {
       const usuarioId = req.user!.userId;
       const { groupId } = req.params;
-      const data = await contatosService.getParticipantesGrupo(usuarioId, groupId);
+      const data = await contatosService.getParticipantesGrupo(usuarioId, req.user!.empresa_id, groupId);
       res.json({ success: true, ...data });
     } catch (error: any) {
       if (error.message.includes('não configurado')) {
@@ -262,7 +262,7 @@ export const contatosController = {
 
       res.json({ success: true, ...resultado });
     } catch (error: any) {
-      if (error.message.includes('não configurado') || error.message.includes('não possui estágio')) {
+      if (/não configurado|não possui estágio|não encontrado|não pertence/.test(error.message)) {
         return res.status(400).json({ message: error.message });
       }
       next(error);

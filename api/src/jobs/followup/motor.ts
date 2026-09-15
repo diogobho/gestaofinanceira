@@ -78,6 +78,11 @@ export interface PortaFollowups {
   registrarTentativa(id: number, categoria: string, erro: string): Promise<number>;
   cancelar(id: number, empresaId: number): Promise<any>;
   podeEnviarPassoEstagio(leadId: number, passoOrdem: number | null): Promise<boolean>;
+  /** Toques que falharam com o chip fora do ar e ainda são a vez deles na cadência. */
+  falhasDeCanalRetomaveis(): Promise<Array<{ id: number; chip: number }>>;
+  retomarFalhasDeCanal(ids: number[]): Promise<number>;
+  /** Reajusta os passos seguintes da cadência a partir do envio real deste. Devolve os ids movidos. */
+  reancorarPassosSeguintes(enviado: any, enviadoEm: Date): Promise<number[]>;
   intervalosFollowupPorEmpresa(): Promise<Record<number, { min: number; max: number }>>;
   ultimoEnvioAutomaticoPorChip(): Promise<Record<number, number>>;
   resolverClaimsOrfaos(idadeMinutos?: number): Promise<{ enviados: number; devolvidos: number }>;
@@ -185,6 +190,9 @@ export async function executarCiclo(p: PortasMotor): Promise<ResumoCiclo> {
   if (arquivados > 0) {
     p.logger.info(`${arquivados} follow-up(s) encerrado(s): lead arquivado`);
   }
+  // 3. Chip que voltou retoma a cadência de onde parou (#78). Antes, o toque que
+  //    falhou com o número fora do ar ficava para trás e o seguinte saía no lugar dele.
+  await retomarChipsQueVoltaram(p);
 
   const pendentes = await p.followups.buscarPendentes();
   if (pendentes.length === 0) return resumo;
@@ -231,6 +239,26 @@ export async function executarCiclo(p: PortasMotor): Promise<ResumoCiclo> {
 }
 
 /**
+ * Retoma os toques que falharam com o chip fora do ar, para os chips que voltaram.
+ * Quem prova que voltou é o diagnóstico real da instância — um por chip, não por toque.
+ */
+async function retomarChipsQueVoltaram(p: PortasMotor): Promise<void> {
+  const falhas = await p.followups.falhasDeCanalRetomaveis();
+  if (!falhas.length) return;
+  const porChip = agrupar(falhas, (f) => String(f.chip));
+  for (const [chip, doChip] of porChip) {
+    try {
+      const diag = await p.diagnosticarChip(Number(chip));
+      if (diag.estado !== 'disponivel') continue;
+      const n = await p.followups.retomarFalhasDeCanal(doChip.map((f) => f.id));
+      if (n > 0) p.logger.info(`Chip ${chip} voltou: ${n} toque(s) de cadência retomado(s) de onde pararam`);
+    } catch (err: any) {
+      p.logger.error(`Retomada do chip ${chip}: ${err?.message}`);
+    }
+  }
+}
+
+/**
  * Escoa a fila de um chip, esperando de fato o intervalo anti-ban entre envios.
  * Sequencial de propósito: é o que garante que o mesmo chip não dispare duas
  * mensagens ao mesmo tempo e que o mesmo lead não receba dois follow-ups
@@ -249,9 +277,14 @@ async function processarFilaDoChip(
   // Sem isso, 40 follow-ups do mesmo responsável gastariam 40 tentativas — e o teto
   // de retry — num problema que é um só.
   let chipBloqueado: DiagnosticoChip | null = null;
+  // Passos empurrados para o futuro por um envio deste ciclo: a fila foi lida antes,
+  // então eles ainda estão nela como vencidos. Pular direto evita esperar o anti-ban
+  // por um registro que o claim recusaria de qualquer jeito.
+  const reajustados = new Set<number>();
 
   for (let i = 0; i < fila.length; i++) {
     const followup = fila[i];
+    if (reajustados.has(followup.id)) { resumo.pulados++; continue; }
 
     if (estado.pausada) { resumo.pulados += fila.length - i; return; }
     if (chipBloqueado) { resumo.pulados += fila.length - i; return; }
@@ -312,7 +345,7 @@ async function processarFilaDoChip(
       // de estágio) entre a leitura da fila e agora — nos dois casos, não enviar.
       if (!(await p.followups.reclamar(followup.id))) {
         resumo.pulados++;
-        p.logger.info(`#${followup.id} não foi reclamado (já processado ou cancelado no meio do ciclo)`);
+        p.logger.info(`#${followup.id} não foi reclamado (já processado, cancelado ou reagendado no meio do ciclo)`);
         continue;
       }
 
@@ -321,6 +354,13 @@ async function processarFilaDoChip(
 
       if (r === 'enviado') {
         await p.followups.marcarEnviado(followup.id);
+        // Antes do aposEnvio: se ele mover o lead de estágio, os seguintes são cancelados
+        // e não há o que reajustar; se não mover, eles contam o intervalo a partir de agora.
+        if (followup.origem === 'estagio') {
+          const movidos = await p.followups.reancorarPassosSeguintes(followup, new Date(p.agora()));
+          movidos.forEach((id) => reajustados.add(id));
+          if (movidos.length) p.logger.info(`#${followup.id}: ${movidos.length} passo(s) seguinte(s) reajustado(s) a partir deste envio (lead #${followup.lead_id})`);
+        }
         await p.aposEnvio(followup);
         ultimoEnvio = p.agora();
         resumo.enviados++;
@@ -439,7 +479,8 @@ async function tratarErro(
         // Ban, logout ou sessão morta: não se resolve esperando. Falha explícita e
         // disjuntor aberto para não gastar o resto da fila no mesmo problema.
         await p.followups.marcarFalhou(followup.id,
-          `Canal de WhatsApp indisponível: ${chip.motivo}. Reconecte o número do responsável e reagende.`,
+          `Canal de WhatsApp indisponível: ${chip.motivo}. Reconecte o número do responsável — `
+          + `a cadência retoma deste passo quando ele voltar.`,
           'canal_bloqueado');
         resumo.falhados++;
         p.logger.error(`${onde} CANAL BLOQUEADO — ${chip.motivo}. ${contexto}. Disjuntor aberto: os demais follow-ups deste chip ficam para depois da reconexão.`);

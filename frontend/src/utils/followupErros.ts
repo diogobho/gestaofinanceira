@@ -52,7 +52,7 @@ const MAPA: Record<FollowupErroCategoria, DescricaoErroFollowup> = {
   canal_bloqueado: {
     rotulo: 'Número desconectado',
     explicacao: 'O número do responsável está deslogado, com sessão inválida ou bloqueado pelo WhatsApp.',
-    acaoDoUsuario: 'Reconecte o número em WhatsApp antes de reagendar — sem isso a falha se repete.',
+    acaoDoUsuario: 'Reconecte o número em WhatsApp. Com ele de volta, a cadência retoma deste passo sozinha (falhas de até 15 dias).',
     tom: VERMELHO,
     reagendarResolve: false,
   },

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   RefreshCw, BarChart3, Settings, Search, Plus, LayoutList, LayoutGrid, Workflow,
   Bell, User, Calendar, DollarSign,
@@ -24,6 +24,8 @@ import { TourHelpButton } from '@/components/tour/TourHelpButton'
 import DisparoMensagemModal from '@/components/crm/DisparoMensagemModal'
 import DisparoEmailModal from '@/components/crm/DisparoEmailModal'
 import FluxoAutomacaoView from '@/components/crm/FluxoAutomacaoView'
+import { useAbaNaUrl, useFunilNaUrl } from '@/hooks/useEstadoNaUrl'
+import OrdenarCards, { ORDENS_CARDS } from '@/components/crm/OrdenarCards'
 import type { Lead, EstagioFunil, Funil } from '@/types/crm'
 import type { FiltrosLead } from '@/api/crm'
 
@@ -176,16 +178,21 @@ function CRMListView({ colunas, onCardClick }: ListViewProps) {
 export default function CRMFunilCX() {
   const [filtros, setFiltros] = useState<FiltrosLead>({})
   const [searchInput, setSearchInput] = useState('')
-  const [selectedFunilId, setSelectedFunilId] = useState<number | undefined>()
-  const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'fluxo'>('kanban')
+  // Funil e visão moram na URL: o F5 reabre no mesmo lugar.
+  const [viewMode, setViewMode] = useAbaNaUrl('visao', 'kanban', ['kanban', 'list', 'fluxo'] as const)
+  // Ordem dos cards (#59): na URL como o funil, e fora de `filtros` — limpar filtro não a desfaz.
+  const [ordem, setOrdem] = useAbaNaUrl('ordem', 'manual', ORDENS_CARDS)
+  const filtrosComOrdem = useMemo(() => (ordem === 'manual' ? filtros : { ...filtros, ordenar: ordem }), [filtros, ordem])
   const [showFunilFormModal, setShowFunilFormModal] = useState(false)
   const [editingFunil, setEditingFunil] = useState<Funil | null>(null)
   const [deletingFunil, setDeletingFunil] = useState<Funil | null>(null)
 
-  const { data: funisCXList = [] } = useFunisCX()
+  const { data: funisCXCarregados } = useFunisCX()
+  const funisCXList = funisCXCarregados ?? []
+  const [selectedFunilId, setSelectedFunilId] = useFunilNaUrl('cx', funisCXCarregados)
   const { data: usuariosEmpresa = [] } = useUsuariosEmpresa()
   const { funil, colunas, isLoading, isError, moverLead, refetch, loadMore, loadingMore } =
-    useKanbanCX(filtros, selectedFunilId)
+    useKanbanCX(filtrosComOrdem, selectedFunilId)
   const reorderEstagios = useReorderEstagios()
 
   // Auto-registrar webhook
@@ -429,6 +436,11 @@ export default function CRMFunilCX() {
                 placeholder="Buscar..."
                 className="pl-9 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 w-32 md:w-44 lg:w-52 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
               />
+            </div>
+
+            {/* Ordem dos cards */}
+            <div className="shrink-0">
+              <OrdenarCards valor={ordem} onChange={setOrdem} />
             </div>
 
             {/* Filtros */}

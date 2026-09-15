@@ -456,3 +456,105 @@ describe('Isolamento entre empresas', () => {
     assert.equal(repo.registros[1].status, 'enviado');
   });
 });
+
+// ─── Chamados #77 e #78 da Panteras (15/09/2026) ──────────────────────────────
+
+/** Instante em São Paulo, para ler as asserções como a cliente leria a agenda. */
+const sp = (iso: string) => new Date(`${iso}-03:00`).getTime();
+
+describe('Cenário 9 — passo atrasado não arrasta a cadência junto (#77)', () => {
+  // A cadência real: D+1, D+4 e D+12 às 09:00. O passo 0 ficou 18 dias preso (IA sem
+  // crédito); quando saiu, os outros dois já estavam vencidos e foram atrás dele em
+  // minutos — 29 leads receberam três mensagens seguidas.
+  const cadencia = () => [
+    followupFalso({ id: 1, passo_ordem: 0, atraso_dias: 1, hora_envio: '09:00', agendado_para: new Date(sp('2026-08-10T09:00:00')) }),
+    followupFalso({ id: 2, passo_ordem: 1, atraso_dias: 4, hora_envio: '09:00', agendado_para: new Date(sp('2026-08-13T09:00:00')) }),
+    followupFalso({ id: 3, passo_ordem: 2, atraso_dias: 12, hora_envio: '09:00', agendado_para: new Date(sp('2026-08-21T09:00:00')) }),
+  ];
+
+  test('só o passo atrasado sai; os seguintes mantêm o intervalo a partir do envio real', async () => {
+    const repo = new RepoFalso(cadencia());
+    const p = portasDeTeste({ repo, agora: TERCA_13H });
+
+    const r = await executarCiclo(p);
+
+    assert.equal(r.enviados, 1);
+    assert.deepEqual(p.despachos, [1], 'os passos 1 e 2 não podem sair no mesmo ciclo');
+    assert.deepEqual(p.esperas, [], 'passo reajustado é pulado, sem esperar o anti-ban por ele');
+    const [, p1, p2] = repo.registros;
+    assert.equal(p1.status, 'pendente');
+    assert.equal(p1.agendado_para.getTime(), sp('2026-08-28T09:00:00'), 'D+4 − D+1 = 3 dias depois do envio');
+    assert.equal(p2.agendado_para.getTime(), sp('2026-09-05T09:00:00'), 'D+12 − D+4 = 8 dias depois do passo 1');
+  });
+
+  test('no fluxo em dia nada muda: o alvo coincide com o horário desenhado', async () => {
+    const repo = new RepoFalso([
+      followupFalso({ id: 1, passo_ordem: 0, atraso_dias: 1, hora_envio: '09:00', agendado_para: new Date(sp('2026-08-25T09:00:00')) }),
+      followupFalso({ id: 2, passo_ordem: 1, atraso_dias: 4, hora_envio: '09:00', agendado_para: new Date(sp('2026-08-28T09:00:00')) }),
+    ]);
+    const p = portasDeTeste({ repo, agora: TERCA_13H });
+
+    await executarCiclo(p);
+
+    assert.equal(repo.registros[1].agendado_para.getTime(), sp('2026-08-28T09:00:00'));
+  });
+});
+
+describe('Cenário 10 — chip fora do ar não pula passo da cadência (#78)', () => {
+  const bloqueado = { estado: 'bloqueado' as const, exigeIntervencao: true, motivo: 'sem número conectado', porta: 3015 };
+  const disponivel = { estado: 'disponivel' as const, exigeIntervencao: false, motivo: 'conectado', porta: 3015 };
+  const cadencia = () => [
+    followupFalso({ id: 1, passo_ordem: 0, atraso_dias: 1, hora_envio: '09:00', status: 'falhou', erro_categoria: 'canal_bloqueado',
+      agendado_para: new Date(sp('2026-08-24T09:00:00')) }),
+    followupFalso({ id: 2, passo_ordem: 1, atraso_dias: 4, hora_envio: '09:00', agendado_para: new Date(sp('2026-08-25T09:00:00')) }),
+  ];
+
+  test('com o chip ainda fora, o passo seguinte espera o que falhou', async () => {
+    const repo = new RepoFalso(cadencia());
+    const p = portasDeTeste({ repo, agora: TERCA_13H, chip: bloqueado });
+
+    await executarCiclo(p);
+
+    assert.deepEqual(p.despachos, [], 'o passo 1 não pode sair no lugar do passo 0');
+    assert.equal(repo.registros[0].status, 'falhou');
+    assert.equal(repo.registros[1].status, 'pendente');
+  });
+
+  test('quando o chip volta, a cadência retoma DO passo que falhou', async () => {
+    const repo = new RepoFalso(cadencia());
+    const p = portasDeTeste({ repo, agora: TERCA_13H, chip: disponivel });
+
+    await executarCiclo(p);
+
+    assert.deepEqual(p.despachos, [1], 'sai primeiro o que tinha falhado');
+    assert.equal(repo.registros[0].status, 'enviado');
+    assert.equal(repo.registros[1].status, 'pendente');
+    assert.equal(repo.registros[1].agendado_para.getTime(), sp('2026-08-28T09:00:00'),
+      'e o seguinte conta o intervalo a partir da retomada');
+  });
+
+  test('falha que já foi "pulada" (passo posterior enviado) não é retomada', async () => {
+    const repo = new RepoFalso([
+      ...cadencia().slice(0, 1),
+      followupFalso({ id: 2, passo_ordem: 1, status: 'enviado' }),
+      followupFalso({ id: 3, passo_ordem: 2, agendado_para: new Date(TERCA_13H - 60_000) }),
+    ]);
+    const p = portasDeTeste({ repo, agora: TERCA_13H, chip: disponivel });
+
+    await executarCiclo(p);
+
+    assert.deepEqual(p.despachos, [3], 'o passado segue como estava; o passo 2 não fica preso');
+    assert.equal(repo.registros[0].status, 'falhou');
+  });
+
+  test('falha de número inexistente não é retomada nem segura a cadência', async () => {
+    const repo = new RepoFalso(cadencia());
+    repo.registros[0].erro_categoria = 'destino_invalido';
+    const p = portasDeTeste({ repo, agora: TERCA_13H, chip: disponivel });
+
+    await executarCiclo(p);
+
+    assert.deepEqual(p.despachos, [2]);
+    assert.equal(repo.registros[0].status, 'falhou');
+  });
+});

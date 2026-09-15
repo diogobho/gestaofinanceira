@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import {
   X, Phone, Mail, Building, DollarSign, Calendar, MessageCircle,
-  Thermometer, Tag as TagIcon, Archive, Trash2, Send, Clock, User,
+  Thermometer, Tag as TagIcon, Archive, ArchiveRestore, Trash2, Send, Clock, User,
   Paperclip, Image, FileText, Mic, XCircle, Plus, Check,
   Trash, PhoneCall, Video, MailIcon, RefreshCw, FileSignature, MapPin,
   MoreHorizontal, StickyNote, AlertTriangle, Bell, Globe, Square, Edit2, ArrowRight, ChevronRight
@@ -10,7 +10,7 @@ import {
 import LeadFormModal from './LeadFormModal'
 import AgendamentoConfig, { AgendamentoValue, agendamentoPadrao } from './AgendamentoConfig'
 import {
-  useArquivarLead, useDeleteLead, useUpdateLead,
+  useArquivarLead, useReativarLead, useDeleteLead, useUpdateLead,
   useLeadAtividades, useMarcarLido, useHistoricoMensagens,
   useTarefasLead, useCreateTarefa, useUpdateTarefa, useConcluirTarefa, useDeleteTarefa,
   useAnotacoesLead, useCreateAnotacao, useDeleteAnotacao,
@@ -105,6 +105,7 @@ export default function LeadDetailsModal({ lead: leadProp, estagios, isOpen, onC
   const [anotacaoTipo, setAnotacaoTipo] = useState<AnotacaoTipo>('nota')
 
 const arquivarLead = useArquivarLead()
+  const reativarLead = useReativarLead()
   const deleteLead = useDeleteLead()
   const updateLead = useUpdateLead()
   const marcarLido = useMarcarLido()
@@ -263,6 +264,12 @@ const handleArquivar = async () => {
       await arquivarLead.mutateAsync(lead.id)
       onClose()
     }
+  }
+
+  // Lead arquivado aparece com "Mostrar arquivados" no filtro; daqui ele volta ao quadro.
+  const handleReativar = async () => {
+    await reativarLead.mutateAsync(lead.id)
+    onClose()
   }
 
   const handleDeletar = async () => {
@@ -1203,13 +1210,23 @@ const handleArquivar = async () => {
                       </span>
                     )}
                   </button>
-                  <button
-                    onClick={handleArquivar}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-orange-600 hover:bg-orange-50 rounded"
-                  >
-                    <Archive size={16} />
-                    Arquivar
-                  </button>
+                  {lead.arquivado ? (
+                    <button
+                      onClick={handleReativar}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50 rounded"
+                    >
+                      <ArchiveRestore size={16} />
+                      Reativar
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleArquivar}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm text-orange-600 hover:bg-orange-50 rounded"
+                    >
+                      <Archive size={16} />
+                      Arquivar
+                    </button>
+                  )}
                   <button
                     onClick={handleDeletar}
                     className="flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded"

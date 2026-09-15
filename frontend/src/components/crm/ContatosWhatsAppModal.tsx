@@ -149,14 +149,19 @@ export default function ContatosWhatsAppModal({ isOpen, onClose, funilId }: Cont
   )
 
   const participantesFiltrados = (participantesData?.participants || []).filter((p) =>
-    p.number.includes(search) || p.id.includes(search)
+    p.number.includes(search) || p.id.includes(search) ||
+    (p.nome || '').toLowerCase().includes(search.toLowerCase())
   )
 
   const selectedGroup = (grupos || []).find((g) => g.id === selectedGroupId)
 
   // ---- Formatters ----
-  const formatarNumero = (numero: string) =>
-    numero.replace(/^55/, '').replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')
+  const formatarNumero = (numero: string) => {
+    const local = numero.replace(/^55(?=\d{10,11}$)/, '')
+    if (local.length === 11) return local.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')
+    if (local.length === 10) return local.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3')
+    return local
+  }
 
   const formatarData = (data: string | undefined) => {
     if (!data) return ''
@@ -480,9 +485,10 @@ export default function ContatosWhatsAppModal({ isOpen, onClose, funilId }: Cont
                                 <Square size={20} className="text-gray-300" />
                               )}
                             </div>
-                            <Avatar name={displayNumber} size="md" />
+                            <Avatar name={p.nome || displayNumber} size="md" />
                             <div className="flex-1 min-w-0">
-                              <p className="font-medium text-gray-800">{displayNumber}</p>
+                              <p className="font-medium text-gray-800 truncate">{p.nome || displayNumber}</p>
+                              {p.nome && <p className="text-xs text-gray-500">{displayNumber}</p>}
                               {p.isAdmin && (
                                 <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">Admin</span>
                               )}

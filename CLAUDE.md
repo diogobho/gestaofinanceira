@@ -117,6 +117,77 @@ Cuidado com o `user_id` do `debug_token`: ele NÃO é o ID que o Gerenciador mos
 "Usuários do sistema", então `/{aquele-id}/assigned_whatsapp_business_accounts` volta
 `{"data":[]}` mesmo com todos os ativos atribuídos. Vazio ali não prova nada.
 
+## O F5 reabre onde estava (15/09/2026)
+
+Funil, visão e aba moram na **query string**, via `hooks/useEstadoNaUrl.ts`:
+`/crm?funil=57&visao=list&aba=agenda`. Vale no CRM, no CRM CX, nas abas dos dois
+dashboards e na tela do Duo. Estado de tela novo que deva sobreviver ao F5 usa
+`useAbaNaUrl`, não `useState`.
+
+- **Funil** (`useFunilNaUrl`): a URL manda; sem ela (entrou pelo menu), volta o último
+  funil daquele usuário (`localStorage` `crm:funil:<tipo>:<userId>` — o mesmo navegador
+  alterna suporte@ e master@). Id fora da lista da empresa sai da URL e o quadro cai na
+  memória ou no padrão. O id guardado vale **antes** da lista chegar: esperar faria o
+  quadro abrir no Funil Principal e trocar depois.
+- Mexer na query string sempre com o **updater funcional** do `setSearchParams`: a URL
+  carrega vários estados, e montar a partir de uma cópia velha apaga os outros.
+- **Ordem dos cards** (`?ordem=recentes|mensagem`, #59): seletor `OrdenarCards` ao lado de
+  Filtros, **fora** de `filtros` (limpar filtro não desfaz a ordem). Vai à API como
+  `ordenar`, e `normalizarOrdem` reduz a uma lista branca antes de virar `ORDER BY`. A
+  manual ganhou `id` de desempate: lead de webhook nasce com `ordem_estagio = 0`.
+
+## Importar participantes de grupo (CRM → Contatos → Grupos, 15/09/2026)
+
+`importarParticipantesComoLeads` (`contatos.service.ts`). O grupo só traz o número
+(participante é `@lid`, a instância resolve o telefone). Três regras:
+
+- **Estágio:** `is_entrada` e, sem nenhum marcado, o primeiro da ordem — igual à
+  importação por planilha. Exigir `is_entrada` travava 12 funis ("Funil não possui
+  estágio de entrada configurado"), o Vendas CRM da empresa 32 entre eles.
+- **Nome:** `nomesConhecidos()` — contato da empresa (agenda antes de perfil), depois
+  o `/chats` da instância (agenda do chip), depois lead da empresa. A lista do modal
+  já mostra esse nome. Sem nenhum, o card fica com o número (antes: "Participante 55…").
+  O nome da agenda vence: quem está salvo como "Amor" entra como "Amor".
+- **Duplicata é por funil** (`telefoneExiste` com `funilId`), não pela empresa. E card
+  do mesmo nome, no mesmo funil e **sem telefone** ganha o número em vez de ser duplicado.
+
+## Motor de follow-up (revisado em 25/08/2026)
+
+### Passo atrasado não arrasta a cadência (#77, 15/09/2026)
+
+A guarda de ordem (`podeEnviarPassoEstagio`) segura o passo seguinte enquanto o anterior
+está aberto — mas ela **não reagenda**, e o horário original continuava valendo. Um passo
+0 preso 18 dias (IA sem crédito) deixava D+4 e D+12 vencidos; quando ele saiu, os três
+foram em minutos: 29 leads da Panteras. Agora, depois de cada envio de estágio,
+`reancorarPassosSeguintes` empurra os seguintes para contar **a partir do envio real**
+(regra pura em `reancorarCadencia`, `_shared/agendamento.ts`): base `anterior` → o próprio
+atraso; base `entrada` → a diferença entre o atraso dele e o do anterior. Só empurra para
+frente (no fluxo em dia o alvo coincide) e data fixa não anda.
+
+- `reclamar` exige `agendado_para <= NOW()`: registro reagendado no meio do ciclo não sai
+  com a cópia velha que a fila leu. O motor também pula na hora os ids que acabou de
+  reajustar, para não esperar o anti-ban por eles.
+- Religar uma cadência não gera rajada: ela é recriada a partir de agora.
+
+### Chip fora do ar não pula passo (#78, 15/09/2026)
+
+Com o chip fora, o toque vira `falhou` (`canal_bloqueado`, ou `canal_indefinido` no
+teto) — terminal — e a guarda só olhava `pendente/processando`: o passo seguinte saía no
+lugar, "como se tivesse sido feito". Agora `SQL_FALHA_CANAL_RETOMAVEL`
+(`followups.service.ts`) define o toque que ainda é a vez dele: falha de canal, **nos
+últimos 15 dias** (`DIAS_RETOMADA_CANAL`), o lead não mudou de estágio depois que o toque
+nasceu e nenhum passo posterior já saiu. O MESMO predicado:
+
+- segura o passo seguinte (`podeEnviarPassoEstagio`);
+- decide quem volta: no começo de todo ciclo, `retomarChipsQueVoltaram` diagnostica cada
+  chip com falha retomável e, se ele estiver `disponivel`, devolve os toques à fila (agora,
+  tentativas zeradas). O reajuste do #77 espaça o resto.
+
+Os 15 dias existem porque, no deploy, 20 toques de 27–31/08 de um chip conectado teriam
+saído na hora — "passando pra saber se viu minha mensagem" três semanas depois. Os toques
+são criados ~10 ms ANTES do registro de `mudanca_estagio`, daí a folga de 1 minuto no
+predicado.
+
 ## Observações
 
 - Módulos `integracoes` e `relatorios` foram removidos (ver git log)

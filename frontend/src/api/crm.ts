@@ -87,7 +87,11 @@ export interface FiltrosLead {
   com_telefone?: boolean
   sem_nome_real?: boolean
   search?: string
+  /** Ordem dos cards na coluna — não é filtro, mas viaja junto para a API. */
+  ordenar?: OrdemCards
 }
+
+export type OrdemCards = 'manual' | 'recentes' | 'mensagem'
 
 // Leads
 export const leadsApi = {

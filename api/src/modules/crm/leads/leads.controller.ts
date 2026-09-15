@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { leadsService, FiltrosLead } from './leads.service';
+import { leadsService, FiltrosLead, normalizarOrdem } from './leads.service';
 import { contatosService } from '../contatos/contatos.service';
 
 export const leadsController = {
@@ -18,7 +18,8 @@ export const leadsController = {
         sem_tarefa,
         aguardando_resposta,
         com_mensagens_nao_lidas,
-        search
+        search,
+        ordenar
       } = req.query;
 
       const filtros: FiltrosLead = {
@@ -32,7 +33,8 @@ export const leadsController = {
         sem_tarefa: sem_tarefa === 'true',
         aguardando_resposta: aguardando_resposta === 'true' ? true : (aguardando_resposta === 'false' ? false : undefined),
         com_mensagens_nao_lidas: com_mensagens_nao_lidas === 'true',
-        search: search ? (search as string).trim() : undefined
+        search: search ? (search as string).trim() : undefined,
+        ordenar: normalizarOrdem(ordenar)
       };
 
       const leads = await leadsService.listByFunil(parseInt(funilId), empresaId, filtros);
@@ -57,7 +59,7 @@ export const leadsController = {
         arquivados, responsavel_id, temperatura, origem,
         com_tarefa_atrasada, com_tarefa_hoje, sem_tarefa,
         aguardando_resposta, com_mensagens_nao_lidas,
-        com_telefone, sem_nome_real, search,
+        com_telefone, sem_nome_real, search, ordenar,
         limit: limitQ, offset: offsetQ
       } = req.query;
 
@@ -73,7 +75,8 @@ export const leadsController = {
         com_mensagens_nao_lidas: com_mensagens_nao_lidas === 'true',
         com_telefone: com_telefone === 'true',
         sem_nome_real: sem_nome_real === 'true',
-        search: search ? (search as string).trim() : undefined
+        search: search ? (search as string).trim() : undefined,
+        ordenar: normalizarOrdem(ordenar)
       };
 
       const limit = limitQ ? parseInt(limitQ as string) : 100;

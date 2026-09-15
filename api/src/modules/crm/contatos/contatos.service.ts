@@ -2,7 +2,8 @@ import { query } from '../../../config/database';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
-import { vinculoDivergente, erroVinculoDivergente, comDDIParaEnvio, variantesTelefone } from '../_shared/telefone';
+import { vinculoDivergente, erroVinculoDivergente, comDDIParaEnvio, variantesTelefone, chaveTelefone } from '../_shared/telefone';
+import { leadsService } from '../leads/leads.service';
 
 const UPLOADS_DIR = '/var/www/apps/gestao_financeira/uploads/whatsapp';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'crm-whatsapp-webhook-secret-2024';
@@ -703,7 +704,7 @@ export const contatosService = {
     }
   },
 
-  async getParticipantesGrupo(usuarioId: number, groupId: string): Promise<any> {
+  async getParticipantesGrupo(usuarioId: number, empresaId: number, groupId: string): Promise<any> {
     const configResult = await query(
       `SELECT whatsapp_porta FROM usuarios WHERE id = $1`,
       [usuarioId]
@@ -716,7 +717,76 @@ export const contatosService = {
       timeout: 15000
     });
     if (!response.data.success) throw new Error('Erro ao buscar participantes do grupo');
-    return response.data;
+
+    // O grupo só traz o número; a lista mostra o nome que a conta já tem para ele.
+    const participants = response.data.participants || [];
+    const nomes = await this.nomesConhecidos(participants.map((p: any) => p.number), empresaId, porta);
+    return {
+      ...response.data,
+      participants: participants.map((p: any) => ({
+        ...p,
+        nome: nomes.get(chaveTelefone(p.number) || '') || null,
+      })),
+    };
+  },
+
+  /**
+   * O nome que a conta já tem para cada número, por ordem de confiança: contato da
+   * empresa (nome da agenda antes do nome de perfil), agenda do próprio chip (store da
+   * instância, que conhece contato que nunca conversou) e, por último, um lead da
+   * empresa. A chave do mapa é `chaveTelefone`, então com/sem DDI e 9º dígito casam.
+   */
+  async nomesConhecidos(numeros: string[], empresaId: number, porta?: number | null): Promise<Map<string, string>> {
+    const nomes = new Map<string, string>();
+    const chaves = new Set(numeros.map(chaveTelefone).filter((c): c is string => !!c));
+    if (!chaves.size) return nomes;
+    const variantes = [...new Set(numeros.flatMap(n => variantesTelefone(n)))];
+
+    const guardar = (numero: string, nome: string | null | undefined) => {
+      const chave = chaveTelefone(numero);
+      const limpo = String(nome || '').trim();
+      // Nome sem letra é o telefone gravado como nome; "Participante 55…" é o
+      // marcador que esta importação usava quando não achava nome.
+      if (!chave || !chaves.has(chave) || nomes.has(chave)) return;
+      if (!/[a-zà-ÿ]/i.test(limpo) || /^participante\s+\d+$/i.test(limpo)) return;
+      nomes.set(chave, limpo.slice(0, 200));
+    };
+
+    const contatos = await query(
+      `SELECT numero, nome, nome_push FROM contatos_whatsapp
+        WHERE empresa_id = $1
+          AND COALESCE(is_grupo, false) = false
+          AND REGEXP_REPLACE(COALESCE(numero, ''), '[^0-9]', '', 'g') = ANY($2::text[])
+        ORDER BY ultima_mensagem_at DESC NULLS LAST`,
+      [empresaId, variantes]
+    );
+    // Duas passadas: nome da agenda de qualquer contato vence o nome de perfil.
+    for (const r of contatos.rows) guardar(r.numero, r.nome);
+    for (const r of contatos.rows) guardar(r.numero, r.nome_push);
+
+    if (porta && nomes.size < chaves.size) {
+      try {
+        const resp = await instancia(porta).get('/chats', { timeout: 10000 });
+        const chats: any[] = resp.data?.chats || [];
+        for (const c of chats) guardar(String(c.id || '').replace(/@.*$/, ''), c.name);
+        for (const c of chats) guardar(String(c.id || '').replace(/@.*$/, ''), c.pushname);
+      } catch {
+        // Chip fora do ar: fica com o que o banco sabe.
+      }
+    }
+
+    if (nomes.size < chaves.size) {
+      const leads = await query(
+        `SELECT telefone, nome FROM leads
+          WHERE empresa_id = $1 AND arquivado = false
+            AND REGEXP_REPLACE(COALESCE(telefone, ''), '[^0-9]', '', 'g') = ANY($2::text[])
+          ORDER BY updated_at DESC NULLS LAST`,
+        [empresaId, variantes]
+      );
+      for (const r of leads.rows) guardar(r.telefone, r.nome);
+    }
+
+    return nomes;
   },
 
   async importarParticipantesComoLeads(
@@ -727,9 +797,17 @@ export const contatosService = {
     participanteIds: Array<string | { id: string; number?: string }>,
     estagioIdParam?: number,
     responsavelId?: number
-  ): Promise<{ criados: number; jaExistem: number }> {
+  ): Promise<{ criados: number; jaExistem: number; comNome: number }> {
     let criados = 0;
     let jaExistem = 0;
+    let comNome = 0;
+
+    // O funil vem do body: tem que ser da empresa do token.
+    const funilResult = await query(
+      `SELECT id FROM funis WHERE id = $1 AND empresa_id = $2`,
+      [funilId, empresaId]
+    );
+    if (!funilResult.rows[0]) throw new Error('Funil não encontrado');
 
     let estagioId: number;
 
@@ -744,77 +822,81 @@ export const contatosService = {
       }
       estagioId = estagioIdParam;
     } else {
-      // Usar estágio de entrada do funil
+      // Estágio de entrada; sem nenhum marcado, o primeiro da ordem — a mesma regra da
+      // importação por planilha. Exigir `is_entrada` travava 12 funis (Vendas CRM incluso).
       const estagioResult = await query(
-        `SELECT id FROM estagios_funil WHERE funil_id = $1 AND is_entrada = true LIMIT 1`,
+        `SELECT id FROM estagios_funil
+          WHERE funil_id = $1
+          ORDER BY is_entrada DESC NULLS LAST, ordem ASC, id ASC
+          LIMIT 1`,
         [funilId]
       );
       if (!estagioResult.rows[0]) {
-        throw new Error('Funil não possui estágio de entrada configurado');
+        throw new Error('Funil não possui estágios configurados');
       }
       estagioId = estagioResult.rows[0].id;
     }
 
+    const numeros: string[] = [];
     for (const participante of participanteIds) {
       const participantId = typeof participante === 'string' ? participante : participante.id;
       // Participantes @lid usam Meta ID — usar o campo number que contém o telefone real
       const phoneFromNumber = typeof participante === 'object' && participante.number ? participante.number.replace(/\D/g, '') : null;
-      const numero = phoneFromNumber || participantId.replace(/@.*$/, '');
+      const numero = phoneFromNumber || String(participantId || '').replace(/@.*$/, '');
       // Rejeitar se não parecer telefone válido (IDs do Meta com 15+ dígitos sem number)
       if (!phoneFromNumber && numero.replace(/\D/g, '').length > 15) continue;
+      if (numero) numeros.push(numero);
+    }
 
-      // Verificar se já existe lead com esse número
-      const numerosVariantes = [numero];
-      if (numero.startsWith('55') && numero.length >= 12) numerosVariantes.push(numero.slice(2));
-      else numerosVariantes.push(`55${numero}`);
+    const usuarioResult = await query(`SELECT whatsapp_porta FROM usuarios WHERE id = $1`, [usuarioId]);
+    const nomes = await this.nomesConhecidos(numeros, empresaId, usuarioResult.rows[0]?.whatsapp_porta);
 
-      const leadExistente = await query(
-        `SELECT l.id FROM leads l
-         LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
-         WHERE l.empresa_id = $1
-           AND l.arquivado = false
-           AND (
-             cw.numero = ANY($2::text[])
-             OR REGEXP_REPLACE(COALESCE(l.telefone, ''), '[^0-9]', '', 'g') = ANY($2::text[])
-           )
-         LIMIT 1`,
-        [empresaId, numerosVariantes]
-      );
-
-      if (leadExistente.rows[0]) {
+    for (const numero of numeros) {
+      // Duplicata é por funil: o mesmo número pode estar em outro funil da empresa.
+      const duplicata = await leadsService.telefoneExiste(numero, empresaId, undefined, funilId);
+      if (duplicata.existe) {
         jaExistem++;
         continue;
       }
 
-      // Criar contato WhatsApp se não existir
-      const whatsappId = `${numero}@c.us`;
-      const contatoResult = await query(
-        `INSERT INTO contatos_whatsapp (usuario_id, empresa_id, whatsapp_id, numero, is_grupo, sincronizado_at)
-         VALUES ($1, $2, $3, $4, false, CURRENT_TIMESTAMP)
-         ON CONFLICT (usuario_id, whatsapp_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-         RETURNING id`,
-        [usuarioId, empresaId, whatsappId, numero]
-      );
-      const contatoId = contatoResult.rows[0].id;
+      const nome = nomes.get(chaveTelefone(numero) || '');
 
-      // Criar lead vinculado ao contato
-      await query(
+      // Card do mesmo nome no mesmo funil, criado à mão SEM telefone: é a mesma pessoa, e
+      // a checagem por telefone não o enxerga. Completa o número dele em vez de duplicar.
+      if (nome) {
+        const semTelefone = await query(
+          `SELECT id FROM leads
+            WHERE empresa_id = $1 AND funil_id = $2 AND arquivado = false
+              AND REGEXP_REPLACE(COALESCE(telefone, ''), '[^0-9]', '', 'g') = ''
+              AND LOWER(TRIM(nome)) = LOWER(TRIM($3::text))`,
+          [empresaId, funilId, nome]
+        );
+        if (semTelefone.rows.length === 1) {
+          const leadId = semTelefone.rows[0].id;
+          await query(`UPDATE leads SET telefone = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [numero, leadId]);
+          await this.resolverContatoParaLead(leadId, usuarioId, empresaId);
+          jaExistem++;
+          continue;
+        }
+      }
+      if (nome) comNome++;
+
+      const leadResult = await query(
         `INSERT INTO leads (
            usuario_id, empresa_id, funil_id, estagio_id,
-           contato_whatsapp_id, nome, telefone, origem, temperatura, responsavel_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'whatsapp', 'frio', $8)`,
-        [
-          usuarioId, empresaId, funilId, estagioId,
-          contatoId,
-          `Participante ${numero}`,
-          numero,
-          responsavelId || null
-        ]
+           nome, telefone, origem, temperatura, responsavel_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'whatsapp', 'frio', $7)
+         RETURNING id`,
+        [usuarioId, empresaId, funilId, estagioId, nome || numero, numero, responsavelId || null]
       );
+
+      // Reaproveita o contato do usuário com o número em qualquer grafia (com/sem DDI
+      // e 9º dígito) antes de criar outro — e vincula o lead, senão o card nasce sem conversa.
+      await this.resolverContatoParaLead(leadResult.rows[0].id, usuarioId, empresaId);
 
       criados++;
     }
 
-    return { criados, jaExistem };
+    return { criados, jaExistem, comNome };
   }
 };

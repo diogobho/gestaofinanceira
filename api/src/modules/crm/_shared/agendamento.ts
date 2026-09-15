@@ -154,6 +154,84 @@ export function calcularCadencia(
   return out;
 }
 
+/** Um toque de cadência como gravado em `followups_agendados`. */
+export interface ToqueCadencia {
+  id?: number;
+  passo_ordem: number | null;
+  agendado_para?: Date | string;
+  modo?: string | null;
+  atraso_dias?: number | null;
+  atraso_unidade?: string | null;
+  hora_envio?: string | null;
+  dias_semana?: number[] | null;
+}
+
+const MINUTOS_POR_UNIDADE: Record<string, number> = { minuto: 1, hora: 60, dia: 1440 };
+
+/**
+ * Depois que um passo de cadência sai, os seguintes contam o intervalo a partir do
+ * ENVIO REAL, não do horário desenhado lá atrás (#77, 15/09/2026). Função pura: devolve
+ * só os toques que precisam andar, com o novo instante.
+ *
+ * Um passo que atrasa dias (IA sem crédito, chip fora do ar) segura os seguintes pela
+ * guarda de ordem — mas eles mantinham o horário original, e quando o primeiro enfim
+ * saía, os outros já estavam vencidos e iam atrás dele com um minuto de intervalo.
+ *
+ * O intervalo preservado é o da cadência: base 'anterior' → o próprio atraso do passo;
+ * base 'entrada' → a diferença entre o atraso dele e o do anterior. Só EMPURRA para
+ * frente — no fluxo em dia o alvo coincide com o horário que já estava lá. Data fixa é
+ * absoluta e fica como está.
+ */
+export function reancorarCadencia(
+  enviado: ToqueCadencia,
+  seguintes: ToqueCadencia[],
+  passosCfg: Array<{ base?: string } | undefined>,
+  enviadoEm: Date
+): Array<{ id: number; agendadoPara: Date }> {
+  const emDias = (x: ToqueCadencia) => (x.modo || 'dias') === 'dias';
+  let anterior = {
+    instante: enviadoEm,
+    atraso: emDias(enviado) ? Number(enviado.atraso_dias) || 0 : null as number | null,
+    unidade: enviado.atraso_unidade || 'dia',
+  };
+  const mover: Array<{ id: number; agendadoPara: Date }> = [];
+
+  for (const t of [...seguintes].sort((a, b) => (a.passo_ordem ?? 0) - (b.passo_ordem ?? 0))) {
+    const atual = new Date(t.agendado_para as any);
+    const unidade = t.atraso_unidade || 'dia';
+    const atraso = Number(t.atraso_dias) || 0;
+
+    if (!emDias(t)) {
+      anterior = { instante: atual, atraso: null, unidade };
+      continue;
+    }
+
+    const base = passosCfg[t.passo_ordem ?? -1]?.base === 'anterior' ? 'anterior' : 'entrada';
+    let gap: { qtd: number; unidade: UnidadeAtraso } | null;
+    if (base === 'anterior') gap = { qtd: atraso, unidade: unidade as UnidadeAtraso };
+    else if (anterior.atraso == null) gap = null;
+    else if (anterior.unidade === unidade) gap = { qtd: atraso - anterior.atraso, unidade: unidade as UnidadeAtraso };
+    else gap = {
+      qtd: atraso * (MINUTOS_POR_UNIDADE[unidade] ?? 1440) - anterior.atraso * (MINUTOS_POR_UNIDADE[anterior.unidade] ?? 1440),
+      unidade: 'minuto',
+    };
+
+    let novo = atual;
+    if (gap && gap.qtd > 0) {
+      const alvo = new Date(calcularAgendadoPara({
+        modo: 'dias', atrasoDias: gap.qtd, atrasoUnidade: gap.unidade,
+        horaEnvio: t.hora_envio, diasSemana: t.dias_semana,
+      }, anterior.instante));
+      if (alvo.getTime() > atual.getTime() && t.id != null) {
+        mover.push({ id: t.id, agendadoPara: alvo });
+        novo = alvo;
+      }
+    }
+    anterior = { instante: novo, atraso, unidade };
+  }
+  return mover;
+}
+
 /** Retorna true se o instante atual (fuso SP) cai num dos dias da semana permitidos. */
 export function diaSemanaPermitido(diasSemana: number[] | null | undefined, agora: Date = new Date()): boolean {
   if (!diasSemana || diasSemana.length === 0) return true;

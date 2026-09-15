@@ -711,7 +711,10 @@ export const useImportarParticipantes = () => {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
       queryClient.invalidateQueries({ queryKey: ['crm', 'contatos'] })
-      toast.success(`${data.importados} lead(s) importado(s) com sucesso!`)
+      const partes = [`${data.criados} lead(s) importado(s)`]
+      if (data.criados > 0 && data.comNome < data.criados) partes.push(`${data.criados - data.comNome} sem nome salvo`)
+      if (data.jaExistem > 0) partes.push(`${data.jaExistem} já estava(m) no funil`)
+      toast.success(partes.join(' · '))
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erro ao importar participantes')

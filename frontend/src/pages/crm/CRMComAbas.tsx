@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import { LayoutGrid, CalendarClock } from 'lucide-react'
+import { useAbaNaUrl } from '@/hooks/useEstadoNaUrl'
 import { Tabs } from '@/components/ui'
 import { DisparosAgendadosSection } from '@/components/crm/DisparosAgendadosSection'
 import { AgendamentosSection } from '@/components/crm/AgendamentosSection'
@@ -16,7 +16,7 @@ const TITULOS = {
 }
 
 export default function CRMComAbas({ variante }: CRMComAbasProps) {
-  const [aba, setAba] = useState<'funil' | 'agenda'>('funil')
+  const [aba, setAba] = useAbaNaUrl('aba', 'funil', ['funil', 'agenda'] as const)
   const t = TITULOS[variante]
 
   return (
