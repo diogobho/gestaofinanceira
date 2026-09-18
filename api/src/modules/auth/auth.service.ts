@@ -61,7 +61,7 @@ export const authService = {
     }
 
     if (data.foto_perfil && Buffer.byteLength(data.foto_perfil, 'utf8') > 400 * 1024) {
-      throw new Error('Imagem muito grande. Máximo 300KB');
+      throw new Error('Imagem muito grande. Envie uma foto de até 400KB');
     }
 
     const fields: string[] = [];

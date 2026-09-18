@@ -7,6 +7,52 @@ interface ImageUploadProps {
   onImageChange: (file: File | null, preview: string | null) => void
   label?: string
   maxSize?: number // em MB
+  /** Maior lado da imagem gravada, em pixels. */
+  maxDimensao?: number
+}
+
+/**
+ * Reduz a imagem ANTES de virar base64. O que o componente devolve é gravado
+ * como texto na coluna `usuarios.foto_perfil`, e base64 engorda o arquivo em
+ * ~33%: uma foto de celular de 4 MB viraria 5,4 MB de texto, enquanto a API
+ * recusa acima de 400 KB. A tela prometia 5 MB e o salvar respondia "Imagem
+ * muito grande" — duas regras diferentes para a mesma foto (chamado #109).
+ *
+ * Um avatar é exibido em 128px; 512 no maior lado cobre telas retina e cabe
+ * folgado no limite. Fundo branco porque a saída é JPEG, e PNG transparente
+ * viraria preto.
+ */
+async function reduzirImagem(file: File, maxDimensao: number): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Falha ao ler o arquivo'))
+    reader.onloadend = () => resolve(reader.result as string)
+    reader.readAsDataURL(file)
+  })
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image()
+    el.onload = () => resolve(el)
+    el.onerror = () => reject(new Error('Falha ao abrir a imagem'))
+    el.src = dataUrl
+  })
+
+  const maior = Math.max(img.width, img.height)
+  const escala = maior > maxDimensao ? maxDimensao / maior : 1
+  const largura = Math.round(img.width * escala)
+  const altura = Math.round(img.height * escala)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = largura
+  canvas.height = altura
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return dataUrl
+
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, largura, altura)
+  ctx.drawImage(img, 0, 0, largura, altura)
+
+  return canvas.toDataURL('image/jpeg', 0.85)
 }
 
 export const ImageUpload: React.FC<ImageUploadProps> = ({
@@ -14,12 +60,13 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   onImageChange,
   label = 'Foto de Perfil',
   maxSize = 5,
+  maxDimensao = 512,
 }) => {
   const [preview, setPreview] = useState<string | null>(currentImage || null)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     setError(null)
 
@@ -38,14 +85,14 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
       return
     }
 
-    // Criar preview
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const result = reader.result as string
+    // Reduzir e criar preview. O que vai para o banco é a versão reduzida.
+    try {
+      const result = await reduzirImagem(file, maxDimensao)
       setPreview(result)
       onImageChange(file, result)
+    } catch {
+      setError('Não foi possível ler esta imagem. Tente outro arquivo.')
     }
-    reader.readAsDataURL(file)
   }
 
   const handleRemove = () => {
