@@ -5,6 +5,15 @@ export interface WhatsAppConfig {
   porta?: number;
   conectado: boolean;
   ultimaConexao?: string;
+  /** Por onde este usuário fala hoje. */
+  canal?: 'cloud_api' | 'baileys' | 'nenhum';
+  /** A empresa tem direito ao número oficial da Meta (plano Enterprise). */
+  podeOficial?: boolean;
+  /**
+   * Sem canal por ESCOLHA pendente, não por falha: quem tem direito ao número
+   * oficial não ganha instância Baileys sozinho. A tela oferece os dois caminhos.
+   */
+  aguardandoEscolhaDeCanal?: boolean;
 }
 
 export interface WhatsAppUsuarioEmpresa {
@@ -13,6 +22,9 @@ export interface WhatsAppUsuarioEmpresa {
   email: string;
   configurado: boolean;
   porta?: number;
+  canal?: 'cloud_api' | 'baileys' | 'nenhum';
+  /** A empresa tem direito ao número oficial — muda o que o card oferece. */
+  podeOficial?: boolean;
   conectado: boolean;
   ultimaConexao?: string;
 }
@@ -20,8 +32,15 @@ export interface WhatsAppUsuarioEmpresa {
 export interface WhatsAppLastDisconnect {
   code: number | null;
   motivo: string;
-  categoria: 'ban' | 'logout' | 'sessao' | 'substituida' | 'reinicio' | 'rede' | 'desconhecido';
+  /**
+   * `recusado` é um 403 ainda NÃO confirmado como ban (a instância só promove a
+   * `ban` depois de recusas repetidas e espaçadas); `handshake` é um 403 numa
+   * sessão sem número pareado, onde não existe conta para a Meta bloquear.
+   */
+  categoria: 'ban' | 'recusado' | 'handshake' | 'logout' | 'sessao' | 'substituida'
+    | 'reinicio' | 'rede' | 'desconhecido';
   registrado: boolean;
+  pareado?: boolean;
   at: string;
 }
 
@@ -29,7 +48,22 @@ export interface WhatsAppStatus {
   clientId: string;
   status: 'connected' | 'disconnected';
   hasQrCode: boolean;
+  /** Segundos que ainda restam do QR na tela (a instância fixa a vida em 60s). */
+  qrExpiraEm?: number;
+  /** Nascimento do QR atual — muda só quando o código muda de verdade. */
+  qrGeradoEm?: string | null;
+  /** Ban CONFIRMADO — 403 repetido e espaçado no tempo, nunca uma ocorrência só. */
   banido?: boolean;
+  banidoDesde?: string | null;
+  /** 403s acumulados sem confirmação: suspeita em aberto, não veredito. */
+  recusas403?: number;
+  banConfirmacoes?: number;
+  /** A sessão tem número vinculado. Sem isso o que falta é ler o QR. */
+  pareado?: boolean;
+  numero?: string | null;
+  aguardandoQr?: boolean;
+  /** Hora da próxima tentativa automática — nenhuma espera é sem prazo. */
+  proximaTentativaEm?: string | null;
   lastDisconnect?: WhatsAppLastDisconnect | null;
   timestamp: string;
 }
@@ -62,6 +96,18 @@ export const whatsappApi = {
    */
   async getConfig(): Promise<WhatsAppConfig> {
     const response = await api.get('/whatsapp/config');
+    return response.data;
+  },
+
+  /** Administrador pedindo o QR Code para um usuário da equipe. */
+  async ativarQrUsuario(userId: number): Promise<{ success: boolean; porta: number }> {
+    const response = await api.post(`/whatsapp/empresa/usuarios/${userId}/qr/ativar`);
+    return response.data;
+  },
+
+  /** Pedir o QR Code (instância Baileys) a quem tem direito ao número oficial. */
+  async ativarQr(): Promise<{ success: boolean; porta: number }> {
+    const response = await api.post('/whatsapp/qr/ativar');
     return response.data;
   },
 
@@ -114,6 +160,15 @@ export const whatsappApi = {
   },
 
   /**
+   * Reconectar agora. `novo` apaga a sessão e faz a instância emitir QR Code
+   * novo, para pareamento de outro número.
+   */
+  async reconectar(novo = false): Promise<{ success: boolean; novaSessao: boolean; message: string }> {
+    const response = await api.post('/whatsapp/reconectar', { novo });
+    return response.data;
+  },
+
+  /**
    * Listar todos os usuários da empresa com status WhatsApp (masterOnly)
    */
   async getEmpresaUsuarios(): Promise<WhatsAppUsuarioEmpresa[]> {
@@ -142,6 +197,14 @@ export const whatsappApi = {
    */
   async disconnectUsuario(userId: number): Promise<{ success: boolean }> {
     const response = await api.post(`/whatsapp/empresa/usuarios/${userId}/disconnect`);
+    return response.data;
+  },
+
+  /**
+   * Reconectar o chip de um usuário da empresa (masterOnly)
+   */
+  async reconectarUsuario(userId: number, novo = false): Promise<{ success: boolean; novaSessao: boolean; message: string }> {
+    const response = await api.post(`/whatsapp/empresa/usuarios/${userId}/reconectar`, { novo });
     return response.data;
   },
 };

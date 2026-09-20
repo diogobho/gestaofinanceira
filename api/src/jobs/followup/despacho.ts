@@ -9,10 +9,97 @@ import { agenteIaService } from '../../modules/agente-ia/agente-ia.service';
 import { contatosService } from '../../modules/crm/contatos/contatos.service';
 import { leadsService } from '../../modules/crm/leads/leads.service';
 import { aplicarVariaveisLead } from '../../modules/crm/_shared/agendamento';
-import { leadFalouRecentemente } from '../../modules/crm/_shared/conversa';
+import { leadFalouRecentemente, contatoJaEscreveuAlgumaVez } from '../../modules/crm/_shared/conversa';
 import { ResultadoDespacho } from './motor';
+import { contaAtivaDoUsuario } from '../../modules/whatsapp/canal/contas';
+import { estadoJanela, mensagemJanelaFechada } from '../../modules/whatsapp/canal/janela';
+import { erroNoFormatoDaInstancia } from '../../modules/whatsapp/canal/instancia';
+import { marcarOrigemErro } from '../../shared/erros';
+import { temCapacidade } from '../../shared/capacidades';
+
+/**
+ * Número oficial com a janela de 24h FECHADA: texto livre (e a resposta do agente de
+ * IA) não sai — a Meta só entrega modelo aprovado. Se o passo da cadência tem um
+ * "modelo de reserva" (`followup_config.passos[i].modelo_whatsapp`), ele sai no
+ * lugar da mensagem; senão o follow-up falha AGORA, com o motivo escrito, em vez de
+ * ser marcado enviado e a recusa (131047) chegar depois pelo webhook.
+ *
+ * Devolve null quando o caminho normal vale (empresa no QR Code, ou janela aberta).
+ */
+async function viaModeloSeJanelaFechada(
+  followup: any,
+  remetenteId: number,
+  contatoId: number
+): Promise<ResultadoDespacho | null> {
+  // Pelo REMETENTE, não pela empresa: quem decide se a janela de 24h vale é o
+  // número que vai enviar. Numa empresa com parte da equipe já no oficial, perguntar
+  // pela empresa faria o operador do QR ser cobrado por uma regra que não é dele.
+  const conta = await contaAtivaDoUsuario(remetenteId, followup.empresa_id);
+  if (!conta) return null;
+
+  const c = await query(`SELECT whatsapp_id, numero FROM contatos_whatsapp WHERE id = $1`, [contatoId]);
+  const destino = c.rows[0]?.whatsapp_id || c.rows[0]?.numero;
+  if (!destino) return null;
+  const janela = await estadoJanela(followup.empresa_id, destino);
+  if (janela.aberta) return null;
+
+  let modelo: any = null;
+  if (followup.origem === 'estagio' && followup.passo_ordem != null) {
+    const r = await query(`SELECT followup_config FROM estagios_funil WHERE id = $1`, [followup.estagio_id]);
+    const passos = r.rows[0]?.followup_config?.passos;
+    modelo = Array.isArray(passos) ? passos[followup.passo_ordem]?.modelo_whatsapp : null;
+  }
+  if (!modelo?.nome) {
+    throw marcarOrigemErro(
+      erroNoFormatoDaInstancia(
+        422,
+        mensagemJanelaFechada(janela) +
+          (followup.origem === 'estagio'
+            ? ' Escolha um modelo de reserva neste passo da cadência para ele sair mesmo assim.'
+            : '')
+      ),
+      'whatsapp'
+    );
+  }
+
+  const leadRow = (await query(
+    `SELECT l.*, u.nome AS responsavel_nome FROM leads l LEFT JOIN usuarios u ON u.id = l.responsavel_id WHERE l.id = $1`,
+    [followup.lead_id]
+  )).rows[0] || {};
+  const envio = await contatosService.enviarModeloWhatsApp(
+    remetenteId,
+    followup.empresa_id,
+    contatoId,
+    {
+      nome: modelo.nome,
+      idioma: modelo.idioma,
+      valores: {
+        corpo: (modelo.variaveis || []).map((v: string) => aplicarVariaveisLead(String(v ?? ''), leadRow)),
+        cabecalho: modelo.cabecalho ? aplicarVariaveisLead(String(modelo.cabecalho), leadRow) : null,
+      },
+    },
+    followup.lead_id,
+    'followup'
+  );
+  if (!envio.success) {
+    const erro: any = new Error(envio.error || 'Falha ao enviar o modelo');
+    if (envio.status) erro.status = envio.status;
+    throw marcarOrigemErro(erro, 'whatsapp');
+  }
+  return 'enviado';
+}
 
 export async function despachar(followup: any): Promise<ResultadoDespacho> {
+  // Primeiro contato com quem nunca escreveu é `conversa_fria` — capacidade do
+  // plano Enterprise, que fala pela API Oficial da Meta. Num número comum é
+  // exatamente o que causa bloqueio, e a cadência é a porta dos fundos do
+  // disparo: bloquear só o botão de disparar deixaria o mesmo envio sair daqui,
+  // um lead por vez. A checagem é feita ANTES dos dois ramos porque a regra é do
+  // plano, não do tipo de follow-up.
+  if (!(await temCapacidade(followup.empresa_id, 'conversa_fria'))
+      && !(await contatoJaEscreveuAlgumaVez(followup.lead_id, followup.contato_whatsapp_id))) {
+    return 'sem_capacidade';
+  }
   return followup.tipo === 'manual' ? despacharManual(followup) : despacharIA(followup);
 }
 
@@ -45,6 +132,9 @@ async function despacharManual(followup: any): Promise<ResultadoDespacho> {
   const texto = aplicarVariaveisLead(followup.mensagem || '', leadRow);
   if (!texto.trim() && !followup.media_url) return 'sem_conteudo';
 
+  const viaModelo = await viaModeloSeJanelaFechada(followup, remetenteId, contatoId);
+  if (viaModelo) return viaModelo;
+
   if (followup.media_url) {
     await contatosService.enviarMediaArmazenada(
       remetenteId, followup.empresa_id, contatoId,
@@ -76,6 +166,13 @@ async function despacharIA(followup: any): Promise<ResultadoDespacho> {
     );
   }
   if (!followup.contato_whatsapp_id) return 'sem_destino';
+
+  const remetenteIA = followup.remetente_id || (await query(
+    `SELECT COALESCE(responsavel_id, $2) AS remetente_id FROM leads WHERE id = $1`,
+    [followup.lead_id, followup.usuario_id]
+  )).rows[0]?.remetente_id || followup.usuario_id;
+  const viaModelo = await viaModeloSeJanelaFechada(followup, remetenteIA, followup.contato_whatsapp_id);
+  if (viaModelo) return viaModelo;
 
   return await agenteIaService.processarFollowUpIA(followup);
 }

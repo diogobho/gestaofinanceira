@@ -1,9 +1,21 @@
 import { query } from '../../../config/database';
+import { marcarOrigemErro } from '../../../shared/erros';
+
+/**
+ * Quem originou a mensagem de saída (migration 070). Só 'manual' fica de fora do
+ * espaçamento anti-ban: conversa de gente não é rajada de robô e não pode segurar
+ * a fila de automação.
+ */
+export type OrigemMensagem = 'manual' | 'followup' | 'disparo' | 'agente_ia' | 'lembrete';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
-import { vinculoDivergente, erroVinculoDivergente, comDDIParaEnvio, variantesTelefone, chaveTelefone } from '../_shared/telefone';
+import { vinculoDivergente, erroVinculoDivergente, divergenciaApenasNoPrefixo, comDDIParaEnvio, variantesTelefone, chaveTelefone } from '../_shared/telefone';
 import { leadsService } from '../leads/leads.service';
+import { instancia, destinoCloud, statusDoErroMeta } from '../../whatsapp/canal/instancia';
+import { ehPortaVirtual, contaPorPorta, contaAtivaDoContato, credenciaisDa } from '../../whatsapp/canal/contas';
+import { markMessageAsRead } from '../../whatsapp/meta/meta-whatsapp.service';
+import { acharModelo, enviarModelo, renderizarModelo, ValoresModelo } from '../../whatsapp/canal/modelos';
 
 const UPLOADS_DIR = '/var/www/apps/gestao_financeira/uploads/whatsapp';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'crm-whatsapp-webhook-secret-2024';
@@ -35,7 +47,9 @@ export const contatosService = {
 
     const result = await query(
       `SELECT c.*,
-        (SELECT COUNT(*) FROM historico_mensagens hm WHERE hm.contato_whatsapp_id = c.id) as total_mensagens,
+        (SELECT COUNT(*) FROM historico_mensagens hm
+          WHERE hm.contato_whatsapp_id = c.id AND hm.grupo_whatsapp_id IS NULL
+            AND NOT hm.copia_indevida) as total_mensagens,
         (SELECT COUNT(*) FROM leads l WHERE l.contato_whatsapp_id = c.id) as total_leads
        FROM contatos_whatsapp c
        WHERE c.empresa_id = $1 ${whereGrupo}
@@ -68,7 +82,9 @@ export const contatosService = {
 
     const result = await query(
       `SELECT c.*,
-        (SELECT COUNT(*) FROM historico_mensagens hm WHERE hm.contato_whatsapp_id = c.id) as total_mensagens
+        (SELECT COUNT(*) FROM historico_mensagens hm
+          WHERE hm.contato_whatsapp_id = c.id AND hm.grupo_whatsapp_id IS NULL
+            AND NOT hm.copia_indevida) as total_mensagens
        FROM contatos_whatsapp c
        WHERE c.empresa_id = $1
          AND c.is_grupo = false
@@ -111,7 +127,7 @@ export const contatosService = {
 
     // Verificar status da conexão
     try {
-      const statusResponse = await axios.get(`http://localhost:${porta}/status`, {
+      const statusResponse = await instancia(porta).get(`/status`, {
         timeout: 5000
       });
 
@@ -127,10 +143,21 @@ export const contatosService = {
       throw error;
     }
 
+    // Pedir a agenda atualizada ao WhatsApp antes de ler. A instância mantém os
+    // contatos em cache, então sem isto o "Sincronizar" só releria o que já
+    // tinha e um contato salvo agora no celular nunca apareceria.
+    // Best-effort: instância antiga não tem essa rota, e falhar aqui não deve
+    // impedir a sincronização do que já está em cache.
+    try {
+      await instancia(porta).post(`/contacts/resync`, {}, { timeout: 45000 });
+    } catch (error: any) {
+      console.warn(`[Contatos] Resync da agenda falhou na porta ${porta}: ${error.message}`);
+    }
+
     // Buscar contatos/chats do WhatsApp (com fotos)
     let chats: any[] = [];
     try {
-      const chatsResponse = await axios.get(`http://localhost:${porta}/chats`, {
+      const chatsResponse = await instancia(porta).get(`/chats`, {
         params: { photos: 'true' },
         timeout: 120000  // 2 minutos para buscar fotos
       });
@@ -267,13 +294,90 @@ export const contatosService = {
     return result.rows[0];
   },
 
+  /**
+   * De qual WhatsApp a mensagem do lead sai: o do RESPONSÁVEL do card — mesma
+   * regra que o follow-up e os lembretes de reunião já seguem ("a mensagem sai
+   * SEMPRE pelo WhatsApp do responsável do lead"). O chat manual usava o número
+   * de quem estava logado, então o mesmo lead falava por dois números conforme
+   * quem abrisse o card.
+   *
+   * Cai para quem está operando quando o responsável não tem chip configurado —
+   * senão o envio manual quebraria com "WhatsApp não configurado" para
+   * responsável sem número (ex.: Sabrina, Nicole).
+   */
+  async resolverRemetente(responsavelId: number | null | undefined, fallbackId: number): Promise<number> {
+    if (!responsavelId || responsavelId === fallbackId) return fallbackId;
+    const result = await query(`SELECT whatsapp_porta FROM usuarios WHERE id = $1`, [responsavelId]);
+    return result.rows[0]?.whatsapp_porta ? responsavelId : fallbackId;
+  },
+
+  /** Mesma regra, para quem só tem o id do lead em mãos. Sem lead, é quem opera. */
+  async resolverRemetenteDoLead(leadId: number | undefined | null, empresaId: number, fallbackId: number): Promise<number> {
+    if (!leadId) return fallbackId;
+    const result = await query(
+      `SELECT responsavel_id FROM leads WHERE id = $1 AND empresa_id = $2`,
+      [leadId, empresaId]
+    );
+    return this.resolverRemetente(result.rows[0]?.responsavel_id, fallbackId);
+  },
+
+  /**
+   * O destino gravado no contato já se provou real, com mensagem RECEBIDA dele.
+   *
+   * É a única prova forte que temos. Saída sem erro não serve: até a instância
+   * passar a consultar `onWhatsApp`, todo `/send` respondia `success` sem checar
+   * nada — o card do Breno tem 6 saídas "sem erro" para um número que hoje
+   * devolve 422. Entrada, não: alguém do outro lado escreveu.
+   *
+   * Com essa prova, a diferença entre o telefone do card e o número do contato é
+   * erro de CADASTRO, não risco de falar com estranho — e barrar o envio
+   * derrubaria uma conversa em andamento.
+   */
+  async destinoConfirmadoPorResposta(contatoId: number): Promise<boolean> {
+    const r = await query(
+      `SELECT 1 FROM historico_mensagens
+        WHERE contato_whatsapp_id = $1 AND direcao = 'entrada' AND NOT copia_indevida LIMIT 1`,
+      [contatoId]
+    );
+    return (r.rowCount ?? 0) > 0;
+  },
+
+  /**
+   * A decisão completa de barrar ou não o envio por vínculo errado, num lugar só
+   * — o chat do card, o follow-up e o disparo em massa precisam responder igual.
+   *
+   * Devolve a mensagem de erro, ou null quando pode enviar. São dois níveis:
+   * número de OUTRA pessoa barra sempre; mesmo assinante com o começo errado
+   * (DDI/DDD) barra só enquanto ninguém tiver respondido naquela conversa.
+   */
+  async bloqueioPorVinculo(
+    telefoneLead: string | null | undefined,
+    contato: { id: number; numero: string | null; whatsapp_id?: string | null }
+  ): Promise<string | null> {
+    if (!vinculoDivergente(telefoneLead, contato.numero, contato.whatsapp_id)) return null;
+
+    if (
+      divergenciaApenasNoPrefixo(telefoneLead, contato.numero) &&
+      (await this.destinoConfirmadoPorResposta(contato.id))
+    ) {
+      return null;
+    }
+
+    return erroVinculoDivergente(telefoneLead, contato.numero);
+  },
+
   async enviarMensagem(
     usuarioId: number,
     empresaId: number,
     contatoId: number,
     mensagem: string,
-    leadId?: number
-  ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    leadId?: number,
+    // Quem originou a mensagem (migration 070). O espaçamento anti-ban conta só
+    // automação: sem isto, a conversa manual do operador empurrava a fila de
+    // follow-up indefinidamente. 'manual' é o padrão porque o caminho mais comum
+    // desta função é o chat do card, operado por gente.
+    origem: OrigemMensagem = 'manual'
+  ): Promise<{ success: boolean; messageId?: string; error?: string; status?: number }> {
     // Buscar contato (verificando empresa)
     const contato = await this.getById(contatoId, empresaId);
     if (!contato) {
@@ -284,10 +388,9 @@ export const contatosService = {
     if (leadId) {
       const leadRes = await query(`SELECT telefone FROM leads WHERE id = $1 AND empresa_id = $2`, [leadId, empresaId]);
       const telefoneLead = leadRes.rows[0]?.telefone;
-      if (vinculoDivergente(telefoneLead, contato.numero, contato.whatsapp_id)) {
-        // success:false → 400 com texto claro no card; enviarMensagemOuFalhar re-lança nos jobs.
-        return { success: false, error: erroVinculoDivergente(telefoneLead, contato.numero) };
-      }
+      // success:false → 400 com texto claro no card; enviarMensagemOuFalhar re-lança nos jobs.
+      const bloqueio = await this.bloqueioPorVinculo(telefoneLead, contato);
+      if (bloqueio) return { success: false, error: bloqueio };
     }
 
     // Buscar porta WhatsApp
@@ -303,7 +406,7 @@ export const contatosService = {
 
     // Enviar mensagem usando whatsapp_id como chatId (suporta @c.us, @g.us, @lid)
     try {
-      const response = await axios.post(`http://localhost:${porta}/send`, {
+      const response = await instancia(porta).post(`/send`, {
         number: contato.whatsapp_id,
         message: mensagem
       }, {
@@ -320,15 +423,16 @@ export const contatosService = {
       await query(
         `INSERT INTO historico_mensagens (
           lead_id, contato_whatsapp_id, usuario_id, empresa_id,
-          whatsapp_message_id, direcao, tipo, conteudo, enviado_at
-        ) VALUES ($1, $2, $3, $4, $5, 'saida', 'texto', $6, CURRENT_TIMESTAMP)`,
+          whatsapp_message_id, direcao, tipo, conteudo, origem, enviado_at
+        ) VALUES ($1, $2, $3, $4, $5, 'saida', 'texto', $6, $7, CURRENT_TIMESTAMP)`,
         [
           leadId || null,
           contatoId,
           usuarioId,
           empresaId,
           response.data.messageId || null,
-          mensagem
+          mensagem,
+          origem
         ]
       );
 
@@ -348,26 +452,37 @@ export const contatosService = {
       // A API do WhatsApp responde 4xx com o motivo no corpo (ex.: número sem conta).
       // Sem isso o usuário só veria "Request failed with status code 422".
       const motivo = error.response?.data?.details || error.response?.data?.error || error.message;
+      // O status distingue o que é definitivo (422 = número sem WhatsApp) do que é
+      // transitório (503 = instância fora do ar). Quem re-lança perde essa informação
+      // se ela não subir junto — e aí o job queima um follow-up que só precisava esperar.
+      const status: number | undefined = error.response?.status;
 
-      // Registrar erro no histórico
-      await query(
-        `INSERT INTO historico_mensagens (
-          lead_id, contato_whatsapp_id, usuario_id, empresa_id,
-          direcao, tipo, conteudo, erro, enviado_at
-        ) VALUES ($1, $2, $3, $4, 'saida', 'texto', $5, $6, CURRENT_TIMESTAMP)`,
-        [
-          leadId || null,
-          contatoId,
-          usuarioId,
-          empresaId,
-          mensagem,
-          motivo
-        ]
-      );
+      // Instância desconectada (503) não é tentativa de envio: nada saiu do app e o job
+      // vai repetir. Gravar o balão vermelho a cada retry encheria a conversa do card
+      // de "Falha no envio" da MESMA mensagem.
+      if (status !== 503) {
+        // Registrar erro no histórico
+        await query(
+          `INSERT INTO historico_mensagens (
+            lead_id, contato_whatsapp_id, usuario_id, empresa_id,
+            direcao, tipo, conteudo, erro, origem, enviado_at
+          ) VALUES ($1, $2, $3, $4, 'saida', 'texto', $5, $6, $7, CURRENT_TIMESTAMP)`,
+          [
+            leadId || null,
+            contatoId,
+            usuarioId,
+            empresaId,
+            mensagem,
+            motivo,
+            origem
+          ]
+        );
+      }
 
       return {
         success: false,
-        error: motivo
+        error: motivo,
+        status
       };
     }
   },
@@ -382,21 +497,112 @@ export const contatosService = {
     empresaId: number,
     contatoId: number,
     mensagem: string,
-    leadId?: number
+    leadId?: number,
+    origem: OrigemMensagem = 'manual'
   ): Promise<{ success: true; messageId?: string }> {
-    const envio = await this.enviarMensagem(usuarioId, empresaId, contatoId, mensagem, leadId);
+    const envio = await this.enviarMensagem(usuarioId, empresaId, contatoId, mensagem, leadId, origem);
     if (!envio.success) {
-      throw new Error(envio.error || 'Falha no envio via WhatsApp');
+      // O status vai anexado ao Error: o corpo da instância traz só o texto
+      // ("WhatsApp não conectado"), e sem o código o scheduler não consegue separar
+      // instância fora do ar (503, adiar) de número sem conta (422, falhar de vez).
+      const erro: any = new Error(envio.error || 'Falha no envio via WhatsApp');
+      if (envio.status) erro.status = envio.status;
+      // Origem carimbada na fonte: um 403 daqui é chip bloqueado/restrição do canal,
+      // NUNCA credencial de IA — quem trata o erro decide por ela, não pelo número.
+      throw marcarOrigemErro(erro, 'whatsapp');
     }
     return { success: true, messageId: envio.messageId };
   },
 
+  /**
+   * Envia um MODELO APROVADO pelo número oficial (Cloud API). É o único jeito de falar
+   * com quem não escreveu nas últimas 24h — ver `whatsapp/canal/janela.ts`. Mesmo
+   * contrato de `enviarMensagem`: nunca lança por falha de envio, grava o balão (ok ou
+   * vermelho) e devolve `{ success, error, status }`.
+   */
+  async enviarModeloWhatsApp(
+    usuarioId: number,
+    empresaId: number,
+    contatoId: number,
+    pedido: { nome: string; idioma?: string; valores: ValoresModelo },
+    leadId?: number,
+    origem: OrigemMensagem = 'manual'
+  ): Promise<{ success: boolean; messageId?: string; error?: string; status?: number; texto?: string }> {
+    const contato = await this.getById(contatoId, empresaId);
+    if (!contato) throw new Error('Contato não encontrado');
+
+    if (leadId) {
+      const leadRes = await query(`SELECT telefone FROM leads WHERE id = $1 AND empresa_id = $2`, [leadId, empresaId]);
+      const bloqueio = await this.bloqueioPorVinculo(leadRes.rows[0]?.telefone, contato);
+      if (bloqueio) return { success: false, error: bloqueio, status: 422 };
+    }
+
+    const portaRes = await query(`SELECT whatsapp_porta FROM usuarios WHERE id = $1`, [usuarioId]);
+    const porta = portaRes.rows[0]?.whatsapp_porta;
+    const conta = ehPortaVirtual(porta) ? await contaPorPorta(porta) : null;
+    if (!conta || !conta.ativo) {
+      return {
+        success: false,
+        status: 400,
+        error: 'Modelo aprovado só existe no WhatsApp oficial (Cloud API) — esta conta envia pelo WhatsApp conectado por QR Code.',
+      };
+    }
+
+    let texto = `[modelo ${pedido.nome}]`;
+    try {
+      const modelo = await acharModelo(conta, pedido.nome, pedido.idioma);
+      texto = renderizarModelo(modelo, pedido.valores);
+      const destino = destinoCloud(contato.whatsapp_id || contato.numero);
+      const r = await enviarModelo(conta, destino, modelo, pedido.valores);
+
+      await query(
+        `INSERT INTO historico_mensagens (
+          lead_id, contato_whatsapp_id, usuario_id, empresa_id,
+          whatsapp_message_id, direcao, tipo, conteudo, origem, enviado_at
+        ) VALUES ($1, $2, $3, $4, $5, 'saida', 'texto', $6, $7, CURRENT_TIMESTAMP)`,
+        [leadId || null, contatoId, usuarioId, empresaId, r.messageId || null, r.texto, origem]
+      );
+      if (leadId) {
+        await query(
+          `UPDATE leads SET data_ultimo_contato = CURRENT_TIMESTAMP, aguardando_resposta = true WHERE id = $1`,
+          [leadId]
+        );
+      }
+      return { success: true, messageId: r.messageId, texto: r.texto };
+    } catch (error: any) {
+      const status: number = error.response?.status ?? (error.metaCode !== undefined ? statusDoErroMeta(error) : 422);
+      const motivo: string = error.response?.data?.details || error.message || 'Falha ao enviar o modelo';
+      await query(
+        `INSERT INTO historico_mensagens (
+          lead_id, contato_whatsapp_id, usuario_id, empresa_id,
+          direcao, tipo, conteudo, erro, origem, enviado_at
+        ) VALUES ($1, $2, $3, $4, 'saida', 'texto', $5, $6, $7, CURRENT_TIMESTAMP)`,
+        [leadId || null, contatoId, usuarioId, empresaId, texto, motivo, origem]
+      );
+      return { success: false, error: motivo, status };
+    }
+  },
+
+  /**
+   * Histórico da conversa INDIVIDUAL do contato (é o que a UI mostra no chat do
+   * lead e do contato). Mensagem de grupo fica gravada com o contato do
+   * participante e `grupo_whatsapp_id` preenchido — sem este filtro, a conversa
+   * 1:1 vinha misturada com a conversa dos grupos em que o contato participa.
+   * Também esconde balão "[mensagem]": linha de texto sem conteúdo e sem mídia
+   * não é mensagem (vinha de reação removida/protocolo gravado como envio).
+   */
+  // `copia_indevida` (migration 075): mensagem de outra empresa gravada aqui pelo
+  // vazamento de até 19/08/2026. Fica no banco, mas não é conversa desta empresa.
   async getHistoricoMensagens(contatoId: number, empresaId: number, limit = 50): Promise<any[]> {
     const result = await query(
       `SELECT hm.*, u.nome as usuario_nome
        FROM historico_mensagens hm
        LEFT JOIN usuarios u ON hm.usuario_id = u.id
        WHERE hm.contato_whatsapp_id = $1 AND hm.empresa_id = $2
+         AND hm.grupo_whatsapp_id IS NULL
+         AND NOT hm.copia_indevida
+         AND NOT (hm.tipo = 'texto' AND hm.media_url IS NULL
+                  AND COALESCE(btrim(hm.conteudo), '') = '')
        ORDER BY hm.enviado_at DESC
        LIMIT $3`,
       [contatoId, empresaId, limit]
@@ -453,7 +659,7 @@ export const contatosService = {
     const mediaUrl = `/uploads/whatsapp/${empresaId}/${safeFilename}`;
 
     try {
-      const response = await axios.post(`http://localhost:${porta}/send-media`, {
+      const response = await instancia(porta).post(`/send-media`, {
         number: contato.whatsapp_id,
         media: base64,
         mimetype,
@@ -532,7 +738,8 @@ export const contatosService = {
     mimetype: string,
     originalFilename: string,
     caption?: string,
-    leadId?: number
+    leadId?: number,
+    origem: OrigemMensagem = 'manual'
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     const contato = await this.getById(contatoId, empresaId);
     if (!contato) throw new Error('Contato nao encontrado');
@@ -549,7 +756,10 @@ export const contatosService = {
     if (!fs.existsSync(absPath)) {
       throw new Error(`Arquivo de mídia não encontrado: ${mediaUrl}`);
     }
-    const fileBuffer = fs.readFileSync(absPath);
+    // Leitura ASSÍNCRONA: `readFileSync` de um vídeo de 20MB trava a event loop do
+    // processo inteiro — nenhuma requisição HTTP é atendida enquanto isso, e o
+    // orçamento de execução do follow-up não conseguiria nem contar o tempo.
+    const fileBuffer = await fs.promises.readFile(absPath);
     const base64 = fileBuffer.toString('base64');
 
     let tipo = 'documento';
@@ -557,16 +767,28 @@ export const contatosService = {
     else if (mimetype.startsWith('audio/')) tipo = 'audio';
     else if (mimetype.startsWith('video/')) tipo = 'video';
 
-    const response = await axios.post(`http://localhost:${porta}/send-media`, {
-      number: contato.whatsapp_id,
-      media: base64,
-      mimetype,
-      filename: originalFilename,
-      caption: caption || undefined
-    }, { timeout: 60000 });
+    // Mesmo contrato de erro de enviarMensagemOuFalhar: status + origem viajam no Error.
+    // Sem isso, um follow-up COM MÍDIA que falhasse por instância fora do ar (503) subia
+    // como "Request failed with status code 503" sem status nem origem — e o scheduler
+    // não conseguia separar "esperar" de "queimar".
+    let response: any;
+    try {
+      response = await instancia(porta).post(`/send-media`, {
+        number: contato.whatsapp_id,
+        media: base64,
+        mimetype,
+        filename: originalFilename,
+        caption: caption || undefined
+      }, { timeout: 60000 });
+    } catch (error: any) {
+      const motivo = error.response?.data?.details || error.response?.data?.error || error.message;
+      const erro: any = new Error(motivo || 'Falha ao enviar mídia via WhatsApp');
+      if (error.response?.status) erro.status = error.response.status;
+      throw marcarOrigemErro(erro, 'whatsapp');
+    }
 
     if (!response.data.success) {
-      throw new Error(response.data.error || 'Erro ao enviar midia');
+      throw marcarOrigemErro(new Error(response.data.error || 'Erro ao enviar midia'), 'whatsapp');
     }
 
     await query(
@@ -574,12 +796,13 @@ export const contatosService = {
         lead_id, contato_whatsapp_id, usuario_id, empresa_id,
         whatsapp_message_id, direcao, tipo, conteudo,
         media_url, media_filename, media_mimetype, media_tamanho,
-        enviado_at
-      ) VALUES ($1, $2, $3, $4, $5, 'saida', $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)`,
+        origem, enviado_at
+      ) VALUES ($1, $2, $3, $4, $5, 'saida', $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)`,
       [
         leadId || null, contatoId, usuarioId, empresaId,
         response.data.messageId || null, tipo, caption || null,
         mediaUrl, originalFilename, mimetype, fileBuffer.length,
+        origem,
       ]
     );
 
@@ -640,6 +863,26 @@ export const contatosService = {
   },
 
   async marcarLido(contatoId: number, empresaId: number, leadId?: number): Promise<void> {
+    // Número oficial: avisa a Meta que alguém leu (tiques azuis para o cliente). Marcar
+    // a mais recente marca as anteriores. Best-effort: falhar aqui não impede zerar o
+    // contador do CRM.
+    try {
+      const conta = await contaAtivaDoContato(contatoId, empresaId);
+      if (conta) {
+        const ultima = await query(
+          `SELECT whatsapp_message_id FROM historico_mensagens
+            WHERE contato_whatsapp_id = $1 AND empresa_id = $2 AND direcao = 'entrada'
+              AND lido_at IS NULL AND whatsapp_message_id LIKE 'wamid.%'
+            ORDER BY enviado_at DESC LIMIT 1`,
+          [contatoId, empresaId]
+        );
+        const id = ultima.rows[0]?.whatsapp_message_id;
+        if (id) await markMessageAsRead(id, credenciaisDa(conta));
+      }
+    } catch (err: any) {
+      console.warn(`[Contatos] não marcou como lida na Meta (contato #${contatoId}): ${err.message}`);
+    }
+
     // Marcar mensagens de entrada como lidas (filtrar por empresa)
     await query(
       `UPDATE historico_mensagens SET lido_at = CURRENT_TIMESTAMP
@@ -674,7 +917,7 @@ export const contatosService = {
 
     try {
       const webhookUrl = `http://localhost:4100/api/crm/webhook/whatsapp`;
-      await axios.post(`http://localhost:${porta}/webhook/register`, {
+      await instancia(porta).post(`/webhook/register`, {
         url: webhookUrl,
         secret: WEBHOOK_SECRET
       }, { timeout: 5000 });
@@ -693,7 +936,7 @@ export const contatosService = {
     if (!porta) throw new Error('WhatsApp não configurado');
 
     try {
-      const response = await axios.get(`http://localhost:${porta}/groups`, { timeout: 30000 });
+      const response = await instancia(porta).get(`/groups`, { timeout: 30000 });
       if (!response.data.success) throw new Error('Erro ao buscar grupos do WhatsApp');
       return response.data.groups || [];
     } catch (error: any) {
@@ -713,7 +956,7 @@ export const contatosService = {
     if (!porta) throw new Error('WhatsApp não configurado');
 
     const encodedId = encodeURIComponent(groupId);
-    const response = await axios.get(`http://localhost:${porta}/groups/${encodedId}/participants`, {
+    const response = await instancia(porta).get(`/groups/${encodedId}/participants`, {
       timeout: 15000
     });
     if (!response.data.success) throw new Error('Erro ao buscar participantes do grupo');

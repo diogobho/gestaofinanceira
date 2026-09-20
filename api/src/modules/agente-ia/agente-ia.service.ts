@@ -9,6 +9,9 @@ import { anotacoesService } from '../crm/anotacoes/anotacoes.service';
 import { sessoesService } from '../sessoes/sessoes.service';
 import { marcarOrigemErro } from '../../shared/erros';
 import { leadFalouRecentemente, SILENCIO_APOS_LEAD_MIN } from '../crm/_shared/conversa';
+import { instancia } from '../whatsapp/canal/instancia';
+import { contaAtivaDoContato, credenciaisDa } from '../whatsapp/canal/contas';
+import { markMessageAsRead } from '../whatsapp/meta/meta-whatsapp.service';
 
 // Lock para evitar processamento concorrente do mesmo lead
 
@@ -86,7 +89,11 @@ export interface AgenteIAConfig {
   contexto_mensagens: number;
   usuarios_habilitados: number[];
   delay_segundos: number;
+  pode_ficar_em_silencio?: boolean;
 }
+
+/** Resposta do agente que significa "não mandar nada" (migration 077). */
+const SEM_RESPOSTA = '[SEM_RESPOSTA]';
 
 interface ToolContext {
   leadId: number;
@@ -531,7 +538,8 @@ export const agenteIaService = {
     const CRED_FIELDS = ['provider', 'api_key', 'gemini_api_key', 'modelo'];
     const BEHAVIOR_FIELDS = [
       'ativo', 'nome_agente', 'tom', 'area_negocio', 'system_prompt_extra',
-      'max_tokens', 'contexto_mensagens', 'usuarios_habilitados', 'delay_segundos'
+      'max_tokens', 'contexto_mensagens', 'usuarios_habilitados', 'delay_segundos',
+      'pode_ficar_em_silencio'
     ];
 
     const credEntries = Object.entries(data).filter(([k, v]) => CRED_FIELDS.includes(k) && v !== undefined);
@@ -610,7 +618,7 @@ export const agenteIaService = {
     params.push(limit);
     const result = await query(
       `SELECT direcao, conteudo FROM historico_mensagens
-       WHERE ${matchFilter} AND grupo_whatsapp_id IS NULL
+       WHERE ${matchFilter} AND grupo_whatsapp_id IS NULL AND NOT copia_indevida
          AND tipo = 'texto' AND conteudo IS NOT NULL AND conteudo != ''
          ${dateFilter}
        ORDER BY enviado_at DESC LIMIT $${params.length}`,
@@ -785,7 +793,12 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
 5. Quando o lead fechar dia e horário, chame agendar_reuniao com a data e a hora combinadas (horário de Brasília) — só isso. Ela já registra a reunião e liga os lembretes automáticos; não crie tarefa de reunião à parte nem prometa lembrar depois. Se o lead remarcar, chame agendar_reuniao de novo com o horário novo.
 6. Nunca prometa preços, descontos ou condições não confirmadas.
 7. Se não souber algo, diga que vai verificar — como qualquer pessoa faria.
-8. SEMPRE responda ao lead com uma mensagem de texto, mesmo que curta. Nunca termine o processamento sem enviar uma resposta — mesmo que só vá criar uma anotação interna, ainda assim responda o lead na conversa.`;
+${config.pode_ficar_em_silencio ? `8. Nem toda mensagem pede resposta. Decida antes de escrever:
+   - RESPONDA sempre que a pessoa perguntar, pedir algo ou falar do que você atende (o produto, a conta, preço, reunião, dúvida).
+   - RESPONDA sempre, mesmo que curto, quando a mensagem dela responde a uma pergunta nossa ou traz uma decisão (sim, não, recusa, "não vou conseguir", desistência, "vou pensar") — inclusive quando você também usar uma ferramenta. Ignorar quem acabou de dizer não é falta de educação e fecha a porta.
+   - Responda APENAS ${SEM_RESPOSTA} (exatamente isso, nada mais) quando: ela só agradeceu, confirmou ou se despediu depois de o assunto já estar resolvido ("ok", "obrigada", "combinado", emoji, figurinha) — recusa ou decisão não é despedida; avisou que vai ver ou responder depois; ou o assunto não é o que você atende — conversa pessoal, família, saúde, convites, eventos e compromissos de outro contexto. Esses assuntos quem responde é ${nomeIdentidade} em pessoa.
+   - Nunca aceite convite nem assuma compromisso pessoal em nome de ${nomeIdentidade}. Na dúvida entre responder e ficar em silêncio num assunto pessoal, fique em silêncio.
+   - Mesmo em silêncio você pode usar as ferramentas (ex.: criar uma anotação). Usar ferramenta não substitui a resposta quando a mensagem pede uma.` : `8. SEMPRE responda ao lead com uma mensagem de texto, mesmo que curta. Nunca termine o processamento sem enviar uma resposta — mesmo que só vá criar uma anotação interna, ainda assim responda o lead na conversa.`}`;
   },
 
   async processarMensagemSeAtivo(
@@ -831,7 +844,7 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
         const { numero: contatoNumero, whatsapp_porta: porta } = contatoResult.rows[0];
         if (porta) {
           try {
-            const infoResp = await axios.get(`http://localhost:${porta}/info`, { timeout: 3000 });
+            const infoResp = await instancia(porta).get(`/info`, { timeout: 3000 });
             const instanceNumero: string | undefined = infoResp.data?.info?.number || infoResp.data?.number;
             if (instanceNumero) {
               const norm = (n: string) => { const d = n.replace(/\D/g, ''); return d.startsWith('55') && d.length >= 12 ? d.slice(2) : d; };
@@ -846,6 +859,22 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
         }
       }
     }
+
+    // 2.6. Número oficial: "digitando…" enquanto a IA pensa (a Meta marca a mensagem
+    // como lida junto e tira o indicador ao chegar a resposta, ou em 25s).
+    try {
+      const conta = await contaAtivaDoContato(contatoId, empresaId);
+      if (conta) {
+        const ultima = await query(
+          `SELECT whatsapp_message_id FROM historico_mensagens
+            WHERE contato_whatsapp_id = $1 AND direcao = 'entrada' AND whatsapp_message_id LIKE 'wamid.%'
+            ORDER BY enviado_at DESC LIMIT 1`,
+          [contatoId]
+        );
+        const id = ultima.rows[0]?.whatsapp_message_id;
+        if (id) await markMessageAsRead(id, credenciaisDa(conta), true);
+      }
+    } catch { /* indicador é cortesia; não pode travar a resposta */ }
 
     // 3. Buscar dados do lead e estágio (incluindo nome do responsável atual)
     // `remetente_nome` é o dono do NÚMERO que recebeu a mensagem — é ele quem vai
@@ -942,17 +971,22 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
     // 9. Após o delay, coletar TODAS as mensagens que chegaram desde triggerAt e unificá-las
     // (por CONTATO: a entrada pode estar gravada no lead de outro funil do mesmo contato)
     const msgsPendentes = await query(
-      `SELECT conteudo FROM historico_mensagens
+      `SELECT conteudo, tipo FROM historico_mensagens
        WHERE (contato_whatsapp_id = $3 OR lead_id = $1)
          AND grupo_whatsapp_id IS NULL
-         AND direcao = 'entrada' AND tipo = 'texto'
+         AND direcao = 'entrada' AND tipo IN ('texto', 'imagem', 'video', 'documento')
          AND conteudo IS NOT NULL AND conteudo != ''
+         AND NOT copia_indevida
          AND created_at >= $2
        ORDER BY created_at ASC`,
       [leadId, effectiveTriggerAt, contatoId]
     );
+    // Legenda de foto/vídeo/documento entra com o aviso de que o arquivo não é visível —
+    // o mesmo texto que o webhook usa ao enfileirar.
     const mensagemFinal = msgsPendentes.rows.length > 0
-      ? msgsPendentes.rows.map((r: any) => r.conteudo).join('\n\n')
+      ? msgsPendentes.rows.map((r: any) => r.tipo === 'texto'
+          ? r.conteudo
+          : `[${r.tipo} anexado, você não consegue ver o arquivo] ${r.conteudo}`).join('\n\n')
       : mensagemTexto;
     if (msgsPendentes.rows.length > 1) {
       console.log(`[AgenteIA] Lead #${leadId}: ${msgsPendentes.rows.length} mensagens agregadas em uma única resposta`);
@@ -1114,7 +1148,14 @@ ${config.system_prompt_extra ? `INSTRUÇÕES GERAIS DO ASSISTENTE:\n${config.sys
 
     // 10. Enviar resposta final ao lead via WhatsApp (mensagem fica em historico_mensagens
     // e o próximo turno lê de lá via getContextoHistorico — não precisa salvar em agente_ia_contexto).
-    if (!finalText.trim()) {
+    if (config.pode_ficar_em_silencio && (finalText.includes(SEM_RESPOSTA) || !finalText.trim())) {
+      // Decidiu não responder. Nada sai; a mensagem continua não lida para a pessoa
+      // dona do número ver. Qualquer texto junto do marcador também não sai — melhor
+      // calar do que mandar "[SEM_RESPOSTA] ok" ao lead. Terminar só com ferramenta
+      // (anotação/tarefa num "obrigada") é a mesma decisão, e é registrada igual.
+      console.log(`[AgenteIA] Lead #${leadId}: agente decidiu não responder. Mensagem: "${mensagemFinal.substring(0, 80)}"`);
+      await this.logarAcao(leadId, empresaId, 'silencio', { mensagem_recebida: mensagemFinal.substring(0, 500) }, true);
+    } else if (!finalText.trim()) {
       console.warn(`[AgenteIA] Lead #${leadId}: ${config.provider || 'IA'} não retornou texto final. Mensagem recebida: "${mensagemFinal.substring(0, 80)}".`);
     } else {
       try {

@@ -1,7 +1,13 @@
 import axios from 'axios';
+import FormData from 'form-data';
 import { digitosParaGravar, comDDIParaEnvio } from '../../crm/_shared/telefone';
 
-const BASE_URL = 'https://graph.facebook.com/v20.0';
+/**
+ * Versão da Graph API. A v20.0 expira em 24/09/2026 (Graph API > Changelog > Versions);
+ * a v25.0 vale até 29/07/2028. Trocar de versão é trocar AQUI — nada mais no código
+ * chumba versão.
+ */
+export const BASE_URL = 'https://graph.facebook.com/v25.0';
 
 export interface MetaTextMessage {
   to: string;
@@ -37,6 +43,11 @@ export interface ErroMeta extends Error {
   httpStatus?: number;
 }
 
+/**
+ * Exportado como `erroDaGraph` para quem chama a Graph API de fora deste arquivo
+ * (o Embedded Signup): o motivo real vem em `error.message` / `error_user_msg`, e
+ * o axios cru diria só "Request failed with status code 400".
+ */
 function erroMeta(err: any): ErroMeta {
   const meta = err?.response?.data?.error;
   if (!meta) return err instanceof Error ? err : new Error(String(err));
@@ -67,12 +78,38 @@ function getWabaId() {
   return process.env.META_WA_BUSINESS_ACCOUNT_ID || '';
 }
 
-function getHeaders() {
+function getHeaders(cred?: CredenciaisMeta) {
   return {
-    Authorization: `Bearer ${getToken()}`,
+    Authorization: `Bearer ${cred?.token || getToken()}`,
     'Content-Type': 'application/json',
   };
 }
+
+/**
+ * De qual número (e com qual token) a chamada sai. Sem isto vale o `.env` — o número
+ * oficial da DuoFuturo e o System User dela. Cada empresa com número oficial
+ * (`whatsapp_cloud_contas`) passa o dela; hoje o token é o mesmo System User, e quando
+ * formos Tech Provider o Embedded Signup de cada cliente traz o próprio.
+ */
+export interface CredenciaisMeta {
+  phoneNumberId: string;
+  wabaId?: string;
+  token?: string;
+}
+
+function phoneId(cred?: CredenciaisMeta) {
+  return cred?.phoneNumberId || getPhoneId();
+}
+
+function wabaId(cred?: CredenciaisMeta) {
+  return cred?.wabaId || getWabaId();
+}
+
+function token(cred?: CredenciaisMeta) {
+  return cred?.token || getToken();
+}
+
+export const erroDaGraph = erroMeta;
 
 export interface ConfigMeta {
   configurado: boolean;
@@ -114,14 +151,15 @@ export interface StatusNumero {
   throughput?: { level?: string };
 }
 
-export async function consultarNumero(): Promise<StatusNumero> {
+export async function consultarNumero(cred?: CredenciaisMeta): Promise<StatusNumero> {
   try {
-    const { data } = await axios.get(`${BASE_URL}/${getPhoneId()}`, {
+    const { data } = await axios.get(`${BASE_URL}/${phoneId(cred)}`, {
       params: {
         fields:
-          'display_phone_number,verified_name,quality_rating,code_verification_status,platform_type,throughput',
-        access_token: getToken(),
+          'display_phone_number,verified_name,quality_rating,code_verification_status,platform_type,throughput,messaging_limit_tier',
+        access_token: token(cred),
       },
+      timeout: 10000,
     });
     return data;
   } catch (err) {
@@ -149,18 +187,68 @@ export function normalizarDestino(numero: string): string {
   return comDDIParaEnvio(digitos);
 }
 
-export async function sendTextMessage({ to, text }: MetaTextMessage) {
+/**
+ * Para quem a mensagem vai. Desde 2026 o WhatsApp tem nome de usuário: quem adota
+ * pode esconder o telefone, e o webhook chega só com o id da pessoa na nossa conta
+ * (BSUID, `messages[].from_user_id`). O contato guarda esse id como `<BSUID>@bsuid`,
+ * e a resposta vai no campo `recipient` em vez de `to` (Business-scoped user IDs).
+ */
+function destinatario(to: string): { to: string } | { recipient: string } {
+  const bruto = String(to || '').trim();
+  if (/@bsuid$/i.test(bruto)) return { recipient: bruto.replace(/@bsuid$/i, '') };
+  return { to: normalizarDestino(bruto) };
+}
+
+export async function sendTextMessage({ to, text }: MetaTextMessage, cred?: CredenciaisMeta) {
   try {
     const { data } = await axios.post(
-      `${BASE_URL}/${getPhoneId()}/messages`,
+      `${BASE_URL}/${phoneId(cred)}/messages`,
       {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to: normalizarDestino(to),
+        ...destinatario(to),
         type: 'text',
         text: { preview_url: false, body: text },
       },
-      { headers: getHeaders() }
+      { headers: getHeaders(cred), timeout: 30000 }
+    );
+    return data;
+  } catch (err) {
+    throw erroMeta(err);
+  }
+}
+
+export interface MetaDocumentMessage {
+  to: string;
+  /** URL pública do arquivo. A Meta baixa por conta dela — precisa abrir sem login. */
+  link: string;
+  /** Nome que aparece no balão; sem ele o WhatsApp mostra a URL. */
+  filename: string;
+  caption?: string;
+}
+
+/**
+ * Envia um documento (o PDF de boas-vindas) por link público.
+ *
+ * Link em vez de upload de mídia porque o material já é publicado em
+ * duofuturo.tech/onboarding/ — subir o mesmo arquivo a cada envio gastaria uma
+ * chamada extra e um id de mídia que expira em 30 dias.
+ *
+ * Só funciona dentro da janela de 24h aberta por uma mensagem DA PESSOA: fora
+ * dela a Meta exige modelo aprovado, e modelo não carrega documento arbitrário.
+ */
+export async function sendDocumentMessage({ to, link, filename, caption }: MetaDocumentMessage, cred?: CredenciaisMeta) {
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/${phoneId(cred)}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        ...destinatario(to),
+        type: 'document',
+        document: { link, filename, ...(caption ? { caption } : {}) },
+      },
+      { headers: getHeaders(cred), timeout: 30000 }
     );
     return data;
   } catch (err) {
@@ -173,17 +261,18 @@ export async function sendTemplateMessage({
   templateName,
   languageCode = 'pt_BR',
   components = [],
-}: MetaTemplateMessage) {
+}: MetaTemplateMessage, cred?: CredenciaisMeta) {
   try {
     const { data } = await axios.post(
-      `${BASE_URL}/${getPhoneId()}/messages`,
+      `${BASE_URL}/${phoneId(cred)}/messages`,
       {
         messaging_product: 'whatsapp',
-        to: normalizarDestino(to),
+        recipient_type: 'individual',
+        ...destinatario(to),
         type: 'template',
         template: { name: templateName, language: { code: languageCode }, components },
       },
-      { headers: getHeaders() }
+      { headers: getHeaders(cred), timeout: 30000 }
     );
     return data;
   } catch (err) {
@@ -191,13 +280,117 @@ export async function sendTemplateMessage({
   }
 }
 
-export async function markMessageAsRead(messageId: string) {
+/**
+ * Marca como lida (os dois tiques azuis para o cliente). Com `digitando`, mostra
+ * também "digitando…" até a resposta sair ou por 25s — só use quando uma resposta
+ * vem mesmo (o agente de IA), senão o cliente fica esperando à toa.
+ */
+export async function markMessageAsRead(messageId: string, cred?: CredenciaisMeta, digitando = false) {
   try {
     await axios.post(
-      `${BASE_URL}/${getPhoneId()}/messages`,
-      { messaging_product: 'whatsapp', status: 'read', message_id: messageId },
-      { headers: getHeaders() }
+      `${BASE_URL}/${phoneId(cred)}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: messageId,
+        ...(digitando ? { typing_indicator: { type: 'text' } } : {}),
+      },
+      { headers: getHeaders(cred), timeout: 10000 }
     );
+  } catch (err) {
+    throw erroMeta(err);
+  }
+}
+
+// ============================================================
+// Mídia
+// ============================================================
+
+export type TipoMidiaMeta = 'image' | 'audio' | 'video' | 'document' | 'sticker';
+
+/**
+ * Qual tipo de mensagem a Meta aceita para o arquivo. Imagem só JPEG/PNG (webp é
+ * figurinha) e áudio só nos formatos da lista dela — o resto vai como documento, que
+ * aceita qualquer coisa, em vez de ser recusado.
+ */
+export function tipoMidiaMeta(mimetype: string): TipoMidiaMeta {
+  const m = (mimetype || '').split(';')[0].trim().toLowerCase();
+  if (m === 'image/jpeg' || m === 'image/png') return 'image';
+  if (['audio/aac', 'audio/amr', 'audio/mpeg', 'audio/mp4', 'audio/ogg'].includes(m)) return 'audio';
+  if (m === 'video/mp4' || m === 'video/3gpp') return 'video';
+  return 'document';
+}
+
+/** Sobe o arquivo para a Meta e devolve o id da mídia (vale 30 dias). */
+export async function uploadMedia(
+  arquivo: Buffer,
+  mimetype: string,
+  filename: string,
+  cred?: CredenciaisMeta
+): Promise<string> {
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', mimetype.split(';')[0].trim());
+  form.append('file', arquivo, { filename, contentType: mimetype.split(';')[0].trim() });
+  try {
+    const { data } = await axios.post(`${BASE_URL}/${phoneId(cred)}/media`, form, {
+      headers: { Authorization: `Bearer ${token(cred)}`, ...form.getHeaders() },
+      maxBodyLength: Infinity,
+      timeout: 120000,
+    });
+    return data.id;
+  } catch (err) {
+    throw erroMeta(err);
+  }
+}
+
+export async function sendMediaMessage(
+  { to, mediaId, tipo, filename, caption }: { to: string; mediaId: string; tipo: TipoMidiaMeta; filename?: string; caption?: string },
+  cred?: CredenciaisMeta
+) {
+  const objeto: any = { id: mediaId };
+  // Áudio e figurinha não aceitam legenda; documento leva o nome do arquivo no balão.
+  if (caption && tipo !== 'audio' && tipo !== 'sticker') objeto.caption = caption;
+  if (tipo === 'document' && filename) objeto.filename = filename;
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/${phoneId(cred)}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        ...destinatario(to),
+        type: tipo,
+        [tipo]: objeto,
+      },
+      { headers: getHeaders(cred), timeout: 30000 }
+    );
+    return data;
+  } catch (err) {
+    throw erroMeta(err);
+  }
+}
+
+/**
+ * Baixa a mídia de uma mensagem RECEBIDA. São duas chamadas: o id devolve uma URL
+ * temporária (5 min), e a URL só abre com o mesmo token no header.
+ */
+export async function baixarMidia(
+  mediaId: string,
+  cred?: CredenciaisMeta
+): Promise<{ buffer: Buffer; mimetype: string }> {
+  try {
+    const { data: meta } = await axios.get(`${BASE_URL}/${mediaId}`, {
+      params: { phone_number_id: phoneId(cred) },
+      headers: { Authorization: `Bearer ${token(cred)}` },
+      timeout: 15000,
+    });
+    const arquivo = await axios.get(meta.url, {
+      headers: { Authorization: `Bearer ${token(cred)}` },
+      responseType: 'arraybuffer',
+      timeout: 120000,
+      maxContentLength: 100 * 1024 * 1024,
+    });
+    return { buffer: Buffer.from(arquivo.data), mimetype: meta.mime_type || 'application/octet-stream' };
   } catch (err) {
     throw erroMeta(err);
   }
@@ -215,16 +408,19 @@ export interface TemplateMeta {
   language: string;
   components?: any[];
   rejected_reason?: string;
+  /** 'POSITIONAL' ({{1}}) ou 'NAMED' ({{primeiro_nome}}) — muda como os parâmetros vão no envio. */
+  parameter_format?: string;
 }
 
-export async function listarTemplates(limite = 50): Promise<TemplateMeta[]> {
+export async function listarTemplates(limite = 50, cred?: CredenciaisMeta): Promise<TemplateMeta[]> {
   try {
-    const { data } = await axios.get(`${BASE_URL}/${getWabaId()}/message_templates`, {
+    const { data } = await axios.get(`${BASE_URL}/${wabaId(cred)}/message_templates`, {
       params: {
-        fields: 'id,name,status,category,language,components,rejected_reason',
+        fields: 'id,name,status,category,language,components,rejected_reason,parameter_format',
         limit: limite,
-        access_token: getToken(),
+        access_token: token(cred),
       },
+      timeout: 15000,
     });
     return data.data ?? [];
   } catch (err) {
@@ -278,6 +474,99 @@ export async function criarTemplate(novo: NovoTemplate) {
       { headers: getHeaders() }
     );
     return data;
+  } catch (err) {
+    throw erroMeta(err);
+  }
+}
+
+// ============================================================
+// Perfil comercial do número (foto, sobre, descrição, contato)
+// ============================================================
+
+export interface PerfilComercial {
+  about?: string;
+  address?: string;
+  description?: string;
+  email?: string;
+  websites?: string[];
+  vertical?: string;
+  profile_picture_url?: string;
+}
+
+export async function lerPerfilComercial(cred?: CredenciaisMeta): Promise<PerfilComercial> {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/${phoneId(cred)}/whatsapp_business_profile`, {
+      params: {
+        fields: 'about,address,description,email,profile_picture_url,websites,vertical',
+        access_token: token(cred),
+      },
+      timeout: 15000,
+    });
+    return data?.data?.[0] ?? {};
+  } catch (err) {
+    throw erroMeta(err);
+  }
+}
+
+export async function atualizarPerfilComercial(
+  campos: Omit<PerfilComercial, 'profile_picture_url'> & { profile_picture_handle?: string },
+  cred?: CredenciaisMeta
+) {
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/${phoneId(cred)}/whatsapp_business_profile`,
+      { messaging_product: 'whatsapp', ...campos },
+      { headers: getHeaders(cred), timeout: 30000 }
+    );
+    return data;
+  } catch (err) {
+    throw erroMeta(err);
+  }
+}
+
+/** Id do app dono do token — a sessão de upload da foto é aberta nele. */
+async function appDoToken(cred?: CredenciaisMeta): Promise<string> {
+  const { data } = await axios.get(`${BASE_URL}/app`, {
+    params: { access_token: token(cred) },
+    timeout: 10000,
+  });
+  if (!data?.id) throw new Error('Não foi possível descobrir o app do token da Meta');
+  return data.id;
+}
+
+/**
+ * Troca a foto do perfil. A foto não vai pelo endpoint de mídia: vai pela Resumable
+ * Upload API (abre sessão em /{app}/uploads, sobe os bytes, recebe um handle) e o
+ * handle é gravado no perfil. Quadrada, JPEG/PNG, até 5 MB; 640×640 é o recomendado
+ * e fundo transparente vira PRETO no WhatsApp — mande com fundo.
+ */
+export async function trocarFotoPerfil(
+  imagem: Buffer,
+  mimetype: 'image/jpeg' | 'image/png',
+  cred?: CredenciaisMeta
+) {
+  try {
+    const app = await appDoToken(cred);
+    const { data: sessao } = await axios.post(`${BASE_URL}/${app}/uploads`, null, {
+      params: {
+        file_name: mimetype === 'image/png' ? 'perfil.png' : 'perfil.jpg',
+        file_length: imagem.length,
+        file_type: mimetype,
+        access_token: token(cred),
+      },
+      timeout: 15000,
+    });
+    const { data: enviado } = await axios.post(`${BASE_URL}/${sessao.id}`, imagem, {
+      headers: {
+        Authorization: `OAuth ${token(cred)}`,
+        file_offset: '0',
+        'Content-Type': 'application/octet-stream',
+      },
+      maxBodyLength: Infinity,
+      timeout: 60000,
+    });
+    if (!enviado?.h) throw new Error('A Meta não devolveu o handle da imagem enviada');
+    return atualizarPerfilComercial({ profile_picture_handle: enviado.h }, cred);
   } catch (err) {
     throw erroMeta(err);
   }

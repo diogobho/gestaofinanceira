@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { MessageSquare, CheckCircle, XCircle, RefreshCw, Send, AlertCircle, User, Cloud } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card } from '@/components/ui/Card';
@@ -13,6 +13,12 @@ import {
   WhatsAppUsuarioEmpresa,
 } from '@/api/whatsapp';
 import { useAuth } from '@/contexts/AuthContext';
+import { isAdminEmpresa } from '@/utils/roles'
+import { diagnosticarConexao, CORES_TOM, CORES_SELO } from './diagnosticoConexao';
+import { NumeroOficialPainel } from './NumeroOficialPainel';
+import { ConvitePlanoOficial } from './ConvitePlanoOficial';
+import { EscolhaDeCanal } from './EscolhaDeCanal';
+import { useCanalWhatsApp } from '@/hooks/useCanalWhatsApp';
 
 // ============================================================
 // Card individual de usuário (usado na visão master)
@@ -20,14 +26,28 @@ import { useAuth } from '@/contexts/AuthContext';
 interface UserCardProps {
   usuario: WhatsAppUsuarioEmpresa;
   isSelf: boolean;
+  /** Recarrega a lista quando o canal deste usuário muda. */
+  onMudou?: () => void;
 }
 
-const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
+const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf, onMudou }) => {
   const [status, setStatus] = useState<WhatsAppStatus | null>(null);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
-  const [qrCountdown, setQrCountdown] = useState(30);
+  const [qrCountdown, setQrCountdown] = useState(0);
+  // Qual QR já está na tela. Rebuscar a imagem a cada poll trocava o <img> sob o
+  // celular do usuário no meio da leitura, mesmo com o código idêntico.
+  const qrGeradoRef = useRef<string | null>(null);
+  const qrUrlRef    = useRef<string | null>(null);
+
+  const setQrUrlSeguro = useCallback((url: string | null) => {
+    if (qrUrlRef.current) URL.revokeObjectURL(qrUrlRef.current);
+    qrUrlRef.current = url;
+    setQrUrl(url);
+  }, []);
+
+  useEffect(() => () => { if (qrUrlRef.current) URL.revokeObjectURL(qrUrlRef.current); }, []);
 
   const fetchQRImage = useCallback(async () => {
     try {
@@ -38,14 +58,14 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
       );
       if (response.ok) {
         const blob = await response.blob();
-        setQrUrl(URL.createObjectURL(blob));
+        setQrUrlSeguro(URL.createObjectURL(blob));
       } else {
-        setQrUrl(null);
+        setQrUrlSeguro(null);
       }
     } catch {
-      setQrUrl(null);
+      setQrUrlSeguro(null);
     }
-  }, [usuario.id]);
+  }, [usuario.id, setQrUrlSeguro]);
 
   const fetchStatus = useCallback(async () => {
     if (!usuario.configurado) return;
@@ -54,17 +74,25 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
       const s = await whatsappApi.getUsuarioStatus(usuario.id);
       setStatus(s);
       if (s.hasQrCode && s.status === 'disconnected') {
-        await fetchQRImage();
+        const marca = s.qrGeradoEm ?? null;
+        // Só baixa a imagem quando o código realmente mudou.
+        if (marca === null || marca !== qrGeradoRef.current || !qrUrlRef.current) {
+          qrGeradoRef.current = marca;
+          await fetchQRImage();
+        }
+        setQrCountdown(s.qrExpiraEm ?? 0);
       } else {
-        setQrUrl(null);
+        qrGeradoRef.current = null;
+        setQrUrlSeguro(null);
       }
     } catch {
       setStatus(null);
-      setQrUrl(null);
+      qrGeradoRef.current = null;
+      setQrUrlSeguro(null);
     } finally {
       setLoadingStatus(false);
     }
-  }, [usuario.id, usuario.configurado, fetchQRImage]);
+  }, [usuario.id, usuario.configurado, fetchQRImage, setQrUrlSeguro]);
 
   useEffect(() => {
     fetchStatus();
@@ -73,24 +101,41 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
-  // Contador regressivo do QR Code — reseta quando qrUrl muda
+  // Contador regressivo do QR. O valor vem da instância (qrExpiraEm) e aqui só
+  // desce de 1 em 1 — o poll de 5s o corrige. Antes era um 30 fixo que não tinha
+  // relação nenhuma com a vida real do código.
   useEffect(() => {
-    if (!qrUrl) { setQrCountdown(30); return; }
-    setQrCountdown(30);
+    if (!qrUrl) return;
     const tick = setInterval(() => {
-      setQrCountdown(prev => (prev <= 1 ? 30 : prev - 1));
+      setQrCountdown(prev => (prev <= 0 ? 0 : prev - 1));
     }, 1000);
     return () => clearInterval(tick);
   }, [qrUrl]);
 
-  const handleDisconnect = async () => {
-    if (!confirm('Deseja forçar a reconexão? O WhatsApp será desconectado e um novo QR Code será gerado.')) return;
+  // Reconectar sem trocar de número. Vale para chip recusado/bloqueado que já
+  // voltou: não apaga sessão nenhuma, só manda tentar agora em vez de esperar a
+  // sonda automática.
+  const handleReconectar = async () => {
     try {
       setDisconnecting(true);
-      await whatsappApi.disconnectUsuario(usuario.id);
+      await whatsappApi.reconectarUsuario(usuario.id, false);
+      setTimeout(fetchStatus, 3000);
+    } catch {
+      // silent
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  // Apaga a sessão e emite QR novo — o caminho de troca de chip.
+  const handleNovoNumero = async () => {
+    if (!confirm(`Isso desconecta o número atual de ${usuario.nome} e gera um QR Code novo para conectar outro chip. Continuar?`)) return;
+    try {
+      setDisconnecting(true);
+      await whatsappApi.reconectarUsuario(usuario.id, true);
       setStatus(null);
-      setQrUrl(null);
-      // Aguardar um momento e então buscar status novamente
+      setQrUrlSeguro(null);
+      qrGeradoRef.current = null;
       setTimeout(fetchStatus, 3000);
     } catch {
       // silent
@@ -100,6 +145,7 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
   };
 
   const isConnected = status?.status === 'connected';
+  const diag = usuario.configurado ? diagnosticarConexao(status, { temQr: !!qrUrl }) : null;
 
   return (
     <div data-tour="wa-card" className={`rounded-xl border-2 p-5 bg-white ${isSelf ? 'border-primary-400' : 'border-gray-200'}`}>
@@ -123,12 +169,14 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
         </div>
 
         <div className="flex items-center gap-1.5">
+          {/* O selo era só Online/Offline: "Offline" tanto para quem espera QR
+              quanto para chip bloqueado. Agora ele nomeia o estado real. */}
           {!usuario.configurado ? (
             <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">Não configurado</span>
-          ) : isConnected ? (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700 font-medium">Online</span>
           ) : (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-600 font-medium">Offline</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${CORES_SELO[diag!.tom]}`}>
+              {diag!.selo}
+            </span>
           )}
           {usuario.configurado && (
             <button
@@ -143,12 +191,19 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
         </div>
       </div>
 
-      {/* Sem configuração */}
+      {/* Sem canal ainda */}
       {!usuario.configurado && (
-        <div className="text-center py-3 text-xs text-gray-400">
-          <AlertCircle size={20} className="mx-auto mb-1 text-yellow-400" />
-          WhatsApp não configurado para este usuário
-        </div>
+        usuario.podeOficial ? (
+          // Empresa com direito ao número oficial: não é falha de configuração, é
+          // escolha pendente. Oferecer o QR calado aqui entregaria justamente o
+          // canal que o plano dela existe para não usar.
+          <EscolhaDeCanal usuarioId={usuario.id} onMudou={onMudou} compacto />
+        ) : (
+          <div className="text-center py-3 text-xs text-gray-400">
+            <AlertCircle size={20} className="mx-auto mb-1 text-yellow-400" />
+            WhatsApp não configurado para este usuário
+          </div>
+        )
       )}
 
       {/* Conectado */}
@@ -159,12 +214,12 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
             WhatsApp conectado e ativo
           </div>
           <button
-            onClick={handleDisconnect}
+            onClick={handleNovoNumero}
             disabled={disconnecting}
             className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg border border-gray-200 transition-colors"
           >
             <RefreshCw size={12} className={disconnecting ? 'animate-spin' : ''} />
-            {disconnecting ? 'Desconectando...' : 'Forçar Reconexão'}
+            {disconnecting ? 'Desconectando...' : 'Conectar outro número'}
           </button>
         </div>
       )}
@@ -179,37 +234,55 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
               className="w-56 h-56"
               onError={() => setTimeout(fetchStatus, 2000)}
             />
-            {qrCountdown <= 5 && (
+            {qrCountdown > 0 && qrCountdown <= 5 && (
               <div className="absolute inset-0 bg-white/70 flex items-center justify-center rounded-lg">
                 <span className="text-sm font-bold text-orange-600">Atualizando QR...</span>
               </div>
             )}
           </div>
           <p className="text-xs text-gray-400 mt-1 text-center">
-            ⏰ Expira em {qrCountdown}s — escaneie com o WhatsApp
+            ⏰ {qrCountdown > 0 ? `Expira em ${qrCountdown}s` : 'Gerando novo código'} — escaneie com o WhatsApp
           </p>
           <p className="text-xs text-blue-500 mt-0.5 text-center">O QR é atualizado automaticamente</p>
         </div>
       )}
 
-      {/* Aguardando QR */}
-      {usuario.configurado && !isConnected && !qrUrl && (
-        <div className="flex items-center gap-2 py-2 text-xs text-gray-500">
-          <XCircle size={14} className="text-red-400 flex-shrink-0" />
-          Desconectado — aguardando QR Code...
-        </div>
-      )}
-
-      {/* Aviso de ban / motivo da última desconexão */}
-      {status?.banido && (
-        <div className="flex items-start gap-2 mt-1 p-2 rounded-md bg-red-50 dark:bg-red-900/20 text-xs text-red-700 dark:text-red-300">
-          <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
-          <span><strong>Número bloqueado pela Meta.</strong> A reconexão automática foi suspensa — troque o chip ou reconecte com um novo número.</span>
-        </div>
-      )}
-      {!status?.banido && !isConnected && status?.lastDisconnect && status.lastDisconnect.categoria !== 'rede' && (
-        <div className="mt-1 text-[11px] text-gray-400">
-          Última queda: {status.lastDisconnect.motivo}
+      {/* Diagnóstico: um texto por estado, com a ação que resolve cada um.
+          Antes eram duas caixas independentes ("aguardando QR Code..." e o aviso
+          fixo de ban) que apareciam juntas e se contradiziam. */}
+      {usuario.configurado && !isConnected && diag && (
+        <div className={`mt-1 p-2 rounded-md text-xs ${CORES_TOM[diag.tom]}`}>
+          <div className="flex items-start gap-2">
+            {diag.tom === 'grave' || diag.tom === 'atencao'
+              ? <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+              : <XCircle size={14} className="flex-shrink-0 mt-0.5 opacity-70" />}
+            <div className="min-w-0">
+              <p><strong>{diag.titulo}</strong> {diag.descricao}</p>
+              {diag.detalhe && <p className="mt-0.5 opacity-80">{diag.detalhe}</p>}
+            </div>
+          </div>
+          {(diag.acoes.includes('reconectar') || diag.acoes.includes('novo_numero')) && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {diag.acoes.includes('reconectar') && (
+                <button
+                  onClick={handleReconectar}
+                  disabled={disconnecting}
+                  className="px-2 py-1 rounded border border-current/30 hover:bg-black/5 dark:hover:bg-white/10 font-medium"
+                >
+                  {disconnecting ? 'Tentando...' : 'Tentar agora'}
+                </button>
+              )}
+              {diag.acoes.includes('novo_numero') && (
+                <button
+                  onClick={handleNovoNumero}
+                  disabled={disconnecting}
+                  className="px-2 py-1 rounded border border-current/30 hover:bg-black/5 dark:hover:bg-white/10 font-medium"
+                >
+                  Conectar outro número
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -219,15 +292,46 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf }) => {
 // ============================================================
 // Página principal
 // ============================================================
+/**
+ * Empresa no número oficial (Cloud API) não tem QR Code nem chip por usuário: a
+ * página mostra o número da Meta. As demais seguem na tela de conexão por QR.
+ */
 export const WhatsAppConfig: React.FC = () => {
+  const { data: canal, isLoading } = useCanalWhatsApp();
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+  if (canal?.provedor === 'cloud_api') return <NumeroOficialPainel canal={canal} />;
+
+  // Enterprise ainda no QR: a faixa explica o que ele comprou e como ativar. Ela
+  // não substitui a tela — o QR continua valendo, e continuará, porque grupo e
+  // sincronização de contatos não existem na Cloud API.
+  return (
+    <>
+      <ConvitePlanoOficial />
+      <WhatsAppConfigQr />
+    </>
+  );
+};
+
+const WhatsAppConfigQr: React.FC = () => {
   const { user } = useAuth();
-  const isMaster = user?.tipo_usuario === 'master';
+  const isMaster = isAdminEmpresa(user);
 
   // ---- Estado para visão de usuário comum ----
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<WhatsAppConfigType | null>(null);
   const [status, setStatus] = useState<WhatsAppStatus | null>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [qrExpiraEm, setQrExpiraEm] = useState(0);
+  // Mesma regra do UserCard: trocar a imagem a cada poll de 5s atrapalhava a
+  // leitura; o QR só é rebaixado quando a instância emite um código novo.
+  const qrGeradoRef = useRef<string | null>(null);
+  const qrObjUrlRef = useRef<string | null>(null);
   const [testNumber, setTestNumber] = useState('');
   const [testLoading, setTestLoading] = useState(false);
   const [testSuccess, setTestSuccess] = useState(false);
@@ -288,14 +392,35 @@ export const WhatsAppConfig: React.FC = () => {
       const statusData = await whatsappApi.getStatus();
       setStatus(statusData);
       if (statusData.hasQrCode && statusData.status === 'disconnected') {
-        await loadQRImage();
+        const marca = statusData.qrGeradoEm ?? null;
+        if (marca === null || marca !== qrGeradoRef.current || !qrObjUrlRef.current) {
+          qrGeradoRef.current = marca;
+          await loadQRImage();
+        }
+        setQrExpiraEm(statusData.qrExpiraEm ?? 0);
       } else {
-        setQrCodeUrl(null);
+        qrGeradoRef.current = null;
+        aplicarQrUrl(null);
       }
     } catch (err: any) {
       console.error('Erro ao carregar status:', err);
     }
   };
+
+  const aplicarQrUrl = (url: string | null) => {
+    if (qrObjUrlRef.current) URL.revokeObjectURL(qrObjUrlRef.current);
+    qrObjUrlRef.current = url;
+    setQrCodeUrl(url);
+  };
+
+  useEffect(() => () => { if (qrObjUrlRef.current) URL.revokeObjectURL(qrObjUrlRef.current); }, []);
+
+  // Desconta o tempo do QR entre um poll e outro.
+  useEffect(() => {
+    if (!qrCodeUrl) return;
+    const tick = setInterval(() => setQrExpiraEm(prev => (prev <= 0 ? 0 : prev - 1)), 1000);
+    return () => clearInterval(tick);
+  }, [qrCodeUrl]);
 
   const loadQRImage = async () => {
     try {
@@ -305,25 +430,42 @@ export const WhatsAppConfig: React.FC = () => {
       });
       if (response.ok) {
         const blob = await response.blob();
-        setQrCodeUrl(URL.createObjectURL(blob));
+        aplicarQrUrl(URL.createObjectURL(blob));
       } else {
-        setQrCodeUrl(null);
+        aplicarQrUrl(null);
       }
     } catch {
-      setQrCodeUrl(null);
+      aplicarQrUrl(null);
     }
   };
 
-  const handleDisconnect = async () => {
-    if (!confirm('Deseja forçar a reconexão? O WhatsApp será desconectado e um novo QR Code será gerado.')) return;
+  // Tentar agora, com o MESMO número. É a saída de quem teve o chip liberado
+  // pela Meta e não quer esperar a sonda automática — antes disso só existia
+  // reiniciar o processo no servidor.
+  const handleReconectar = async () => {
     try {
       setDisconnecting(true);
-      await whatsappApi.disconnect();
-      setStatus(null);
-      setQrCodeUrl(null);
+      await whatsappApi.reconectar(false);
       setTimeout(loadStatus, 3000);
     } catch (err: any) {
-      alert('Erro ao desconectar: ' + err.message);
+      alert('Não foi possível pedir a reconexão: ' + err.message);
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  // Apaga a sessão e emite QR novo — troca de chip.
+  const handleNovoNumero = async () => {
+    if (!confirm('Isso desconecta o número atual e gera um QR Code novo para conectar outro número. Continuar?')) return;
+    try {
+      setDisconnecting(true);
+      await whatsappApi.reconectar(true);
+      setStatus(null);
+      qrGeradoRef.current = null;
+      aplicarQrUrl(null);
+      setTimeout(loadStatus, 3000);
+    } catch (err: any) {
+      alert('Erro ao trocar de número: ' + err.message);
     } finally {
       setDisconnecting(false);
     }
@@ -396,7 +538,7 @@ export const WhatsAppConfig: React.FC = () => {
         ) : (
           <div className="grid md:grid-cols-2 gap-4">
             {usuariosEmpresa.map((u) => (
-              <UserCard key={u.id} usuario={u} isSelf={u.id === Number(user?.id)} />
+              <UserCard key={u.id} usuario={u} isSelf={u.id === Number(user?.id)} onMudou={loadEmpresaUsuarios} />
             ))}
           </div>
         )}
@@ -428,6 +570,15 @@ export const WhatsAppConfig: React.FC = () => {
           </p>
         </div>
 
+        {/* Direito ao número oficial e ainda sem canal: é escolha, não falha. */}
+        {config?.aguardandoEscolhaDeCanal ? (
+          <Card className="p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
+              Escolha o canal do seu WhatsApp
+            </h3>
+            <EscolhaDeCanal onMudou={loadConfig} />
+          </Card>
+        ) : (
         <Card className="p-6">
           <div className="text-center py-8">
             <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
@@ -448,11 +599,13 @@ export const WhatsAppConfig: React.FC = () => {
             </div>
           </div>
         </Card>
+        )}
       </div>
     );
   }
 
   const isConnected = status?.status === 'connected';
+  const diag = diagnosticarConexao(status, { temQr: !!qrCodeUrl });
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -507,33 +660,47 @@ export const WhatsAppConfig: React.FC = () => {
                   Online
                 </div>
                 <button
-                  onClick={handleDisconnect}
+                  onClick={handleNovoNumero}
                   disabled={disconnecting}
                   className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-600 transition-colors"
                 >
                   <RefreshCw size={11} className={disconnecting ? 'animate-spin' : ''} />
-                  {disconnecting ? 'Desconectando...' : 'Forçar reconexão'}
+                  {disconnecting ? 'Desconectando...' : 'Conectar outro número'}
                 </button>
               </div>
             </>
           ) : (
             <>
-              <XCircle className="w-12 h-12 text-red-500" />
+              {/* Um estado, um texto, uma ação — ver diagnosticoConexao.ts. O
+                  painel antigo tinha duas frases só: "Escaneie o QR Code abaixo"
+                  (mesmo quando não havia QR nenhum) e o aviso de banido, que
+                  mandava trocar de chip sem oferecer como. */}
+              {diag.tom === 'grave' || diag.tom === 'atencao'
+                ? <AlertCircle className={`w-12 h-12 flex-shrink-0 ${diag.tom === 'grave' ? 'text-red-500' : 'text-amber-500'}`} />
+                : <XCircle className="w-12 h-12 text-gray-400 flex-shrink-0" />}
               <div className="flex-1">
-                <p className="font-semibold text-gray-900">
-                  {status?.banido ? 'Número bloqueado pela Meta' : 'WhatsApp Desconectado'}
-                </p>
-                <p className="text-sm text-gray-600">
-                  {status?.banido
-                    ? 'A reconexão automática foi suspensa. Troque o chip ou conecte um novo número.'
-                    : 'Escaneie o QR Code abaixo para conectar'}
-                </p>
-                {!status?.banido && status?.lastDisconnect && status.lastDisconnect.categoria !== 'rede' && (
-                  <p className="text-xs text-gray-400 mt-0.5">Última queda: {status.lastDisconnect.motivo}</p>
+                <p className="font-semibold text-gray-900">{diag.titulo}</p>
+                <p className="text-sm text-gray-600">{diag.descricao}</p>
+                {diag.detalhe && <p className="text-xs text-gray-500 mt-0.5">{diag.detalhe}</p>}
+                {(diag.acoes.includes('reconectar') || diag.acoes.includes('novo_numero')) && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {diag.acoes.includes('reconectar') && (
+                      <Button variant="outline" size="sm" disabled={disconnecting} onClick={handleReconectar}
+                        className="flex items-center gap-1.5">
+                        <RefreshCw size={12} className={disconnecting ? 'animate-spin' : ''} />
+                        {disconnecting ? 'Tentando...' : 'Tentar agora'}
+                      </Button>
+                    )}
+                    {diag.acoes.includes('novo_numero') && (
+                      <Button variant="outline" size="sm" disabled={disconnecting} onClick={handleNovoNumero}>
+                        Conectar outro número
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
-              <div className={`px-4 py-2 rounded-lg text-sm font-medium ${status?.banido ? 'bg-red-600 text-white' : 'bg-red-100 text-red-700'}`}>
-                {status?.banido ? 'Banido' : 'Offline'}
+              <div className={`px-4 py-2 rounded-lg text-sm font-medium ${CORES_SELO[diag.tom]}`}>
+                {diag.selo}
               </div>
             </>
           )}
@@ -556,7 +723,7 @@ export const WhatsAppConfig: React.FC = () => {
                 />
               </div>
               <p className="text-xs text-gray-500 text-center mt-2">
-                ⏰ O QR Code expira em ~30 segundos
+                ⏰ {qrExpiraEm > 0 ? `Expira em ${qrExpiraEm}s` : 'Gerando novo código...'}
               </p>
             </div>
 
