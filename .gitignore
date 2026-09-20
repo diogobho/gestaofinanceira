@@ -76,3 +76,33 @@ ecosystem.config.js
 # Relatórios e extrações com dados pessoais de clientes (LGPD) — nunca versionar
 relatorios/
 api/relatorios/
+
+# Prints colados na documentação — 10 MB de PNG que o sistema não lê.
+# O texto em Markdown vai versionado; a imagem que o ilustra, não: print de tela
+# envelhece mais rápido que o texto e infla o repositório para sempre (git guarda
+# cada versão do binário inteiro).
+docs/images/
+# ...menos as 8 telas que o README exibe: elas JÁ estão versionadas, e regra de
+# ignore não desrastreia nada — sem estas linhas ficariam oito arquivos sob uma
+# pasta ignorada, que é o pior dos dois mundos.
+!docs/images/agente-ia.png
+!docs/images/clientes.png
+!docs/images/crm-dashboard.png
+!docs/images/crm-funil.png
+!docs/images/dashboard.png
+!docs/images/parcelas.png
+!docs/images/receitas.png
+!docs/images/whatsapp.png
+docs/bug/
+docs/joao/
+docs/assets/
+docs/*.pdf
+docs/*.xlsx
+
+# Extrações usadas por script de correção: têm telefone e id de mensagem de
+# cliente (LGPD). O SCRIPT é versionado; os dados dele ficam só no servidor.
+api/scripts/dados/
+api/scripts/*.csv
+
+# NÃO ignorar frontend/public/{avatar,signature} nem src/assets: são 190 KB de
+# SVG/PNG que a aplicação carrega em tela. Sem eles o Duo e a assinatura somem.
