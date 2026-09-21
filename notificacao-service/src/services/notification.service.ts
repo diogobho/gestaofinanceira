@@ -1,5 +1,5 @@
 import { query } from '../config/database';
-import { sendEmail, createPaymentOverdueEmail, createPaymentReminderEmail } from './email.service';
+import { sendEmail, smtpDoUsuario, createPaymentOverdueEmail, createPaymentReminderEmail } from './email.service';
 
 interface ClienteVencido {
   id: number;
@@ -34,6 +34,12 @@ const processarNotificacaoPreventiva = async (cliente: any): Promise<string> => 
       return 'pulado';
     }
 
+    const smtp = await smtpDoUsuario(cliente.usuario_id);
+    if (!smtp) {
+      console.log('   ⏭️  Empresa sem e-mail próprio configurado. Não enviado.');
+      return 'pulado';
+    }
+
     const assunto = `🔔 Lembrete: Pagamento vence amanhã`;
     const html = createPaymentReminderEmail(cliente.nome, cliente.valor_mensalidade);
 
@@ -41,7 +47,7 @@ const processarNotificacaoPreventiva = async (cliente: any): Promise<string> => 
       to: cliente.email,
       subject: assunto,
       html: html
-    });
+    }, smtp);
 
     await query(`
       INSERT INTO notificacoes_enviadas (
@@ -92,6 +98,12 @@ const processarNotificacaoVencido = async (cliente: ClienteVencido): Promise<str
       return 'pulado';
     }
 
+    const smtp = await smtpDoUsuario(cliente.usuario_id);
+    if (!smtp) {
+      console.log('   ⏭️  Empresa sem e-mail próprio configurado. Não enviado.');
+      return 'pulado';
+    }
+
     const assunto = `⚠️ Pagamento Vencido - ${cliente.dias_atraso} dia(s) de atraso`;
     const html = createPaymentOverdueEmail(
       cliente.nome,
@@ -103,7 +115,7 @@ const processarNotificacaoVencido = async (cliente: ClienteVencido): Promise<str
       to: cliente.email,
       subject: assunto,
       html: html
-    });
+    }, smtp);
 
     await query(`
       INSERT INTO notificacoes_enviadas (

@@ -1,13 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   X, Mail, ChevronRight, ChevronLeft, AlertCircle, CheckCircle,
   Loader2, Users, Eye, Search, Pen, Paperclip, FileText, Trash2,
   ArrowRight, Calendar
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import api from '@/api/client'
 import { estagiosApi } from '@/api/crm'
 import type { FiltrosLead } from '@/api/crm'
 import type { EstagioFunil } from '@/types/crm'
+import { useAuth } from '@/contexts/AuthContext'
+import { gerarAssinaturaPadrao, montarEmailComAssinatura } from '@/utils/assinaturaEmail'
 import EmailEditor from './EmailEditor'
 
 interface LeadEmail {
@@ -55,82 +58,36 @@ function aplicarPreview(template: string, lead: LeadEmail): string {
     .replace(/\[Email\]/gi, lead.email || '')
 }
 
-const SIGNATURE_STORAGE_KEY = 'crm_email_signature_v3'
-
-const SIG_BASE = 'https://duofuturo.tech/gestao/signature'
-
-const DEFAULT_SIGNATURE = `<table cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:520px;font-family:Arial,sans-serif;color:#333;">
-  <tr>
-    <td style="padding:24px 0 18px;">
-      <table cellpadding="0" cellspacing="0" border="0">
-        <tr>
-          <td style="padding-right:24px;vertical-align:middle;">
-            <img src="${SIG_BASE}/logo.svg" width="92" height="110" alt="Instituto Totem" style="display:block;" />
-          </td>
-          <td style="vertical-align:middle;">
-            <p style="margin:0;font-size:20px;letter-spacing:5px;font-weight:300;color:#1a1a1a;font-family:Georgia,Times New Roman,serif;text-transform:uppercase;line-height:1.1;">INSTITUTO TOTEM</p>
-            <p style="margin:6px 0 0;font-size:8px;letter-spacing:2.5px;color:#999;text-transform:uppercase;font-family:Arial,sans-serif;">ENTRE EM CONTATO CONOSCO</p>
-            <p style="margin:10px 0 0;font-size:12px;color:#555;font-family:Arial,sans-serif;">&#9993;&nbsp;<a href="mailto:suporte@escolapanthers.com.br" style="color:#555;text-decoration:none;">suporte@escolapanthers.com.br</a></p>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-  <tr><td style="height:1px;background-color:#e0e0e0;font-size:0;line-height:0;padding:0;">&nbsp;</td></tr>
-  <tr>
-    <td style="padding:18px 0 14px;text-align:center;">
-      <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
-        <tr>
-          <td style="padding:0 5px;">
-            <a href="mailto:suporte@escolapanthers.com.br" title="E-mail" style="display:inline-block;text-decoration:none;">
-              <img src="${SIG_BASE}/icon-email.svg" width="42" height="42" alt="E-mail" style="display:block;" />
-            </a>
-          </td>
-          <td style="padding:0 5px;">
-            <a href="https://escolapanthers.com.br/permitido-prosperar/?utm_source=email" title="WhatsApp" style="display:inline-block;text-decoration:none;">
-              <img src="${SIG_BASE}/icon-whatsapp.svg" width="42" height="42" alt="WhatsApp" style="display:block;" />
-            </a>
-          </td>
-          <td style="padding:0 5px;">
-            <a href="https://www.instagram.com/sabrinabogiani" title="Instagram" style="display:inline-block;text-decoration:none;">
-              <img src="${SIG_BASE}/icon-instagram.svg" width="42" height="42" alt="Instagram" style="display:block;" />
-            </a>
-          </td>
-          <td style="padding:0 5px;">
-            <a href="https://www.youtube.com/@sabrinabogiani" title="YouTube" style="display:inline-block;text-decoration:none;">
-              <img src="${SIG_BASE}/icon-youtube.svg" width="42" height="42" alt="YouTube" style="display:block;" />
-            </a>
-          </td>
-          <td style="padding:0 5px;">
-            <a href="https://www.tiktok.com/@sabrinabogiani" title="TikTok" style="display:inline-block;text-decoration:none;">
-              <img src="${SIG_BASE}/icon-tiktok.svg" width="42" height="42" alt="TikTok" style="display:block;" />
-            </a>
-          </td>
-          <td style="padding:0 5px;">
-            <a href="https://open.spotify.com/user/3163332z5ysohitmiph43x4z7ure?si=58cc6565fef942f0" title="Spotify" style="display:inline-block;text-decoration:none;">
-              <img src="${SIG_BASE}/icon-spotify.svg" width="42" height="42" alt="Spotify" style="display:block;" />
-            </a>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-  <tr>
-    <td style="padding:10px 0 4px;font-size:10px;color:#bbb;text-align:center;line-height:1.8;border-top:1px solid #eeeeee;font-family:Arial,sans-serif;">
-      Panthers Empreendedorismo, Rua Principe Humberto, 112 Sala 44 Edif&iacute;cio Vancouver<br>
-      S&atilde;o Bernardo do Campo - SP, 09.725-200, Brasil
-    </td>
-  </tr>
-</table>`
+// Rascunho local da assinatura deste disparo. A assinatura "de verdade" mora no
+// perfil do usuário (usuarios.assinatura_email, editável em /perfil) — aqui só
+// guardamos o ajuste feito na hora, para não perder ao fechar o modal.
+const SIGNATURE_DRAFT_KEY = 'crm_email_signature_draft'
 
 export default function DisparoEmailModal({ isOpen, onClose, funilId, filtros }: DisparoEmailModalProps) {
   const [step, setStep] = useState<Step>('destinatarios')
   const [modo, setModo] = useState<Modo>('todos')
   const [assunto, setAssunto] = useState('')
   const [corpo, setCorpo] = useState('')
-  const [assinatura, setAssinatura] = useState<string>(
-    () => localStorage.getItem(SIGNATURE_STORAGE_KEY) ?? DEFAULT_SIGNATURE
+  const { user } = useAuth()
+  // Assinatura do usuário logado (perfil) → rascunho local → padrão da empresa.
+  const assinaturaPerfil = useMemo(
+    () => user?.assinatura_email || gerarAssinaturaPadrao({
+      nomeUsuario: user?.nome,
+      emailUsuario: user?.email,
+      empresa: user?.empresa,
+    }),
+    [user?.assinatura_email, user?.nome, user?.email, user?.empresa]
   )
+  const [assinatura, setAssinatura] = useState<string>(
+    () => localStorage.getItem(SIGNATURE_DRAFT_KEY) ?? ''
+  )
+  const [assinaturaEditada, setAssinaturaEditada] = useState(
+    () => localStorage.getItem(SIGNATURE_DRAFT_KEY) !== null
+  )
+  // Sem rascunho local, acompanha o perfil (que pode chegar depois, via /auth/me)
+  useEffect(() => {
+    if (!assinaturaEditada) setAssinatura(assinaturaPerfil)
+  }, [assinaturaPerfil, assinaturaEditada])
   const [mostrarAssinatura, setMostrarAssinatura] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -273,11 +230,8 @@ export default function DisparoEmailModal({ isOpen, onClose, funilId, filtros }:
     }
   }
 
-  const buildEmailHtml = (template: string): string => {
-    if (!assinatura.trim()) return template
-    const sep = '<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;" />'
-    return `${template}${sep}${assinatura}`
-  }
+  const buildEmailHtml = (template: string): string =>
+    montarEmailComAssinatura(template, assinatura)
 
   const handleDisparar = async () => {
     const totalSel = modo === 'todos' ? total : selectedIds.size
@@ -695,13 +649,16 @@ export default function DisparoEmailModal({ isOpen, onClose, funilId, filtros }:
                 {mostrarAssinatura && (
                   <div className="p-3 space-y-3 border-t border-gray-200">
                     <p className="text-xs text-gray-500">
-                      A assinatura é adicionada automaticamente ao final de todos os e-mails. Edite o HTML abaixo.
+                      Vem da sua assinatura em{' '}
+                      <Link to="/perfil" className="text-blue-600 hover:underline">Meu Perfil</Link>
+                      {' '}e é adicionada ao final de todos os e-mails. Editar aqui vale só para este disparo.
                     </p>
                     <textarea
                       value={assinatura}
                       onChange={e => {
                         setAssinatura(e.target.value)
-                        localStorage.setItem(SIGNATURE_STORAGE_KEY, e.target.value)
+                        setAssinaturaEditada(true)
+                        localStorage.setItem(SIGNATURE_DRAFT_KEY, e.target.value)
                       }}
                       rows={6}
                       className="w-full text-xs font-mono border border-gray-200 rounded p-2 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
@@ -716,16 +673,19 @@ export default function DisparoEmailModal({ isOpen, onClose, funilId, filtros }:
                         />
                       </div>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAssinatura(DEFAULT_SIGNATURE)
-                        localStorage.setItem(SIGNATURE_STORAGE_KEY, DEFAULT_SIGNATURE)
-                      }}
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      Restaurar assinatura padrão
-                    </button>
+                    {assinaturaEditada && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          localStorage.removeItem(SIGNATURE_DRAFT_KEY)
+                          setAssinaturaEditada(false)
+                          setAssinatura(assinaturaPerfil)
+                        }}
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        Voltar para a assinatura do meu perfil
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

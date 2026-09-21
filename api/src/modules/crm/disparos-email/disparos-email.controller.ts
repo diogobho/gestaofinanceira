@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../../../middlewares/auth.middleware';
 import { disparosEmailService } from './disparos-email.service';
+import { ERRO_SEM_SMTP } from '../../../services/email.service';
 
 export const disparosEmailController = {
   async listarLeads(req: AuthRequest, res: Response) {
@@ -75,7 +76,7 @@ export const disparosEmailController = {
 
       res.json({ disparo_id: disparoId });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.message === ERRO_SEM_SMTP ? 400 : 500).json({ error: err.message });
     }
   },
 

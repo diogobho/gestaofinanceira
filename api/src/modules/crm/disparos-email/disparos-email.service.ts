@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { query } from '../../../config/database';
-import { enviarEmail, EmailAnexo } from '../../../services/email.service';
+import { enviarEmail, EmailAnexo, SmtpCredentials, ERRO_SEM_SMTP } from '../../../services/email.service';
 import { configuracoesSmtpService } from '../../configuracoes-smtp/configuracoes-smtp.service';
 import { leadsService } from '../leads/leads.service';
 import { _tarefaFiltroSQL, FiltrosTarefa } from '../disparos/disparos.service';
@@ -104,7 +104,7 @@ async function _processarEnviosEmail(
   assunto: string,
   template: string,
   estagioPosDeparoId: number | undefined,
-  smtp: any,
+  smtp: SmtpCredentials,
   anexos?: EmailAnexo[]
 ): Promise<void> {
   let enviados = 0;
@@ -129,14 +129,7 @@ async function _processarEnviosEmail(
         lead.email,
         assuntoFinal,
         htmlFinal,
-        smtp ? {
-          smtp_host: smtp.smtp_host,
-          smtp_port: smtp.smtp_port,
-          smtp_user: smtp.smtp_user,
-          smtp_pass: smtp.smtp_pass!,
-          email_from: smtp.email_from,
-          email_from_name: smtp.email_from_name,
-        } : undefined,
+        smtp,
         anexos
       );
 
@@ -154,25 +147,28 @@ async function _processarEnviosEmail(
         'disparo_email'
       );
 
+      // Mesmo motivo do disparo de WhatsApp: o UPDATE cru que havia aqui movia o lead
+      // sem encerrar a cadência do estágio anterior nem iniciar a do destino. Aqui era
+      // ainda mais solto — nem comparava se o estágio já era o de destino, o que o
+      // moverPorAutomacao resolve relendo o estágio atual do banco.
+      // Atenção ao configurar: um disparo de e-mail para milhares de leads passa a
+      // iniciar a cadência de TODOS eles se o estágio de destino tiver follow-up ativo.
       if (estagioPosDeparoId) {
-        await query(
-          `UPDATE leads SET estagio_id = $1, data_ultimo_contato = NOW() WHERE id = $2`,
-          [estagioPosDeparoId, lead.id]
-        );
-        await query(
-          `INSERT INTO atividades_lead (lead_id, usuario_id, empresa_id, tipo, descricao, dados)
-           VALUES ($1, $2, $3, 'mudanca_estagio', $4, $5::jsonb)`,
-          [
-            lead.id, usuarioId, empresaId,
+        try {
+          await leadsService.moverPorAutomacao(
+            lead.id, empresaId, usuarioId, estagioPosDeparoId,
             `Movido automaticamente após disparo de e-mail`,
-            JSON.stringify({
-              automatico: true,
+            {
               trigger: 'pos_disparo_email',
               disparo_id: disparoId,
-              novo_estagio_id: estagioPosDeparoId,
-            }),
-          ]
-        );
+            }
+          );
+        } catch (movErr: any) {
+          console.error(
+            `[DisparoEmail] #${disparoId} lead #${lead.id}: e-mail enviado, mas falhou ao mover ` +
+            `para o estágio pós-disparo #${estagioPosDeparoId}: ${movErr.message}`
+          );
+        }
       }
 
       enviados++;
@@ -287,6 +283,10 @@ export const disparosEmailService = {
 
     const agendado = dto.agendado_para && new Date(dto.agendado_para) > new Date();
 
+    // Sem o e-mail da própria empresa não há disparo — nem agendado.
+    const smtp = await configuracoesSmtpService.credenciaisDaEmpresa(empresaId);
+    if (!smtp) throw new Error(ERRO_SEM_SMTP);
+
     const total = leads.length;
 
     const configuracaoJson = {
@@ -333,8 +333,6 @@ export const disparosEmailService = {
       return disparoId;
     }
 
-    const smtp = await configuracoesSmtpService.getDecrypted(empresaId);
-
     setImmediate(async () => {
       await _processarEnviosEmail(
         disparoId, empresaId, usuarioId, leads,
@@ -374,7 +372,10 @@ export const disparosEmailService = {
       return;
     }
 
-    const smtp = await configuracoesSmtpService.getDecrypted(empresaId);
+    // A configuração pode ter sido desligada depois do agendamento; o scheduler
+    // grava esta mensagem no disparo.
+    const smtp = await configuracoesSmtpService.credenciaisDaEmpresa(empresaId);
+    if (!smtp) throw new Error(ERRO_SEM_SMTP);
 
     await _processarEnviosEmail(
       disparoId, empresaId, usuarioId, leads,

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { configuracoesSmtpApi, SmtpConfig } from '@/api/configuracoes-smtp'
 import toast from 'react-hot-toast'
+import { useAuth } from '@/contexts/AuthContext'
 
 const BREVO_GUIDE = [
   {
@@ -30,18 +31,25 @@ const BREVO_GUIDE = [
   },
 ]
 
+// Host/porta são do Brevo (iguais para todo mundo). O nome do remetente, não:
+// nasce com o nome da empresa do usuário, nunca com o de outra.
 const DEFAULT_CONFIG: Partial<SmtpConfig> = {
   smtp_host: 'smtp-relay.brevo.com',
   smtp_port: 587,
   smtp_user: '',
   smtp_pass: '',
   email_from: '',
-  email_from_name: 'Cobrança',
+  email_from_name: '',
   ativo: true,
 }
 
 export const EmailConfig: React.FC = () => {
-  const [config, setConfig] = useState<Partial<SmtpConfig>>(DEFAULT_CONFIG)
+  const { user } = useAuth()
+  const configInicial: Partial<SmtpConfig> = {
+    ...DEFAULT_CONFIG,
+    email_from_name: user?.empresa?.nome || '',
+  }
+  const [config, setConfig] = useState<Partial<SmtpConfig>>(configInicial)
   const [hasExisting, setHasExisting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -111,7 +119,7 @@ export const EmailConfig: React.FC = () => {
     if (!confirm('Tem certeza que deseja remover a configuração de e-mail desta empresa?')) return
     try {
       await configuracoesSmtpApi.delete()
-      setConfig(DEFAULT_CONFIG)
+      setConfig(configInicial)
       setHasExisting(false)
       setShowGuide(true)
       toast.success('Configuração removida.')

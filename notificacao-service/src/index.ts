@@ -12,7 +12,7 @@ console.log('🚀 SERVIÇO DE NOTIFICAÇÕES - DUOFUTURO GESTÃO FINANCEIRA');
 console.log('='.repeat(70));
 console.log(`📅 Iniciado em: ${new Date().toLocaleString('pt-BR')}`);
 console.log(`⏰ Agendamento: ${CRON_SCHEDULE} (cron)`);
-console.log(`📧 SMTP: ${process.env.SMTP_USER ? '✅ Configurado' : '❌ Não configurado'}`);
+console.log('📧 SMTP: o de cada empresa (configuracoes_smtp); sem configuração, não envia');
 console.log(`💾 Database: ${process.env.DATABASE_URL ? '✅ Conectado' : '❌ Não configurado'}`);
 console.log('='.repeat(70));
 console.log('');

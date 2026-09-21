@@ -1,23 +1,30 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import { query } from '../config/database';
+import { configuracoesSmtpService } from '../modules/configuracoes-smtp/configuracoes-smtp.service';
 
 dotenv.config();
 
-// Cria o transporter usando SMTP (Gmail ou qualquer SMTP configurado no .env)
-function createTransporter() {
-  const host = process.env.SMTP_HOST || 'smtp.gmail.com';
-  const port = parseInt(process.env.SMTP_PORT || '465');
-  const secure = port === 465;
+// Não existe SMTP "da casa" para e-mail de cliente: cada empresa envia pela conta que
+// ela mesma configurou em Config. E-mail. Sem configuração, o envio falha com aviso —
+// nunca sai pela conta de outra empresa nem pelo SMTP do servidor (regra de 16/09/2026).
+// O SMTP do .env só existe para o e-mail institucional (`remetenteDuoFuturo`), que o
+// passa explicitamente.
+export const ERRO_SEM_SMTP =
+  'O e-mail da sua empresa ainda não está configurado. Configure em Config. E-mail para enviar.';
 
+function transporterDe(c: SmtpCredentials) {
   return nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
+    host: c.smtp_host,
+    port: c.smtp_port,
+    secure: c.smtp_port === 465,
+    auth: { user: c.smtp_user, pass: c.smtp_pass },
   });
+}
+
+function exigirCredenciais(c?: SmtpCredentials): SmtpCredentials {
+  if (!c?.smtp_user || !c?.smtp_pass || !c?.smtp_host) throw new Error(ERRO_SEM_SMTP);
+  return c;
 }
 
 export interface EmailParcelaAtrasada {
@@ -292,38 +299,86 @@ export interface EmailAnexo {
   path: string;
 }
 
+/**
+ * Remetente institucional da DuoFuturo — boas-vindas e suporte.
+ *
+ * Primeiro tenta o SMTP que a PRÓPRIA conta DuoFuturo cadastrou no sistema
+ * (`configuracoes_smtp` da empresa do usuário `suporte@duofuturo.tech`, a 32):
+ * é lá que mora o `suporte@duofuturo.tech`, numa conta Brevo com o domínio
+ * autenticado. O SMTP do `.env` é OUTRA conta Brevo (a da Futuron), onde esse
+ * remetente não existe — mandar por ela sairia recusado ou sem DKIM do domínio.
+ *
+ * Sem configuração ativa, cai no SMTP do processo, como sempre foi: o endereço
+ * vem de `EMAIL_FROM_DUOFUTURO` e, sem ele, do `EMAIL_FROM`. Uma boas-vindas que
+ * sai com o endereço antigo é melhor do que uma que não sai. O nome exibido é
+ * sempre o pedido — o padrão do processo é "Cobrança", que não serve para dar
+ * as boas-vindas nem para responder um chamado.
+ */
+export async function remetenteDuoFuturo(nomeExibido = 'DuoFuturo'): Promise<SmtpCredentials | undefined> {
+  try {
+    const email = process.env.DUOFUTURO_REMETENTE_EMAIL || 'suporte@duofuturo.tech';
+    const res = await query(
+      `SELECT c.empresa_id FROM configuracoes_smtp c
+         JOIN usuarios u ON u.empresa_id = c.empresa_id
+        WHERE u.email = $1 AND c.ativo = true AND c.smtp_pass_enc IS NOT NULL
+        LIMIT 1`,
+      [email]
+    );
+    const empresaId = res.rows[0]?.empresa_id;
+    const cfg = empresaId ? await configuracoesSmtpService.getDecrypted(empresaId) : null;
+    if (cfg?.smtp_pass) {
+      return {
+        smtp_host: cfg.smtp_host,
+        smtp_port: Number(cfg.smtp_port),
+        smtp_user: cfg.smtp_user,
+        smtp_pass: cfg.smtp_pass,
+        email_from: cfg.email_from,
+        email_from_name: nomeExibido,
+      };
+    }
+  } catch (err: any) {
+    console.warn('[email] SMTP da conta DuoFuturo indisponível, usando o do processo —', err?.message || err);
+  }
+
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  if (!user || !pass) return undefined;
+
+  return {
+    smtp_host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
+    smtp_port: Number(process.env.SMTP_PORT || 587),
+    smtp_user: user,
+    smtp_pass: pass,
+    email_from: process.env.EMAIL_FROM_DUOFUTURO || process.env.EMAIL_FROM || user,
+    email_from_name: nomeExibido,
+  };
+}
+
 /** Função genérica para enviar qualquer e-mail */
 export const enviarEmail = async (
   to: string,
   subject: string,
   html: string,
   smtpCredentials?: SmtpCredentials,
-  anexos?: EmailAnexo[]
+  anexos?: EmailAnexo[],
+  /**
+   * Versão em texto puro (parte `text/plain`). E-mail só com HTML leva
+   * `MIME_HTML_ONLY` no SpamAssassin e pesa contra nos filtros da Microsoft.
+   * Opcional: quem não passa segue como sempre foi.
+   */
+  texto?: string
 ): Promise<{ success: boolean; messageId: string; to: string }> => {
-  const smtpUser = smtpCredentials?.smtp_user || process.env.SMTP_USER;
-  const smtpPass = smtpCredentials?.smtp_pass || process.env.SMTP_PASS;
-
-  if (!smtpUser || !smtpPass) {
-    throw new Error('SMTP não configurado. Configure as credenciais de e-mail nas configurações da empresa.');
-  }
-
-  const fromEmail = smtpCredentials?.email_from || process.env.EMAIL_FROM || smtpUser;
-  const fromName = smtpCredentials?.email_from_name || process.env.EMAIL_FROM_NAME || 'Gestão Financeira';
-
-  const transporter = smtpCredentials
-    ? nodemailer.createTransport({
-        host: smtpCredentials.smtp_host,
-        port: smtpCredentials.smtp_port,
-        secure: smtpCredentials.smtp_port === 465,
-        auth: { user: smtpCredentials.smtp_user, pass: smtpCredentials.smtp_pass },
-      })
-    : createTransporter();
+  const cred = exigirCredenciais(smtpCredentials);
+  const fromEmail = cred.email_from || cred.smtp_user;
+  const fromName = cred.email_from_name || 'Gestão Financeira';
+  const transporter = transporterDe(cred);
 
   const info = await transporter.sendMail({
     from: `"${fromName}" <${fromEmail}>`,
     to,
     subject,
     html,
+    ...(texto ? { text: texto } : {}),
     attachments: anexos?.map(a => ({ filename: a.filename, path: a.path })),
   });
 
@@ -335,26 +390,12 @@ export const enviarEmailCobrancaParcela = async (
   data: EmailParcelaAtrasada,
   smtpCredentials?: SmtpCredentials
 ): Promise<any> => {
-  const smtpUser = smtpCredentials?.smtp_user || process.env.SMTP_USER;
-  const smtpPass = smtpCredentials?.smtp_pass || process.env.SMTP_PASS;
-
-  if (!smtpUser || !smtpPass) {
-    throw new Error('SMTP não configurado. Configure as credenciais de e-mail nas configurações da empresa.');
-  }
-
-  const fromEmail = smtpCredentials?.email_from || process.env.EMAIL_FROM || smtpUser;
-  const fromName = smtpCredentials?.email_from_name || process.env.EMAIL_FROM_NAME || 'Cobrança';
+  const cred = exigirCredenciais(smtpCredentials);
+  const fromEmail = cred.email_from || cred.smtp_user;
+  const fromName = cred.email_from_name || 'Cobrança';
   const assunto = `Notificação de Pagamento - Parcela ${data.numeroParcela}/${data.totalParcelas} em Atraso`;
   const html = createParcelaAtrasadaEmail(data);
-
-  const transporter = smtpCredentials
-    ? nodemailer.createTransport({
-        host: smtpCredentials.smtp_host,
-        port: smtpCredentials.smtp_port,
-        secure: false,
-        auth: { user: smtpCredentials.smtp_user, pass: smtpCredentials.smtp_pass },
-      })
-    : createTransporter();
+  const transporter = transporterDe(cred);
 
   const info = await transporter.sendMail({
     from: `"${fromName}" <${fromEmail}>`,
