@@ -3,6 +3,8 @@ import { query } from '../../../config/database';
 import { adicionarJobAgente } from '../../agente-ia/agente-ia.queue';
 import { automacoesGrupoService as automacoesService } from '../../automacoes/automacoes-grupo.service';
 import { leadsService } from '../leads/leads.service';
+import { variantesTelefone } from '../_shared/telefone';
+import { normalizarUtmSource } from '../_shared/utm';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -59,6 +61,81 @@ const ESCOLA_FORM_ESTAGIO_ID = Number(process.env.ESCOLA_FORM_ESTAGIO_ID) || 208
 const ESCOLA_FORM_RESPONSAVEL_ID = Number(process.env.ESCOLA_FORM_RESPONSAVEL_ID) || 45;
 const ESCOLA_FORM_ORIGEM = 'Escola Empreendedorismo (form site)';
 
+// Webhook do formulário "Caixa Rápido" (WordPress/Elementor) → mesmo funil da Escola
+// Empreendedorismo (24), estágio "Entrada de Leads" (208), mas sob responsabilidade da
+// Débora (id 22) e com origem própria, para separar a campanha no relatório.
+// Diferente do form-escola, aqui o payload é qualificado: além de nome e telefone vêm
+// e-mail, negócio e três respostas (faturamento atual, objetivo e maior desafio) que vão
+// para as notas do lead — é o que o comercial usa para abrir a conversa.
+// O secret é o mesmo do form-escola por padrão (mesmo site, mesma equipe); defina
+// CAIXA_RAPIDO_FORM_WEBHOOK_SECRET no .env para dar um token só dele.
+const CAIXA_FORM_SECRET =
+  process.env.CAIXA_RAPIDO_FORM_WEBHOOK_SECRET || process.env.ESCOLA_FORM_WEBHOOK_SECRET || '';
+const CAIXA_FORM_EMPRESA_ID = Number(process.env.CAIXA_RAPIDO_FORM_EMPRESA_ID) || 5;
+const CAIXA_FORM_FUNIL_ID = Number(process.env.CAIXA_RAPIDO_FORM_FUNIL_ID) || 24;
+const CAIXA_FORM_ESTAGIO_ID = Number(process.env.CAIXA_RAPIDO_FORM_ESTAGIO_ID) || 208;
+const CAIXA_FORM_RESPONSAVEL_ID = Number(process.env.CAIXA_RAPIDO_FORM_RESPONSAVEL_ID) || 22;
+const CAIXA_FORM_ORIGEM = process.env.CAIXA_RAPIDO_FORM_ORIGEM || 'Caixa Rápido';
+
+// Monta o bloco de notas do Caixa Rápido, pulando o que não veio preenchido.
+function notasCaixaRapido(campos: {
+  email: string;
+  negocio: string;
+  faturamento: string;
+  objetivo: string;
+  desafio: string;
+  origemUrl: string;
+}): string {
+  return [
+    'Formulário Caixa Rápido',
+    // Sempre presente (vira `outros` quando falta): é o rótulo que o dashboard de
+    // integrações usa para separar as semanas da campanha, e um campo que só
+    // aparece às vezes viraria um gráfico com buraco em vez de um balde.
+    `Origem (URL): ${campos.origemUrl}`,
+    campos.negocio ? `Negócio: ${campos.negocio}` : '',
+    campos.email ? `E-mail: ${campos.email}` : '',
+    campos.faturamento ? `Faturamento hoje: ${campos.faturamento}` : '',
+    campos.objetivo ? `Objetivo em 6 a 12 meses: ${campos.objetivo}` : '',
+    campos.desafio ? `Maior desafio: ${campos.desafio}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+// Webhook de eventos do SendFlow (plataforma de automação de WhatsApp) → cria lead
+// no funil "Escola Empreendedorismo" (24), estágio "Entrada de Leads" (208), com a
+// Débora (22) como proprietária e origem "Desafio 52 semanas" — a MESMA string que
+// os 76 leads já existentes da campanha usam, para o relatório não partir em dois.
+// Autenticado pelo "Sendtok" da campanha, aceito no header (X-Sendtok /
+// X-Sendflow-Sendtok / X-Webhook-Secret / Authorization: Bearer), na query
+// (?sendtok= / ?token= / ?secret=) ou no corpo: o painel do SendFlow não deixa
+// escolher onde o token viaja, então aceitamos os três — e a URL entregue ao cliente
+// já leva ?sendtok= embutido, que funciona mesmo se a plataforma não mandar nada.
+const SENDFLOW_SENDTOK = process.env.SENDFLOW_WEBHOOK_SENDTOK || '';
+const SENDFLOW_EMPRESA_ID = Number(process.env.SENDFLOW_EMPRESA_ID) || 5;
+const SENDFLOW_FUNIL_ID = Number(process.env.SENDFLOW_FUNIL_ID) || 24;
+const SENDFLOW_ESTAGIO_ID = Number(process.env.SENDFLOW_ESTAGIO_ID) || 208;
+const SENDFLOW_RESPONSAVEL_ID = Number(process.env.SENDFLOW_RESPONSAVEL_ID) || 22;
+// leads.origem é VARCHAR(50) — curta e idêntica à que já está no banco.
+const SENDFLOW_ORIGEM = (process.env.SENDFLOW_ORIGEM || 'Desafio 52 semanas').slice(0, 50);
+const SENDFLOW_CAMPANHA = process.env.SENDFLOW_CAMPANHA || 'Desafio 52 Semanas';
+
+// Webhook do app de Diagnóstico (/var/www/apps/diagnostico) → cria o lead que
+// preencheu o diagnóstico no funil "Funil Principal" (id 46) da conta DuoFuturo
+// (empresa 32), estágio de entrada "Novos" (288), sob responsabilidade do
+// suporte@duofuturo.tech (usuário 57).
+// Diferente dos webhooks de formulário de site, aqui o payload é JSON estruturado
+// gerado pela nossa própria app — não precisa do fallback por rótulo do Elementor.
+// Chamado em dois momentos:
+//   evento=iniciado  → cria o lead ao enviar o formulário (não perde quem abandona)
+//   evento=concluido → anexa o resultado (score, perfil e plano) como anotação
+// Autenticado via X-Webhook-Secret (header) ou ?secret= / ?token= (query).
+const DIAG_FORM_SECRET = process.env.DIAGNOSTICO_FORM_WEBHOOK_SECRET || '';
+const DIAG_FORM_EMPRESA_ID = Number(process.env.DIAGNOSTICO_FORM_EMPRESA_ID) || 32;
+const DIAG_FORM_FUNIL_ID = Number(process.env.DIAGNOSTICO_FORM_FUNIL_ID) || 46;
+const DIAG_FORM_ESTAGIO_ID = Number(process.env.DIAGNOSTICO_FORM_ESTAGIO_ID) || 288;
+const DIAG_FORM_RESPONSAVEL_ID = Number(process.env.DIAGNOSTICO_FORM_RESPONSAVEL_ID) || 57;
+
 // Extrai o valor de um campo aceitando os formatos comuns de webhook de form:
 // - flat (Elementor com Field ID = nome):           body.nome
 // - aninhado Elementor "fields[nome][value]":        body.fields.nome.value | body.fields.nome
@@ -106,6 +183,125 @@ function pickByTokens(body: any, todos: string[], algum: string[] = []): string 
     }
   }
   return '';
+}
+
+// ── SendFlow: leitura tolerante do payload ────────────────────────────────────
+// O corpo do SendFlow muda com o evento e com o que o usuário monta no fluxo: os
+// dados do contato tanto podem vir na raiz quanto dentro de `data`, `contact`,
+// `chat`, `lead` ou de uma lista de variáveis {name, value}. Em vez de adivinhar o
+// caminho, achatamos o corpo inteiro num par [chave normalizada, valor] e
+// procuramos pelo NOME do campo, onde quer que ele esteja.
+function achatarPayload(valor: any, out: Array<[string, string]> = [], prof = 0): Array<[string, string]> {
+  if (valor == null || prof > 5) return out;
+  if (Array.isArray(valor)) {
+    for (const item of valor) achatarPayload(item, out, prof + 1);
+    return out;
+  }
+  if (typeof valor !== 'object') return out;
+
+  // Par {name|key|field|label, value} — formato de variável / campo customizado.
+  const nomeCampo = valor.name ?? valor.key ?? valor.field ?? valor.label;
+  const valorCampo = valor.value ?? valor.raw_value;
+  if (typeof nomeCampo === 'string' && valorCampo != null && typeof valorCampo !== 'object') {
+    out.push([normKey(nomeCampo), String(valorCampo).trim()]);
+  }
+
+  for (const [k, v] of Object.entries(valor)) {
+    if (v == null) continue;
+    if (Array.isArray(v) && v.every(i => i == null || typeof i !== 'object')) {
+      // lista de primitivos (tags, por exemplo) vira texto
+      out.push([normKey(k), v.filter(Boolean).join(', ')]);
+      continue;
+    }
+    if (typeof v === 'object') achatarPayload(v, out, prof + 1);
+    else out.push([normKey(k), String(v).trim()]);
+  }
+  return out;
+}
+
+// Chaves que NUNCA descrevem o contato — "nome" aqui é o nome da campanha, do
+// grupo, do fluxo. Sem isso o lead nasceria chamado "Desafio 52 Semanas".
+const SENDFLOW_CHAVES_RUIDO = /\b(grupo|group|campanha|campaign|fluxo|flow|funil|funnel|tag|arquivo|file|midia|media|instancia|instance|conta|account|usuario|user|agente|agent|bot|template|evento|event|webhook)\b/;
+
+// Procura o valor de um campo: primeiro por chave exata, depois por chave que
+// CONTENHA o alias como palavra inteira (ex.: "contact phone"), ignorando ruído.
+function acharCampo(campos: Array<[string, string]>, aliases: string[]): string {
+  const alvos = aliases.map(normKey);
+  for (const alvo of alvos) {
+    for (const [k, v] of campos) if (v && k === alvo) return v;
+  }
+  for (const alvo of alvos) {
+    for (const [k, v] of campos) {
+      if (!v || SENDFLOW_CHAVES_RUIDO.test(k)) continue;
+      if (k.split(' ').includes(alvo)) return v;
+    }
+  }
+  return '';
+}
+
+// Um número só é aceito se puder ser telefone de gente. O primeiro evento real do
+// SendFlow (02/09/2026) trouxe "0000000000000" e virou um lead chamado 0000000000000:
+// contar dígitos não basta, placeholder também tem 13.
+function telefonePlausivel(digitos: string): boolean {
+  if (digitos.length < 10 || digitos.length > 15) return false;
+  if (/^(\d)\1+$/.test(digitos)) return false;      // 000..., 111... — placeholder
+  if (digitos.startsWith('0')) return false;         // nenhum DDI começa com 0
+  // Brasil: DDI + DDD + 8/9 dígitos. Fora disso é id, não telefone.
+  if (digitos.startsWith('55') && digitos.length !== 12 && digitos.length !== 13) return false;
+  return true;
+}
+
+// Telefone tem validação própria: qualquer chave "phone-like" é candidata, mas só
+// vale a que passa em telefonePlausivel (descarta DDI solto, id numérico, "phone_code").
+function acharTelefone(campos: Array<[string, string]>): string {
+  const chavesFone = ['telefone', 'phone', 'celular', 'whatsapp', 'numero', 'number', 'msisdn', 'fone', 'contato', 'contact', 'remotejid', 'jid'];
+  const candidatos: string[] = [];
+  for (const [k, v] of campos) {
+    if (!v) continue;
+    const tokens = k.split(' ');
+    if (!chavesFone.some(c => tokens.includes(c))) continue;
+    if (tokens.includes('code') || tokens.includes('ddi') || tokens.includes('id')) continue;
+    if (/@g\.us/i.test(v)) continue;                  // jid de GRUPO, não de pessoa
+    if (/group|grupo/.test(k)) continue;              // groupJid, groupId, grupo_numero…
+    candidatos.push(v);
+  }
+  for (const c of candidatos) {
+    const digitos = String(c).replace(/\D/g, '');
+    if (telefonePlausivel(digitos)) return digitos;
+  }
+  return '';
+}
+
+// O evento de entrada no grupo só traz o NÚMERO — o SendFlow não manda nome. Antes de
+// deixar o card com a cara de um telefone, procura o nome nos contatos de WhatsApp da
+// própria empresa: boa parte de quem entra na campanha já conversou com algum chip.
+// Contato de grupo (is_grupo) fica de fora, e o push name é o último recurso.
+async function nomeDoContatoConhecido(telefone: string, empresaId: number): Promise<string> {
+  const variantes = variantesTelefone(telefone);
+  if (!variantes.length) return '';
+  const r = await query(
+    `SELECT nome, nome_push FROM contatos_whatsapp
+      WHERE empresa_id = $1
+        AND COALESCE(is_grupo, false) = false
+        AND REGEXP_REPLACE(numero, '[^0-9]', '', 'g') = ANY($2::text[])
+      ORDER BY (nullif(nome, '') IS NULL), ultima_mensagem_at DESC NULLS LAST
+      LIMIT 1`,
+    [empresaId, variantes]
+  );
+  const achado = String(r.rows[0]?.nome || r.rows[0]?.nome_push || '').trim();
+  // Nome sem uma letra sequer é o próprio telefone gravado como nome ("+55 85 9176-2563"),
+  // e não ajuda ninguém: nesse caso é melhor deixar o card com o número normalizado.
+  return /[a-zà-ÿ]/i.test(achado) ? achado : '';
+}
+
+// No SendFlow a campanha É um grupo de WhatsApp: o evento que interessa é
+// `group.updated.members.added`, e a pessoa que entrou vem em `data.number` — o
+// `groupJid`/`groupId` ao lado é o GRUPO, não ela (por isso acharTelefone descarta
+// chave com "group"/"grupo" e valor com @g.us).
+// O que NÃO pode virar lead é o evento de SAÍDA: quem saiu do grupo, foi removido ou
+// bloqueou. Esses só viram anotação, e só se a pessoa já estiver no funil.
+function ehEventoDeSaida(evento: string): boolean {
+  return /(removed|remove|removido|left|leave|saiu|exit|deleted|delete|blocked|bloqueado|unsubscribe|opt.?out)/i.test(evento);
 }
 
 // Garante que o estágio de destino de um lead automático ainda existe no funil.
@@ -271,8 +467,10 @@ async function transcreverEEnfileirar(
   }
 
   const mimeNorm = (mimetype || 'audio/ogg').split(';')[0].trim();
-  // Usa o modelo Gemini configurado; se o provider for Anthropic, usa gemini-2.0-flash como fallback
-  const modelo = config.modelo?.startsWith('gemini') ? config.modelo : 'gemini-2.0-flash';
+  // Usa o modelo Gemini configurado; se o provider for Anthropic, cai no gemini-2.5-flash.
+  // Era gemini-2.0-flash, que o Google desligou: de 09/07 a 15/09/2026 todo áudio da
+  // Panteras (provider claude) voltou 404 e chegou ao agente sem transcrição (755 erros).
+  const modelo = config.modelo?.startsWith('gemini') ? config.modelo : 'gemini-2.5-flash';
 
   const geminiResponse = await axios.post(
     `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${geminiKey}`,
@@ -310,11 +508,37 @@ export const webhookController = {
       const {
         from, to, body, type, timestamp, hasMedia, messageId, mediaData, mimetype, filename, fromMe,
         // Campos adicionados para suporte a grupos WhatsApp
-        isGroup, groupId, participant, pushname
+        isGroup, groupId, participant, pushname,
+        // Porta da instância que recebeu a mensagem — é o que amarra a mensagem a UM dono
+        port
       } = req.body;
 
       if (!from) {
         return res.status(400).json({ error: 'Campo "from" obrigatorio' });
+      }
+
+      // Dono da instância que recebeu a mensagem. Sem isso a busca de contato é só
+      // pelo número, e um mesmo número cadastrado em duas empresas fazia a MESMA
+      // mensagem ser gravada nas duas — conversa da Panteras aparecendo no CRM da
+      // DuoFuturo e vice-versa (4.308 mensagens até 19/08/2026).
+      // Sem dono não há empresa, e gravar "em todas que tiverem o número" é exatamente
+      // o vazamento. Até 15/09/2026 as duas situações abaixo caíam no comportamento
+      // antigo: `port` era opcional (para instância ainda não reiniciada) e porta sem
+      // dono seguia sem filtro — o caso da 3010, que ficou órfã quando a master@
+      // passou para o número oficial. Toda instância no ar carimba `port` desde 01/09,
+      // e o canal oficial também.
+      if (!port) {
+        console.warn(`[Webhook] Mensagem sem "port" descartada (from=${from}) — não há como saber de que empresa ela é`);
+        return res.json({ success: true, processed: false, reason: 'sem_porta' });
+      }
+      const donoResult = await query(
+        `SELECT id, empresa_id FROM usuarios WHERE whatsapp_porta = $1 AND ativo = true LIMIT 1`,
+        [Number(port)]
+      );
+      const donoInstancia: { id: number; empresa_id: number } | null = donoResult.rows[0] ?? null;
+      if (!donoInstancia) {
+        console.warn(`[Webhook] Porta ${port} sem usuário dono — mensagem descartada (from=${from})`);
+        return res.json({ success: true, processed: false, reason: 'porta_sem_dono' });
       }
 
       // Guard: ignorar self-messages (from === to após normalização).
@@ -371,6 +595,26 @@ export const webhookController = {
         );
       }
 
+      // A conversa é da EMPRESA dona da instância: o mesmo número pode estar cadastrado
+      // em outras empresas, e a mensagem não é delas.
+      //
+      // O recorte é por EMPRESA, não por usuário. Entre 19 e 21/08/2026 o filtro era
+      // `usuario_id === dono.id`, e como vários chips da mesma empresa atendem os mesmos
+      // contatos (466 números da Panteras têm contato em mais de um operador), toda
+      // mensagem cujo contato pertencia a outro operador era DESCARTADA — nem histórico
+      // nem contato novo. Foram 508 mensagens 1:1 perdidas em dois dias, e o card parava
+      // de atualizar enquanto a conversa seguia no WhatsApp.
+      if (donoInstancia) {
+        const daEmpresa = contatosResult.rows.filter(
+          (c: any) => c.empresa_id === donoInstancia!.empresa_id
+        );
+        // Dentro da empresa, o contato do próprio dono da porta tem preferência: quando
+        // ele existe, a conversa é dele, e gravar também na cópia de outro operador
+        // duplicaria a mensagem em dois cards.
+        const doDono = daEmpresa.filter((c: any) => c.usuario_id === donoInstancia!.id);
+        contatosResult = { ...contatosResult, rows: doDono.length > 0 ? doDono : daEmpresa };
+      }
+
       if (contatosResult.rows.length === 0) {
         // Auto-vinculação: buscar leads com telefone correspondente que ainda não têm contato vinculado
         const leadsParaVincular = await query(
@@ -378,8 +622,9 @@ export const webhookController = {
            FROM leads l
            WHERE l.arquivado = false
              AND l.contato_whatsapp_id IS NULL
-             AND REGEXP_REPLACE(COALESCE(l.telefone, ''), '[^0-9]', '', 'g') = ANY($1::text[])`,
-          [numerosVariantes]
+             AND REGEXP_REPLACE(COALESCE(l.telefone, ''), '[^0-9]', '', 'g') = ANY($1::text[])
+             AND ($2::int IS NULL OR l.empresa_id = $2)`,
+          [numerosVariantes, donoInstancia?.empresa_id ?? null]
         );
 
         if (leadsParaVincular.rows.length === 0) {
@@ -450,8 +695,22 @@ export const webhookController = {
       for (const contato of contatosResult.rows) {
         const { id: contatoId, usuario_id: usuarioId, empresa_id: empresaId } = contato;
 
-        // Salvar midia se houver
-        if (hasMedia && mediaData) {
+        // Duplicata ANTES de gravar a mídia: o arquivo era escrito e só depois o
+        // `continue` descartava a mensagem — cada eco deixava um órfão no disco.
+        if (messageId) {
+          const existing = await query(
+            `SELECT id FROM historico_mensagens WHERE whatsapp_message_id = $1 AND contato_whatsapp_id = $2 LIMIT 1`,
+            [messageId, contatoId]
+          );
+          if (existing.rows.length > 0) {
+            console.log(`[Webhook] Mensagem ja registrada (${messageId}), ignorando duplicata`);
+            continue;
+          }
+        }
+
+        // Salvar midia se houver. Grupo não guarda arquivo (migration 076): não aparece
+        // no card e era 2/3 da mídia da Panteras. A mensagem entra com tipo e legenda.
+        if (hasMedia && mediaData && !isGroup) {
           try {
             const userDir = path.join(UPLOADS_DIR, String(usuarioId));
             if (!fs.existsSync(userDir)) {
@@ -475,18 +734,6 @@ export const webhookController = {
           }
         }
 
-        // Verificar se mensagem ja existe no historico (evitar duplicatas de mensagens enviadas pelo CRM)
-        if (messageId) {
-          const existing = await query(
-            `SELECT id FROM historico_mensagens WHERE whatsapp_message_id = $1 AND contato_whatsapp_id = $2 LIMIT 1`,
-            [messageId, contatoId]
-          );
-          if (existing.rows.length > 0) {
-            console.log(`[Webhook] Mensagem ja registrada (${messageId}), ignorando duplicata`);
-            continue;
-          }
-        }
-
         // Atualizar pushname do contato se vier no payload e ainda não estiver salvo
         if (pushname && direcao === 'entrada') {
           await query(
@@ -500,12 +747,17 @@ export const webhookController = {
 
         // Inserir no historico de mensagens (com suporte a grupo)
         await query(
+          // `origem`: o webhook capta o que entra (recebida) e o que o operador manda
+          // pelo celular/app (manual). Nenhum dos dois entra no espaçamento anti-ban —
+          // conversa de gente não pode segurar a fila de automação. As mensagens que a
+          // automação envia já são gravadas pelo próprio caminho de envio, com a origem
+          // certa, e as capturas de eco delas são descartadas antes daqui.
           `INSERT INTO historico_mensagens (
             contato_whatsapp_id, usuario_id, empresa_id, whatsapp_message_id,
             direcao, tipo, conteudo, media_url, media_filename, media_mimetype, media_tamanho,
-            grupo_whatsapp_id, grupo_nome,
+            grupo_whatsapp_id, grupo_nome, origem,
             enviado_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, to_timestamp($14))`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, to_timestamp($15))`,
           [
             contatoId,
             usuarioId,
@@ -520,9 +772,22 @@ export const webhookController = {
             mediaTamanho,
             isGroup ? (groupId || null) : null,
             isGroup ? (req.body.groupName || null) : null,
+            direcao === 'entrada' ? 'recebida' : 'manual',
             timestamp || Math.floor(Date.now() / 1000)
           ]
         );
+
+        // Mensagem de GRUPO fica registrada e para aqui. Ela é atribuída ao
+        // contato do participante (não existe "contato grupo" com histórico),
+        // então tratá-la como conversa 1:1 fazia o CRM concluir que o lead
+        // respondeu: zerava aguardando_resposta, mexia em ultima_resposta_cliente_at,
+        // somava mensagem não lida, registrava atividade e — o pior — disparava a
+        // automação de estagio_apos_resposta_id, movendo o lead de estágio porque
+        // alguém falou num grupo. A conversa individual é a única que conta.
+        if (isGroup) {
+          console.log(`[Webhook] Mensagem de grupo registrada (contato ${contatoId}, grupo ${groupId}) — sem efeito no lead`);
+          continue;
+        }
 
         // Atualizar contato: ultima mensagem
         if (direcao === 'entrada') {
@@ -658,6 +923,14 @@ export const webhookController = {
             adicionarJobAgente(contatoId, leadPrincipal.id, body, usuarioId, contato.empresa_id)
               .catch((err: any) => console.error(`[AgenteIA] Erro ao enfileirar job para lead #${leadPrincipal.id}:`, err.message));
           }
+          // Foto, vídeo ou documento COM legenda: a legenda costuma ser a pergunta ("paro
+          // aqui e depois passo o cartão?" com o print da tela). Só texto chegava ao agente,
+          // e 52 legendas em 30 dias ficaram sem resposta. O agente não vê o arquivo — o
+          // aviso no texto é para ele não fingir que viu.
+          if (direcao === 'entrada' && ['imagem', 'video', 'documento'].includes(tipo) && body && !isGroup) {
+            adicionarJobAgente(contatoId, leadPrincipal.id, `[${tipo} anexado, você não consegue ver o arquivo] ${body}`, usuarioId, contato.empresa_id)
+              .catch((err: any) => console.error(`[AgenteIA] Erro ao enfileirar job para lead #${leadPrincipal.id}:`, err.message));
+          }
           // Áudio: transcreve via Gemini e enfileira (requer gemini_api_key na config do agente)
           if (direcao === 'entrada' && tipo === 'audio' && mediaData && !isGroup) {
             transcreverEEnfileirar(contatoId, leadPrincipal.id, usuarioId, contato.empresa_id, mediaData, mimetype)
@@ -686,6 +959,23 @@ export const webhookController = {
                 empresaId, usuarioId, contatoId, est.funil_id, est.estagio_id
               );
               if (novo) {
+                // O card nasce DEPOIS do bloco acima, que só alcança leads que já
+                // existiam: sem isto a mensagem que o criou ficava sem lead_id e o
+                // card entrava sem o selo de não lida — quem escreve pela primeira
+                // vez era justamente quem não aparecia como "nova mensagem".
+                await query(
+                  `UPDATE leads SET
+                     mensagens_nao_lidas = COALESCE(mensagens_nao_lidas, 0) + 1,
+                     ultima_resposta_cliente_at = CURRENT_TIMESTAMP,
+                     data_ultimo_contato = CURRENT_TIMESTAMP
+                   WHERE id = $1`,
+                  [novo.id]
+                );
+                await query(
+                  `UPDATE historico_mensagens SET lead_id = $1
+                   WHERE contato_whatsapp_id = $2 AND whatsapp_message_id = $3 AND lead_id IS NULL`,
+                  [novo.id, contatoId, messageId]
+                );
                 console.log(`[Webhook] Auto-lead criado #${novo.id} (contato ${contatoId}, número user #${usuarioId}) no funil ${est.funil_id}/estágio ${est.estagio_id}`);
               }
             }
@@ -850,6 +1140,392 @@ export const webhookController = {
       }
     } catch (error) {
       console.error('[FormEscola] Erro no webhook do formulário Escola Empreendedorismo:', error);
+      next(error);
+    }
+  },
+
+  // Recebe o preenchimento do formulário "Caixa Rápido" (WordPress/Elementor) e cria o
+  // lead no funil "Escola Empreendedorismo", estágio "Entrada de Leads", com a Débora
+  // como proprietária e origem "Caixa Rápido". Ver constantes CAIXA_FORM_* no topo.
+  // Autenticada via header X-Webhook-Secret OU query string (?secret= / ?token=) —
+  // o Elementor Pro não deixa configurar header customizado.
+  async receberFormCaixaRapido(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!CAIXA_FORM_SECRET) {
+        console.error('[CaixaRapido] Nenhum secret configurado no .env');
+        return res.status(500).json({ error: 'Webhook não configurado' });
+      }
+      const secret = req.headers['x-webhook-secret'] || req.query.secret || req.query.token;
+      if (secret !== CAIXA_FORM_SECRET) {
+        return res.status(401).json({ error: 'Webhook secret invalido' });
+      }
+
+      // Cada campo aceita o Field ID configurado no Elementor e, como rede de segurança,
+      // o rótulo da pergunta (que é o que o Elementor manda quando o Field ID fica no
+      // padrão "field_abc123").
+      const nome = pickFormField(req.body, ['nome', 'nome_completo', 'name', 'first_name'])
+        || pickByTokens(req.body, ['nome']);
+      const sobrenome = pickFormField(req.body, ['sobrenome', 'last_name', 'surname'])
+        || pickByTokens(req.body, ['sobrenome']);
+      const telefone = pickFormField(req.body, ['whatsapp', 'telefone', 'phone', 'celular', 'tel'])
+        || pickByTokens(req.body, ['whatsapp']) || pickByTokens(req.body, ['telefone'])
+        || pickByTokens(req.body, ['celular']);
+      const email = pickFormField(req.body, ['email', 'e_mail', 'mail'])
+        || pickByTokens(req.body, ['email']) || pickByTokens(req.body, ['mail']);
+      const negocio = pickFormField(req.body, ['negocio', 'seu_negocio', 'business', 'empresa'])
+        || pickByTokens(req.body, ['negocio']);
+
+      // As duas perguntas de faturamento têm a MESMA palavra-chave: o desempate é pelo
+      // resto do rótulo — "hoje/atual/medio/mensal" contra "objetivo/meta/proximos/meses".
+      const faturamento =
+        pickFormField(req.body, ['faturamento', 'faturamento_atual', 'faturamento_hoje'])
+        || pickByTokens(req.body, ['faturamento'], ['hoje', 'atual', 'medio', 'mensal']);
+      const objetivo =
+        pickFormField(req.body, ['objetivo', 'objetivo_faturamento', 'meta', 'objetivo_6_12'])
+        || pickByTokens(req.body, ['faturamento'], ['objetivo', 'meta', 'proximos', 'meses'])
+        || pickByTokens(req.body, ['objetivo']);
+      const desafio = pickFormField(req.body, ['desafio', 'maior_desafio', 'challenge'])
+        || pickByTokens(req.body, ['desafio']);
+
+      // De qual link a pessoa veio: `?utm_source=semana2` na URL da landing, que o
+      // JavaScript da página guarda na chegada e manda no envio. Só nomes explícitos
+      // de utm entram aqui — `origem` NÃO, porque a página já manda nesse campo uma
+      // constante sua ("landing-seu-plano-de-liberdade-financeira") que não é campanha.
+      const utmSource = normalizarUtmSource(
+        pickFormField(req.body, ['utm_source', 'utm', 'utm_origem', 'source', 'origem_url'])
+      );
+
+      const nomeCompleto = [nome, sobrenome].filter(Boolean).join(' ').trim();
+
+      // Só nome e telefone são obrigatórios: o resto é qualificação, e perder um lead
+      // porque um rótulo mudou no WordPress seria pior do que recebê-lo incompleto.
+      if (!nomeCompleto || !telefone) {
+        console.warn('[CaixaRapido] Payload sem nome/telefone:', JSON.stringify(req.body).slice(0, 500));
+        return res.status(400).json({ error: 'Nome e telefone são obrigatórios' });
+      }
+
+      const notas = notasCaixaRapido({ email, negocio, faturamento, objetivo, desafio, origemUrl: utmSource });
+
+      // A origem carrega a campanha: "Caixa Rápido - semana2". O prefixo é o que
+      // mantém o lead reconhecível pelo catálogo do dashboard de integrações
+      // (`origemPrefixo`), e o corte em 50 é o tamanho da coluna.
+      const origemLead = `${CAIXA_FORM_ORIGEM} - ${utmSource}`.slice(0, 50);
+
+      // O funil 24 recebe outras campanhas: se a pessoa já está lá, as respostas são
+      // anexadas ao card existente em vez de virar lead duplicado — o estágio e a origem
+      // do card antigo ficam intactos (um lead em "Fechamento" não volta para a entrada).
+      const duplicata = await leadsService.telefoneExiste(
+        telefone,
+        CAIXA_FORM_EMPRESA_ID,
+        undefined,
+        CAIXA_FORM_FUNIL_ID
+      );
+      if (duplicata.existe && duplicata.lead_id) {
+        const carimbo = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        await query(
+          `UPDATE leads
+              SET notas = concat_ws(E'\\n\\n', nullif(notas, ''), $2::text),
+                  email = coalesce(nullif(email, ''), $3::text),
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [duplicata.lead_id, `[${carimbo}] ${notas}`, email || null]
+        );
+        console.log(`[CaixaRapido] Lead #${duplicata.lead_id} já existia — respostas anexadas`);
+        return res.json({ success: true, duplicate: true, lead_id: duplicata.lead_id });
+      }
+
+      const estagio = await resolverEstagioEntrada(CAIXA_FORM_FUNIL_ID, CAIXA_FORM_ESTAGIO_ID);
+      if (!estagio) {
+        return res.status(500).json({ error: 'Funil de destino sem estágios' });
+      }
+
+      const lead = await leadsService.create(
+        CAIXA_FORM_EMPRESA_ID,
+        CAIXA_FORM_RESPONSAVEL_ID,
+        {
+          funil_id: CAIXA_FORM_FUNIL_ID,
+          estagio_id: estagio,
+          responsavel_id: CAIXA_FORM_RESPONSAVEL_ID,
+          nome: nomeCompleto,
+          telefone,
+          email: email || undefined,
+          empresa: negocio || undefined,
+          origem: origemLead,
+          notas,
+        },
+        false // requireTarefa = false (lead automático de captação)
+      );
+
+      console.log(`[CaixaRapido] Lead #${lead.id} criado: "${lead.nome}" (${telefone})`);
+      return res.status(201).json({ success: true, lead_id: lead.id });
+    } catch (error) {
+      console.error('[CaixaRapido] Erro no webhook do formulário Caixa Rápido:', error);
+      next(error);
+    }
+  },
+
+  // Confere se a URL do webhook está no ar (o painel do SendFlow e o cliente testam
+  // colando o endereço no navegador, que é um GET). Não cria nada e não exige token.
+  async statusSendflow(_req: Request, res: Response) {
+    return res.json({
+      success: true,
+      webhook: 'sendflow',
+      metodo: 'POST',
+      configurado: Boolean(SENDFLOW_SENDTOK),
+    });
+  },
+
+  // Recebe um evento de usuário do SendFlow e cria o lead da campanha no funil
+  // "Escola Empreendedorismo". Ver constantes SENDFLOW_* no topo do arquivo.
+  async receberSendflow(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!SENDFLOW_SENDTOK) {
+        console.error('[SendFlow] SENDFLOW_WEBHOOK_SENDTOK não configurado no .env');
+        return res.status(500).json({ error: 'Webhook não configurado' });
+      }
+
+      const body: any = req.body || {};
+      const bearer = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+      const enviado = String(
+        req.headers['x-sendtok'] || req.headers['x-sendflow-sendtok'] || req.headers['sendtok']
+        || req.headers['x-webhook-secret'] || bearer
+        || req.query.sendtok || req.query.token || req.query.secret
+        || body.sendtok || body.token || body.secret || ''
+      ).trim();
+
+      if (enviado.toUpperCase() !== SENDFLOW_SENDTOK.toUpperCase()) {
+        console.warn('[SendFlow] Sendtok ausente ou inválido');
+        return res.status(401).json({ error: 'Sendtok invalido' });
+      }
+
+      const campos = achatarPayload(body);
+      const evento = acharCampo(campos, ['evento', 'event', 'event_type', 'tipo', 'type', 'acao', 'action', 'trigger']);
+
+      // O corpo inteiro vai para o log: o formato do SendFlow não é documentado e muda
+      // por evento, então é por aqui que se confere o mapeamento de campos em produção.
+      console.log(`[SendFlow] evento "${evento || '?'}" recebido:`, JSON.stringify(body).slice(0, 1500));
+
+      const telefone = acharTelefone(campos);
+
+      // Evento sem telefone de gente (teste do painel, evento de sistema, placeholder):
+      // responde 200 para o SendFlow não marcar o webhook como quebrado e desligá-lo.
+      if (!telefone) {
+        // O botão "Testar" do SendFlow manda o payload de exemplo da documentação, com
+        // number "0000000000000". Ignorar é o certo — mas a resposta precisa dizer que
+        // o teste FUNCIONOU, senão o painel mostra só "ignorado" e parece falha.
+        const numeroBruto = acharCampo(campos, ['number', 'numero', 'phone', 'telefone', 'whatsapp']);
+        const ehTeste = /^(\d)\1+$/.test(String(numeroBruto).replace(/\D/g, ''));
+        console.warn('[SendFlow] Evento sem telefone válido, ignorado:', JSON.stringify(body).slice(0, 600));
+        return res.json({
+          success: true,
+          ignorado: true,
+          teste: ehTeste || undefined,
+          motivo: ehTeste
+            ? 'Conexao OK: payload de teste do SendFlow (numero 0000000000000) recebido e reconhecido. Nenhum lead criado, de proposito.'
+            : 'evento sem telefone',
+        });
+      }
+
+      const nome = acharCampo(campos, [
+        'nome', 'name', 'nome_completo', 'full_name', 'primeiro_nome', 'first_name',
+        'push_name', 'pushname', 'contact_name', 'nome_contato',
+      ]);
+      const email = acharCampo(campos, ['email', 'e_mail', 'mail']);
+      const tags = acharCampo(campos, ['tags', 'tag', 'etiquetas']);
+      // A campanha e o grupo do SendFlow vão para as notas: é o que diz ao comercial
+      // por onde a pessoa entrou quando a mesma conta roda mais de uma campanha.
+      const campanha = acharCampo(campos, ['campaignname', 'campaign_name', 'campanha', 'campaign']);
+      const grupo = acharCampo(campos, ['groupname', 'group_name', 'grupo', 'group']);
+
+      // Sem nome no payload, tenta o contato de WhatsApp já conhecido; em último caso o
+      // card fica com o número — melhor um lead identificável pelo telefone do que nenhum.
+      const nomeConhecido = nome || await nomeDoContatoConhecido(telefone, SENDFLOW_EMPRESA_ID);
+      const nomeLead = (nomeConhecido || telefone).slice(0, 200);
+
+      const notas = [
+        `Campanha ${campanha || SENDFLOW_CAMPANHA} (SendFlow)`,
+        grupo ? `Grupo: ${grupo}` : '',
+        evento ? `Evento: ${evento}` : '',
+        tags ? `Tags: ${tags}` : '',
+        email ? `E-mail: ${email}` : '',
+      ].filter(Boolean).join('\n');
+
+      // Saída do grupo não cria lead: no máximo anota no card de quem já está no funil.
+      // Criar lead de quem acabou de sair seria entregar ao comercial o oposto do lead.
+      if (ehEventoDeSaida(evento)) {
+        const jaExiste = await leadsService.telefoneExiste(
+          telefone, SENDFLOW_EMPRESA_ID, undefined, SENDFLOW_FUNIL_ID
+        );
+        if (!jaExiste.existe || !jaExiste.lead_id) {
+          console.log(`[SendFlow] Saída "${evento}" de ${telefone} sem lead no funil — ignorada`);
+          return res.json({ success: true, ignorado: true, motivo: 'evento de saída' });
+        }
+        const carimboSaida = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        await query(
+          `UPDATE leads
+              SET notas = concat_ws(E'\\n\\n', nullif(notas, ''), $2::text),
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [jaExiste.lead_id, `[${carimboSaida}] Saiu do grupo (SendFlow) — evento ${evento}${grupo ? ` — ${grupo}` : ''}`]
+        );
+        console.log(`[SendFlow] Saída anotada no lead #${jaExiste.lead_id}`);
+        return res.json({ success: true, lead_id: jaExiste.lead_id, anotacao: true });
+      }
+
+      // O funil 24 recebe várias campanhas: quem já está lá recebe o evento anexado
+      // às notas, sem mudar estágio nem origem — um lead em "Fechamento" não volta
+      // para a entrada porque o SendFlow disparou de novo.
+      const duplicata = await leadsService.telefoneExiste(
+        telefone, SENDFLOW_EMPRESA_ID, undefined, SENDFLOW_FUNIL_ID
+      );
+      if (duplicata.existe && duplicata.lead_id) {
+        const carimbo = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        await query(
+          `UPDATE leads
+              SET notas = concat_ws(E'\\n\\n', nullif(notas, ''), $2::text),
+                  email = coalesce(nullif(email, ''), $3::text),
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [duplicata.lead_id, `[${carimbo}] ${notas}`, email || null]
+        );
+        console.log(`[SendFlow] Lead #${duplicata.lead_id} já existia — evento anexado`);
+        return res.json({ success: true, duplicate: true, lead_id: duplicata.lead_id });
+      }
+
+      const estagio = await resolverEstagioEntrada(SENDFLOW_FUNIL_ID, SENDFLOW_ESTAGIO_ID);
+      if (!estagio) {
+        return res.status(500).json({ error: 'Funil de destino sem estágios' });
+      }
+
+      const lead = await leadsService.create(
+        SENDFLOW_EMPRESA_ID,
+        SENDFLOW_RESPONSAVEL_ID,
+        {
+          funil_id: SENDFLOW_FUNIL_ID,
+          estagio_id: estagio,              // "Entrada de Leads"
+          responsavel_id: SENDFLOW_RESPONSAVEL_ID,  // Débora
+          nome: nomeLead,
+          telefone,
+          email: email || undefined,
+          origem: SENDFLOW_ORIGEM,
+          notas,
+        },
+        false // requireTarefa = false (lead automático de captação)
+      );
+
+      console.log(`[SendFlow] Lead #${lead.id} criado: "${lead.nome}" (${telefone})${evento ? ` — evento ${evento}` : ''}`);
+      return res.status(201).json({ success: true, lead_id: lead.id });
+    } catch (error: any) {
+      // Duplicata em corrida (dois eventos no mesmo instante): 200 para não reenviar.
+      if (/Já existe um lead/i.test(error?.message || '')) {
+        console.log(`[SendFlow] Duplicata ignorada: ${error.message}`);
+        return res.json({ success: true, duplicate: true, message: error.message });
+      }
+      console.error('[SendFlow] Erro no webhook do SendFlow:', error);
+      next(error);
+    }
+  },
+
+  // Recebe o lead do app de Diagnóstico e cria/atualiza no "Funil Principal" da
+  // conta DuoFuturo. Ver constantes DIAG_FORM_* no topo do arquivo.
+  async receberFormDiagnostico(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!DIAG_FORM_SECRET) {
+        console.error('[FormDiagnostico] DIAGNOSTICO_FORM_WEBHOOK_SECRET não configurado no .env');
+        return res.status(500).json({ error: 'Webhook não configurado' });
+      }
+      const secret = req.headers['x-webhook-secret'] || req.query.secret || req.query.token;
+      if (secret !== DIAG_FORM_SECRET) {
+        return res.status(401).json({ error: 'Webhook secret invalido' });
+      }
+
+      const b = req.body || {};
+      const nome = String(b.nome || '').trim();
+      const telefone = String(b.telefone || '').trim();
+      if (!nome || !telefone) {
+        console.warn('[FormDiagnostico] Payload sem nome/telefone:', JSON.stringify(b).slice(0, 400));
+        return res.status(400).json({ error: 'Nome e telefone são obrigatórios' });
+      }
+
+      const evento = b.evento === 'concluido' ? 'concluido' : 'iniciado';
+      const diagnostico = String(b.diagnostico || 'Diagnóstico').trim();
+      // leads.origem é VARCHAR(50) — o nome completo do diagnóstico vai nas notas
+      const origem = `${diagnostico} (diagnóstico)`.slice(0, 50);
+
+      // Bloco de resultado — só existe no evento de conclusão
+      const linhasResultado = evento === 'concluido' ? [
+        b.score != null && `Score geral: ${b.score}/100`,
+        b.perfil && `Perfil de maturidade: ${b.perfil}`,
+        b.etapa && `Ponto de partida: ${b.etapa}`,
+        Array.isArray(b.prioridades) && b.prioridades.length > 0 &&
+          `\nPrioridades identificadas:\n${b.prioridades.map((p: string) => `- ${p}`).join('\n')}`,
+        Array.isArray(b.servicos) && b.servicos.length > 0 &&
+          `\nServiços indicados (nesta ordem):\n${b.servicos.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n')}`,
+        b.resultado_url && `\nResultado completo: ${b.resultado_url}`,
+      ].filter(Boolean).join('\n') : '';
+
+      const notasBase = [
+        `Origem: ${diagnostico}`,
+        b.cargo && `Cargo: ${b.cargo}`,
+        b.faturamento_atual && `Faturamento informado: ${b.faturamento_atual}`,
+      ].filter(Boolean).join('\n');
+
+      // Já existe lead deste telefone neste funil? Então o diagnóstico foi
+      // concluído depois de o lead ter sido criado no início — anexa anotação.
+      const existente = await leadsService.telefoneExiste(
+        telefone, DIAG_FORM_EMPRESA_ID, undefined, DIAG_FORM_FUNIL_ID
+      );
+
+      if (existente.existe && existente.lead_id) {
+        if (!linhasResultado) {
+          console.log(`[FormDiagnostico] Lead #${existente.lead_id} já existe, evento "${evento}" sem resultado — ignorado`);
+          return res.json({ success: true, duplicate: true, lead_id: existente.lead_id });
+        }
+        await query(
+          `INSERT INTO anotacoes_lead (lead_id, empresa_id, usuario_id, conteudo, tipo, origem)
+           VALUES ($1, $2, $3, $4, 'importante', 'sistema')`,
+          [
+            existente.lead_id,
+            DIAG_FORM_EMPRESA_ID,
+            DIAG_FORM_RESPONSAVEL_ID,
+            `${diagnostico} concluído\n\n${linhasResultado}`,
+          ]
+        );
+        console.log(`[FormDiagnostico] Resultado anexado ao lead #${existente.lead_id} ("${existente.lead_nome}")`);
+        return res.json({ success: true, lead_id: existente.lead_id, anotacao: true });
+      }
+
+      const estagio = await resolverEstagioEntrada(DIAG_FORM_FUNIL_ID, DIAG_FORM_ESTAGIO_ID);
+      if (!estagio) {
+        return res.status(500).json({ error: 'Funil de destino sem estágios' });
+      }
+
+      const lead = await leadsService.create(
+        DIAG_FORM_EMPRESA_ID,
+        DIAG_FORM_RESPONSAVEL_ID,
+        {
+          funil_id: DIAG_FORM_FUNIL_ID,
+          estagio_id: estagio,
+          responsavel_id: DIAG_FORM_RESPONSAVEL_ID,
+          nome,
+          telefone,
+          email: b.email || undefined,
+          cargo: b.cargo || undefined,
+          origem,
+          notas: [notasBase, linhasResultado].filter(Boolean).join('\n') || undefined,
+        },
+        false // requireTarefa = false (lead automático de captação)
+      );
+      console.log(`[FormDiagnostico] Lead #${lead.id} criado: "${lead.nome}" (${telefone}) — evento ${evento}`);
+      return res.status(201).json({ success: true, lead_id: lead.id });
+
+    } catch (error: any) {
+      // Duplicata em corrida: responde 200 para a app não reenviar
+      if (/Já existe um lead/i.test(error?.message || '')) {
+        console.log(`[FormDiagnostico] Duplicata ignorada: ${error.message}`);
+        return res.json({ success: true, duplicate: true, message: error.message });
+      }
+      console.error('[FormDiagnostico] Erro no webhook do diagnóstico:', error);
       next(error);
     }
   },

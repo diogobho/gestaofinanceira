@@ -1,0 +1,149 @@
+<!--
+  PARTE 1 — cole em TODAS as paginas do site (cabecalho / Custom HTML global).
+  Guarda o utm_source na chegada: a pessoa entra por /desafio/?utm_source=semana2
+  e so depois abre o formulario em /liberdade-financeira/, onde a URL ja nao tem
+  mais nada. Sem isto, o dado se perde em qualquer visita de mais de uma pagina.
+-->
+<script>
+  (function () {
+    try {
+      var utm = new URLSearchParams(window.location.search).get("utm_source");
+      // So grava quando a URL TRAZ o utm: navegar para a pagina seguinte nao
+      // pode apagar a campanha por onde a pessoa entrou.
+      if (utm && utm.trim()) {
+        sessionStorage.setItem("duo_utm_source", utm.trim().slice(0, 60));
+      }
+    } catch (e) {
+      /* aba anonima com storage bloqueado: segue sem utm, o CRM registra "outros" */
+    }
+  })();
+</script>
+
+
+<!--
+  PARTE 2 — substitui o <script> que ja existe na pagina do formulario
+  (/liberdade-financeira/). Sao duas mudancas em relacao ao que esta no ar:
+  a funcao utmSourceDaVisita() e a linha utm_source dentro do payload.
+  O resto e identico ao que voce ja tem.
+-->
+<script>
+  (function () {
+    // Webhook do CRM (formulário Caixa Rápido) — endpoint e token fornecidos pela Sucessores.
+    var WEBHOOK_URL = "https://duofuturo.tech/api/gestao/crm/webhook/form-caixa-rapido";
+    var WEBHOOK_TOKEN = "1f8f8edabddda2c9c43f1dfb4ee783647d988092ea23319ac1a6ffb8d9e3061b";
+    // TROQUE ESTA CONSTANTE ANTES DE PUBLICAR:
+    var GRUPO_LINK = "https://chat.whatsapp.com/DBLcjcfyXnQ27cuZNpxVCD"; // link (WhatsApp/grupo) pra onde a pessoa vai após enviar
+
+    // Normaliza o WhatsApp pro formato país+DDD+número (ex.: 5531999998888) exigido pelo webhook.
+    function normalizarWhatsapp(valor) {
+      var digitos = (valor || "").replace(/\D/g, "");
+      if (digitos.length > 0 && digitos.length <= 11) digitos = "55" + digitos;
+      return digitos;
+    }
+
+    // De qual link a pessoa veio. A URL com o utm pode ter ficado para tras
+    // (ela entra por /desafio/?utm_source=semana2 e envia o formulario em outra
+    // pagina), por isso o valor tambem e lido do sessionStorage, onde a PARTE 1
+    // o guardou na chegada. Sem utm o CRM registra a campanha como "outros".
+    function utmSourceDaVisita() {
+      try {
+        var daUrl = new URLSearchParams(window.location.search).get("utm_source");
+        if (daUrl && daUrl.trim()) return daUrl.trim();
+        return sessionStorage.getItem("duo_utm_source") || "";
+      } catch (e) {
+        return "";
+      }
+    }
+
+    var overlay = document.getElementById("modal-inscricao");
+    var closeBtn = document.getElementById("modal-close");
+    var openTriggers = document.querySelectorAll(".js-abrir-inscricao");
+    var form = document.getElementById("form-inscricao");
+    var statusEl = document.getElementById("form-status");
+    var submitBtn = document.getElementById("form-submit-btn");
+    var lastFocused = null;
+
+    function openModal(e) {
+      if (e) e.preventDefault();
+      if (!overlay) return;
+      lastFocused = document.activeElement;
+      overlay.classList.add("is-open");
+      overlay.setAttribute("aria-hidden", "false");
+      document.body.style.overflow = "hidden";
+      var firstField = document.getElementById("f-nome");
+      if (firstField) firstField.focus();
+    }
+
+    function closeModal() {
+      if (!overlay) return;
+      overlay.classList.remove("is-open");
+      overlay.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+      if (lastFocused && lastFocused.focus) lastFocused.focus();
+    }
+
+    openTriggers.forEach(function (el) { el.addEventListener("click", openModal); });
+    if (closeBtn) closeBtn.addEventListener("click", closeModal);
+    if (overlay) {
+      overlay.addEventListener("click", function (e) {
+        if (e.target === overlay) closeModal();
+      });
+    }
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && overlay && overlay.classList.contains("is-open")) closeModal();
+    });
+
+    if (form) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        if (statusEl) { statusEl.textContent = ""; statusEl.className = "form-status"; }
+
+        var data = new FormData(form);
+        var payload = {
+          nome: data.get("nome"),
+          whatsapp: normalizarWhatsapp(data.get("whatsapp")),
+          email: data.get("email"),
+          negocio: data.get("negocio"),
+          faturamento: data.get("faturamento"),
+          objetivo: data.get("objetivo"),
+          desafio: data.get("desafio"),
+          origem: "landing-seu-plano-de-liberdade-financeira",
+          utm_source: utmSourceDaVisita(),
+          data_envio: new Date().toISOString()
+        };
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Enviando...";
+
+        var urlComToken = WEBHOOK_URL + "?token=" + encodeURIComponent(WEBHOOK_TOKEN);
+
+        fetch(urlComToken, {
+          method: "POST",
+          body: new URLSearchParams(payload)
+        })
+          .then(function (res) {
+            // 201 = criado · 200 = telefone já existia (não duplica) · 400/401 = erro
+            if (res.status === 201 || res.status === 200) return true;
+            if (res.status === 400) throw new Error("Faltou nome ou WhatsApp.");
+            if (res.status === 401) throw new Error("Token inválido.");
+            throw new Error("status " + res.status);
+          })
+          .then(function () {
+            if (statusEl) {
+              statusEl.textContent = "Inscrição enviada! Redirecionando para o grupo...";
+              statusEl.className = "form-status is-success";
+            }
+            setTimeout(function () { window.location.href = GRUPO_LINK; }, 900);
+          })
+          .catch(function () {
+            if (statusEl) {
+              statusEl.textContent = "Não conseguimos enviar agora. Tente novamente em instantes.";
+              statusEl.className = "form-status is-error";
+            }
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = 'Quero minha vaga <span class="arrow">→</span>';
+          });
+      });
+    }
+  })();
+</script>
