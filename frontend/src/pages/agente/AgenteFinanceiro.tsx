@@ -86,7 +86,6 @@ const MODELOS_GEMINI = [
   { value: 'gemini-3.1-pro-preview-customtools', label: 'Gemini 3.1 Pro Ferramentas (Preview)' },
   { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Preview)' },
   { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' },
-  { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
 ]
 
 const TONS = [
@@ -424,6 +423,7 @@ function ConfigurarAgente() {
     contexto_mensagens: 10,
     usuarios_habilitados: [],
     delay_segundos: 0,
+    pode_ficar_em_silencio: false,
   })
 
   const { data: config, isLoading } = useAgenteIAConfig()
@@ -445,6 +445,7 @@ function ConfigurarAgente() {
         contexto_mensagens: config.contexto_mensagens,
         usuarios_habilitados: config.usuarios_habilitados || [],
         delay_segundos: config.delay_segundos ?? 0,
+        pode_ficar_em_silencio: !!config.pode_ficar_em_silencio,
       })
     }
   }, [config])
@@ -785,6 +786,25 @@ function ConfigurarAgente() {
             <p className="text-xs text-gray-400 mt-1">
               Tempo de espera após receber a mensagem antes de processar. Útil para parecer mais natural.
             </p>
+          </div>
+
+          {/* Silêncio (migration 077): sem isto o agente responde TODA mensagem — até
+              "ok", figurinha e assunto pessoal no número do dono. */}
+          <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-200 bg-gray-50 dark:bg-gray-800/40 dark:border-gray-700">
+            <div>
+              <p className="font-medium text-gray-900 text-sm">Pode ficar em silêncio</p>
+              <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                O agente não responde quando a mensagem não pede resposta ("ok", "obrigada",
+                figurinha, "vejo depois") ou é assunto pessoal — convite, família, evento. Ele
+                nunca aceita compromisso em nome de quem atende. A mensagem fica como não lida
+                para você responder.
+              </p>
+            </div>
+            <Switch
+              checked={!!form.pode_ficar_em_silencio}
+              onChange={(v) => set('pode_ficar_em_silencio', v)}
+              aria-label="Permitir que o agente fique em silêncio"
+            />
           </div>
 
           {/* Aviso */}

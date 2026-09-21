@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Três Níveis do Agente — Guia de Configuração</title>
+<meta name="description" content="Como configurar cada um dos três níveis de instrução do agente de IA no WhatsApp: empresa, estágio e passo da cadência.">
+<style>
+
+  :root {
+    --ground:      #F6F8FC;
+    --surface:     #FFFFFF;
+    --surface-alt: #EEF2F9;
+    --line:        #D6DEEB;
+    --line-soft:   #E6ECF5;
+    --ink:         #0E1A33;
+    --ink-soft:    #4A5570;
+    --ink-faint:   #7A849B;
+    --navy:        #13264C;
+    --esmeralda:   #0E8F65;
+    --esmeralda-bg:#E3F4EC;
+    --dourado:     #9A7B1F;
+    --dourado-bg:  #F6EEDA;
+    --alerta:      #A33A2A;
+    --alerta-bg:   #F8E9E6;
+
+    --n1: var(--navy);
+    --n2: var(--esmeralda);
+    --n3: var(--dourado);
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0A1120;
+      --surface:     #121B2C;
+      --surface-alt: #182339;
+      --line:        #2A3852;
+      --line-soft:   #1E2A40;
+      --ink:         #E8EDF7;
+      --ink-soft:    #A9B4C9;
+      --ink-faint:   #78859E;
+      --navy:        #8FB0E8;
+      --esmeralda:   #3FD3A0;
+      --esmeralda-bg:#0F2E24;
+      --dourado:     #DCBB63;
+      --dourado-bg:  #2B2413;
+      --alerta:      #F0958A;
+      --alerta-bg:   #331B18;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0A1120;
+    --surface:     #121B2C;
+    --surface-alt: #182339;
+    --line:        #2A3852;
+    --line-soft:   #1E2A40;
+    --ink:         #E8EDF7;
+    --ink-soft:    #A9B4C9;
+    --ink-faint:   #78859E;
+    --navy:        #8FB0E8;
+    --esmeralda:   #3FD3A0;
+    --esmeralda-bg:#0F2E24;
+    --dourado:     #DCBB63;
+    --dourado-bg:  #2B2413;
+    --alerta:      #F0958A;
+    --alerta-bg:   #331B18;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 60rem;
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.5rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 5vw, 3.1rem);
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0.5rem 0 0;
+  }
+
+  .lede {
+    font-size: 1.1rem;
+    color: var(--ink-soft);
+    max-width: 46ch;
+    margin: 1rem 0 0;
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.7rem;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.005em;
+    margin: 0;
+  }
+
+  p { margin: 0; max-width: 68ch; }
+
+  section { display: flex; flex-direction: column; gap: 1.15rem; }
+
+  .rule {
+    height: 1px;
+    background: var(--line);
+    border: 0;
+    margin: 0;
+  }
+
+  /* ── matriz de escopo ─────────────────────────────────────── */
+  .matrix-shell { overflow-x: auto; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 34rem;
+    font-size: 0.94rem;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: top;
+  }
+
+  thead th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 500;
+    border-bottom: 1px solid var(--line);
+  }
+
+  tbody tr:last-child td { border-bottom: 0; }
+
+  .yes {
+    font-weight: 700;
+    color: var(--esmeralda);
+  }
+
+  .no {
+    color: var(--ink-faint);
+  }
+
+  .lvl-cell { display: flex; align-items: baseline; gap: 0.6rem; }
+
+  .tick {
+    width: 3px;
+    height: 1.05em;
+    border-radius: 2px;
+    flex: none;
+    transform: translateY(0.15em);
+  }
+  .tick.n1 { background: var(--n1); }
+  .tick.n2 { background: var(--n2); }
+  .tick.n3 { background: var(--n3); }
+
+  /* ── nível ────────────────────────────────────────────────── */
+  .level {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    border-left-width: 4px;
+    padding: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .level.n1 { border-left-color: var(--n1); }
+  .level.n2 { border-left-color: var(--n2); }
+  .level.n3 { border-left-color: var(--n3); }
+
+  .level-head { display: flex; flex-direction: column; gap: 0.35rem; }
+
+  .level-tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .n1 .level-tag { color: var(--n1); }
+  .n2 .level-tag { color: var(--n2); }
+  .n3 .level-tag { color: var(--n3); }
+
+  .where {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    background: var(--surface-alt);
+    border: 1px solid var(--line-soft);
+    border-radius: 3px;
+    padding: 0.5rem 0.7rem;
+    display: inline-block;
+    align-self: flex-start;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1.25rem;
+  }
+
+  .col { display: flex; flex-direction: column; gap: 0.55rem; }
+
+  .col-label {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .col-label.ok { color: var(--esmeralda); }
+  .col-label.nope { color: var(--alerta); }
+
+  ul { margin: 0; padding-left: 1.15rem; display: flex; flex-direction: column; gap: 0.4rem; }
+  li { max-width: 62ch; }
+
+  .fields { display: flex; flex-direction: column; gap: 0.7rem; }
+
+  .field {
+    display: grid;
+    grid-template-columns: minmax(9rem, 13rem) 1fr;
+    gap: 0.35rem 1rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 1px dashed var(--line-soft);
+  }
+  .field:last-child { border-bottom: 0; padding-bottom: 0; }
+  .field dt { font-weight: 700; font-size: 0.94rem; }
+  .field dd { margin: 0; color: var(--ink-soft); font-size: 0.94rem; }
+
+  .example {
+    background: var(--surface-alt);
+    border-left: 3px solid var(--line);
+    border-radius: 2px;
+    padding: 1rem 1.1rem;
+    font-size: 0.92rem;
+    color: var(--ink-soft);
+    white-space: pre-wrap;
+    font-family: var(--mono);
+    line-height: 1.6;
+    overflow-x: auto;
+  }
+
+  .note {
+    border-radius: 3px;
+    padding: 1rem 1.15rem;
+    font-size: 0.94rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .note strong { display: block; }
+  .note.auto { background: var(--esmeralda-bg); color: var(--ink); border: 1px solid color-mix(in srgb, var(--esmeralda) 30%, transparent); }
+  .note.warn { background: var(--alerta-bg); color: var(--ink); border: 1px solid color-mix(in srgb, var(--alerta) 30%, transparent); }
+  .note.gold { background: var(--dourado-bg); color: var(--ink); border: 1px solid color-mix(in srgb, var(--dourado) 35%, transparent); }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--surface-alt);
+    border: 1px solid var(--line-soft);
+    border-radius: 3px;
+    padding: 0.08em 0.35em;
+  }
+
+  .checklist { display: flex; flex-direction: column; gap: 0.7rem; counter-reset: step; }
+
+  .step {
+    display: grid;
+    grid-template-columns: 1.6rem 1fr;
+    gap: 0.9rem;
+    align-items: baseline;
+  }
+  .step::before {
+    counter-increment: step;
+    content: counter(step);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-faint);
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    width: 1.6rem;
+    height: 1.6rem;
+    display: grid;
+    place-items: center;
+  }
+
+  .tools {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 0.9rem;
+  }
+  .tool {
+    border: 1px solid var(--line-soft);
+    border-radius: 3px;
+    padding: 0.85rem 0.95rem;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .tool b { font-family: var(--mono); font-size: 0.82rem; color: var(--navy); }
+  .tool span { font-size: 0.88rem; color: var(--ink-soft); }
+
+  footer {
+    color: var(--ink-faint);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--line);
+    padding-top: 1.5rem;
+  }
+
+  @media (max-width: 34rem) {
+    .field { grid-template-columns: 1fr; }
+    .level { padding: 1.25rem; }
+  }
+
+  /* Salvar como PDF: força a paleta clara e evita cortar blocos no meio */
+  @media print {
+    :root {
+      --ground: #FFFFFF; --surface: #FFFFFF; --surface-alt: #F4F6FA;
+      --line: #C9D2E0; --line-soft: #E2E8F2;
+      --ink: #10192B; --ink-soft: #3C4763; --ink-faint: #6B7488;
+      --navy: #13264C; --esmeralda: #0E8F65; --dourado: #9A7B1F;
+    }
+    body { background: #FFFFFF; font-size: 10.5pt; }
+    .wrap { max-width: 100%; padding: 0; gap: 1.5rem; }
+    section, .level, .note, .tool, .step { break-inside: avoid; }
+    h1, h2 { break-after: avoid; }
+    footer { break-before: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Agente de IA no WhatsApp · Guia de configuração</p>
+    <h1>Três níveis de instrução</h1>
+    <p class="lede">O agente lê três lugares diferentes antes de escrever qualquer mensagem. Saber o que colocar em cada um é a diferença entre um agente coerente e um que se repete, atropela etapa ou fala o que não devia.</p>
+  </header>
+
+  <section>
+    <h2>Antes de tudo: o agente age em dois momentos</h2>
+    <p><strong>Resposta.</strong> O lead escreve no WhatsApp e o agente responde. Acontece só se o estágio em que o lead está tiver o agente ligado.</p>
+    <p><strong>Follow-up.</strong> O lead ficou em silêncio e a cadência do estágio puxa a conversa de volta na data programada. Cada passo da cadência pode ser uma mensagem fixa ou escrita pela IA.</p>
+    <p>Os três níveis não valem para os dois momentos. Essa é a confusão mais comum — e a razão de instrução colocada no lugar errado simplesmente não ter efeito:</p>
+
+    <div class="matrix-shell">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Nível</th>
+            <th scope="col">Resposta ao lead</th>
+            <th scope="col">Follow-up automático</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="lvl-cell"><span class="tick n1"></span> <span><strong>1.</strong> Empresa</span></span></td>
+            <td class="yes">Vale</td>
+            <td class="yes">Vale</td>
+          </tr>
+          <tr>
+            <td><span class="lvl-cell"><span class="tick n2"></span> <span><strong>2.</strong> Estágio do funil</span></span></td>
+            <td class="yes">Vale</td>
+            <td class="no">Não chega</td>
+          </tr>
+          <tr>
+            <td><span class="lvl-cell"><span class="tick n3"></span> <span><strong>3.</strong> Passo da cadência</span></span></td>
+            <td class="no">Não chega</td>
+            <td class="yes">Vale</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Ou seja: o nível 1 é o único que o agente sempre lê. O nível 2 governa <em>como responder</em>; o nível 3 governa <em>o que dizer ao puxar conversa</em>.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2>Nível 1 — Quem é o agente e o que ele nunca faz</h2>
+
+    <div class="level n1">
+      <div class="level-head">
+        <span class="level-tag">Nível 1 · vale para a empresa inteira</span>
+        <h3>Configurações do agente</h3>
+      </div>
+      <span class="where">Menu Agente → aba Configurar Agente</span>
+
+      <p>É a base de tudo: a voz, o contexto do negócio e as regras que valem em qualquer conversa, em qualquer etapa. Escreva uma vez e revise raramente.</p>
+
+      <dl class="fields">
+        <div class="field">
+          <dt>Agente ativo</dt>
+          <dd>Liga e desliga o agente para a empresa toda. Desligado, os follow-ups de IA <strong>não se perdem</strong> — ficam na fila e saem quando religar. Follow-ups de mensagem fixa continuam saindo normalmente.</dd>
+        </div>
+        <div class="field">
+          <dt>Provedor e chave</dt>
+          <dd>Claude (Anthropic) ou Gemini (Google), com a chave da sua conta. Sem saldo na conta do provedor o agente pausa em vez de falhar — e volta sozinho quando o saldo entra.</dd>
+        </div>
+        <div class="field">
+          <dt>Tom de voz</dt>
+          <dd>Um ajuste grosso de registro. Se você escrever instruções de estilo detalhadas no campo abaixo, elas mandam — escolha o tom mais próximo delas para não brigarem.</dd>
+        </div>
+        <div class="field">
+          <dt>Área/contexto do negócio</dt>
+          <dd>Uma linha. Vira o "você é fulano, da ___" no início do raciocínio do agente.</dd>
+        </div>
+        <div class="field">
+          <dt>Instruções adicionais</dt>
+          <dd>O texto longo. Voz, regras invioláveis, produtos, preços, links de pagamento, objeções e como respondê-las.</dd>
+        </div>
+        <div class="field">
+          <dt>Histórico de contexto</dt>
+          <dd>Quantas mensagens anteriores o agente relê a cada turno. 25 a 30 costuma bastar; mais que isso encarece cada resposta sem melhorar muito.</dd>
+        </div>
+        <div class="field">
+          <dt>Delay antes de responder</dt>
+          <dd>Espera depois que a mensagem chega. Serve para parecer humano e para juntar várias mensagens seguidas do lead numa resposta só.</dd>
+        </div>
+      </dl>
+
+      <div class="cols">
+        <div class="col">
+          <p class="col-label ok">Escreva aqui</p>
+          <ul>
+            <li>Quem é a empresa e o que ela vende</li>
+            <li>Regras invioláveis ("jamais diga que é IA", "nunca prometa desconto")</li>
+            <li>Produtos, valores, condições e links de pagamento</li>
+            <li>Objeções recorrentes e como conduzi-las</li>
+            <li>Voz: expressões que usa, expressões proibidas, tamanho de mensagem</li>
+          </ul>
+        </div>
+        <div class="col">
+          <p class="col-label nope">Não escreva aqui</p>
+          <ul>
+            <li>Objetivo de uma etapa específica — isso é nível 2</li>
+            <li>Texto de mensagem de retomada — isso é nível 3</li>
+            <li>Pedido para lembrar o lead da reunião — o sistema já faz</li>
+            <li>Instrução para assinar com um nome fixo — a assinatura é de quem atende</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="note auto">
+        <strong>O nome do agente não se configura</strong>
+        O agente se apresenta com o nome de quem está atendendo: o dono do número em que a conversa acontece e, no follow-up, o responsável pelo lead. É por isso que o campo "Nome do agente" não existe mais nesta tela.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Nível 2 — O que buscar nesta etapa do funil</h2>
+
+    <div class="level n2">
+      <div class="level-head">
+        <span class="level-tag">Nível 2 · vale só para as respostas</span>
+        <h3>Instrução do agente neste estágio</h3>
+      </div>
+      <span class="where">CRM → engrenagem do estágio → Instrução do agente neste estágio</span>
+
+      <p>Um lead em "Tentativa de contato" e um lead em "Fechamento" não devem receber o mesmo tipo de resposta. Este campo é onde você diz o objetivo da etapa e o limite dela. Em branco, o agente responde apenas com o nível 1 — funciona, mas sem noção de etapa.</p>
+
+      <div class="cols">
+        <div class="col">
+          <p class="col-label ok">Escreva aqui</p>
+          <ul>
+            <li>O objetivo da etapa em uma frase</li>
+            <li>O que ainda <em>não</em> pode ser dito nela (preço, proposta, link)</li>
+            <li>Para onde encaminhar quando o lead avançar</li>
+            <li>Que informação precisa sair da conversa antes de avançar</li>
+          </ul>
+        </div>
+        <div class="col">
+          <p class="col-label nope">Não escreva aqui</p>
+          <ul>
+            <li>Voz e estilo — já estão no nível 1</li>
+            <li>Tabela de preços inteira — nível 1</li>
+            <li>Texto pronto de mensagem — o agente não copia literalmente</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="example">O objetivo aqui é fazer o lead responder e abrir conversa.
+Não apresente o programa nem fale de preço neste estágio.
+Se ele demonstrar interesse, ofereça uma conversa com a Débora.
+Se pedir valores, diga que quem passa isso é a Débora na conversa.</div>
+
+      <div class="note gold">
+        <strong>No mesmo lugar, três chaves que mudam o comportamento</strong>
+        O toggle que liga o agente para os leads deste estágio; o estágio para onde mover quando o lead responder; e os lembretes de reunião. Se o agente "não responde" num estágio, é este toggle que está desligado.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Nível 3 — O que dizer ao puxar a conversa de volta</h2>
+
+    <div class="level n3">
+      <div class="level-head">
+        <span class="level-tag">Nível 3 · vale só para o follow-up</span>
+        <h3>Passo da cadência</h3>
+      </div>
+      <span class="where">CRM → engrenagem do estágio → aba Fluxo → passo da cadência</span>
+
+      <p>Cada passo da cadência tem um tipo. A escolha muda completamente o que você escreve:</p>
+
+      <dl class="fields">
+        <div class="field">
+          <dt>Fixa / personalizada</dt>
+          <dd>A mensagem sai exatamente como você escreveu. Aceita variáveis como <code>[PrimeiroNome]</code> e <code>[Responsavel]</code>, e aceita anexo. Não passa pela IA — continua saindo mesmo com o agente desligado. Use quando a mensagem precisa ser sempre igual.</dd>
+        </div>
+        <div class="field">
+          <dt>Agente IA</dt>
+          <dd>Você escreve a <em>intenção</em> do passo, não o texto. O agente lê o histórico daquele lead e escreve uma mensagem própria para ele. Variáveis não fazem sentido aqui — ele já conhece o nome, a empresa e a conversa.</dd>
+        </div>
+      </dl>
+
+      <div class="cols">
+        <div class="col">
+          <p class="col-label ok">Escreva aqui (tipo Agente IA)</p>
+          <ul>
+            <li>O propósito daquele toque: reabrir, lembrar de algo combinado, trazer prova social, oferecer conversa</li>
+            <li>O ângulo novo, se o passo anterior não teve resposta</li>
+            <li>O que não repetir do passo anterior</li>
+          </ul>
+        </div>
+        <div class="col">
+          <p class="col-label nope">Não escreva aqui</p>
+          <ul>
+            <li>Regras gerais de voz — nível 1</li>
+            <li>Objetivo geral da etapa — nível 2</li>
+            <li>Texto literal esperando que ele copie — para isso use "Fixa"</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="example">Segundo toque, sem resposta desde a apresentação.
+Retome pelo objetivo que ela mesma trouxe, não pelo produto.
+Não repita a pergunta do passo anterior e não fale de preço.</div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2>O que o sistema já resolve — não instrua</h2>
+    <p>Pedir isso nas instruções só ocupa espaço e às vezes atrapalha, porque o agente tenta fazer de novo o que já foi feito.</p>
+
+    <div class="cols">
+      <div class="col">
+        <ul>
+          <li><strong>Quebrar em várias mensagens.</strong> Uma linha em branco no texto vira uma mensagem separada no WhatsApp, com pausa entre elas. Máximo de três.</li>
+          <li><strong>Horário de atendimento.</strong> Mensagem que chega fora da janela das 8h às 20h é respondida na abertura do dia seguinte, não de madrugada.</li>
+          <li><strong>Não atropelar humano.</strong> Se alguém da equipe responder enquanto o agente pensava, ele desiste do turno.</li>
+          <li><strong>Não atropelar conversa viva.</strong> Follow-up automático não sai se houve mensagem na última hora.</li>
+        </ul>
+      </div>
+      <div class="col">
+        <ul>
+          <li><strong>Lembretes de reunião.</strong> Marcada a reunião, os lembretes de véspera, de 1h antes e o resgate de no-show saem sozinhos — desde que estejam ativados no estágio.</li>
+          <li><strong>Assinatura.</strong> O agente já se apresenta com o nome de quem atende.</li>
+          <li><strong>Data e hora.</strong> Ele sabe que dia é hoje, que horas são e qual o próximo compromisso do lead.</li>
+          <li><strong>Intervalo entre envios.</strong> A fila respeita o espaçamento anti-bloqueio configurado na empresa.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="note auto">
+      <strong>Reunião: uma chamada resolve tudo</strong>
+      Quando o lead fecha dia e horário, o agente registra a reunião com a data e a hora combinadas, e isso já liga os lembretes. Se o lead remarcar, ele atualiza a mesma reunião em vez de criar outra — sem risco de lembrete em dobro.
+    </div>
+
+    <div class="note warn">
+      <strong>Reunião marcada à mão precisa da hora preenchida</strong>
+      Ao criar a tarefa de reunião pelo CRM, escolha a hora de verdade no campo de horário — não deixe a hora que vem preenchida sozinha e coloque o horário só no título. Sem hora real, o sistema não envia lembrete, porque avisar o lead de um horário que ninguém combinou é pior do que não avisar.
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2>Erros comuns</h2>
+    <ul>
+      <li><strong>Instrução de etapa no prompt geral.</strong> "Neste momento não fale de preço" no nível 1 vale para todas as etapas, inclusive o fechamento. Vai para o nível 2.</li>
+      <li><strong>Estilo repetido nos três níveis.</strong> Instruções de voz duplicadas se contradizem no detalhe e o agente escolhe uma. Voz mora só no nível 1.</li>
+      <li><strong>Texto pronto num passo tipo Agente IA.</strong> Ele não copia — reescreve. Se a mensagem tem que sair idêntica, o tipo é "Fixa".</li>
+      <li><strong>Urgência artificial em produto recorrente.</strong> "Últimas vagas" numa oferta sem turma fechando queima a confiança. A urgência real é o custo de continuar parado.</li>
+      <li><strong>Prometer lembrete.</strong> "Te lembro antes" duplica o que o sistema já faz e soa robótico.</li>
+      <li><strong>Estágio com agente ligado e instrução vazia.</strong> Funciona, mas é onde estaria a maior alavanca de qualidade — o agente responde sem saber o objetivo da etapa.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>O que o agente consegue fazer sozinho</h2>
+    <p>Ações que ele executa em silêncio durante a conversa — o lead nunca fica sabendo.</p>
+    <div class="tools">
+      <div class="tool"><b>agendar_reuniao</b><span>Marca ou remarca a reunião e liga os lembretes.</span></div>
+      <div class="tool"><b>criar_tarefa</b><span>Ligação, e-mail, proposta, visita, follow-up.</span></div>
+      <div class="tool"><b>criar_anotacao</b><span>Registra no lead o que apurou na conversa.</span></div>
+      <div class="tool"><b>mover_lead_estagio</b><span>Avança o lead no funil.</span></div>
+      <div class="tool"><b>atualizar_lead</b><span>Temperatura, valor, e-mail, cargo, empresa.</span></div>
+      <div class="tool"><b>marcar_lead_perdido</b><span>Encerra com o motivo registrado.</span></div>
+      <div class="tool"><b>listar_tarefas · concluir_tarefa</b><span>Consulta e fecha pendências do lead.</span></div>
+      <div class="tool"><b>buscar_atividades_lead</b><span>Relê o que já aconteceu com aquele lead.</span></div>
+    </div>
+    <p>Ele <strong>não</strong> tem acesso à carteira de clientes nem ao financeiro da empresa. Essas ferramentas ficam apenas no assistente interno, que só quem tem login acessa.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2>Checklist para colocar de pé</h2>
+    <div class="checklist">
+      <div class="step"><p>No nível 1, escreva quem é a empresa, a voz e as regras invioláveis. Configure provedor e chave.</p></div>
+      <div class="step"><p>Ligue o agente na empresa e confira se há saldo na conta do provedor.</p></div>
+      <div class="step"><p>Para cada estágio em que o agente deve responder, ligue o toggle do estágio.</p></div>
+      <div class="step"><p>Escreva a instrução do nível 2 em cada um desses estágios. Estágio ligado com instrução vazia é oportunidade perdida.</p></div>
+      <div class="step"><p>Monte a cadência do estágio e defina, passo a passo, o que é mensagem fixa e o que é Agente IA.</p></div>
+      <div class="step"><p>Ative os lembretes de reunião nos estágios onde reunião acontece.</p></div>
+      <div class="step"><p>Acompanhe as primeiras conversas reais e ajuste — quase todo problema de resposta se resolve no nível 2.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    Guia de configuração do agente de IA no WhatsApp · CRM Gestão Financeira · DuoFuturo
+  </footer>
+
+</div>
+</body>
+</html>

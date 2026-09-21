@@ -1,5 +1,6 @@
 import { query } from '../../config/database';
 import axios from 'axios';
+import { instancia } from '../whatsapp/canal/instancia';
 
 const LIMITE_POR_GRUPO = 15;
 
@@ -215,8 +216,7 @@ export const automacoesGrupoService = {
 
           const destino = auto.enviar_para === 'grupo' ? grupoId : participanteJid;
 
-          await axios.post(
-            `http://localhost:${auto.whatsapp_porta}/send-message`,
+          await instancia(auto.whatsapp_porta).post(`/send-message`,
             { to: destino, message: mensagemFinal },
             { timeout: 15000 }
           );

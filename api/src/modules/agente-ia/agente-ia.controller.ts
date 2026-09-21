@@ -1,10 +1,19 @@
 import { Request, Response, NextFunction } from 'express';
 import { agenteIaService } from './agente-ia.service';
+import { podeConfigurarAgenteIA } from '../../shared/roles';
 
 export const agenteIaController = {
 
   async getConfig(req: Request, res: Response, next: NextFunction) {
     try {
+      // A leitura também é do creator: o payload traz o system_prompt_extra inteiro, e
+      // esconder a aba sem fechar a rota deixaria o prompt a um curl de distância.
+      // Único consumidor é a própria aba "Configurar Agente".
+      if (!podeConfigurarAgenteIA((req as any).user)) {
+        return res.status(403).json({
+          message: 'Apenas o usuário creator (dono da empresa) pode ver a configuração do agente de IA'
+        });
+      }
       const empresaId = (req as any).user.empresa_id;
       const config = await agenteIaService.getConfig(empresaId);
       // Mascarar API keys na resposta
@@ -33,26 +42,32 @@ export const agenteIaController = {
   async updateConfig(req: Request, res: Response, next: NextFunction) {
     try {
       const empresaId = (req as any).user.empresa_id;
-      const nivel = (req as any).user.nivel;
-      const tipo = (req as any).user.tipo_usuario;
 
-      // Apenas super_admin ou master pode configurar
-      if (nivel !== 'super_admin' && tipo !== 'master') {
-        return res.status(403).json({ message: 'Apenas administradores podem configurar o agente de IA' });
+      // Configuração do agente é exclusiva do CREATOR (o dono da empresa) — o master
+      // administra usuários e a operação, mas não reescreve o prompt, o tom nem troca a
+      // chave de API. Antes qualquer master podia, e desde que um master passou a poder
+      // promover outros, isso significaria espalhar o controle do agente junto.
+      if (!podeConfigurarAgenteIA((req as any).user)) {
+        return res.status(403).json({
+          message: 'Apenas o usuário creator (dono da empresa) pode configurar o agente de IA'
+        });
       }
 
+      // `proativo_ativo`, `horario_proativo` e `min_horas_silencio` (migration 027) eram
+      // lidos aqui e descartados pelo whitelist do upsertConfig — nenhum código lê essas
+      // colunas: o "modo proativo" nunca chegou a existir. Removidos do payload para não
+      // dar a impressão de que a tela configura algo.
       const {
         ativo, provider, api_key, gemini_api_key, modelo, nome_agente, tom,
         area_negocio, system_prompt_extra, max_tokens,
-        contexto_mensagens, usuarios_habilitados, delay_segundos,
-        proativo_ativo, horario_proativo, min_horas_silencio
+        contexto_mensagens, usuarios_habilitados, delay_segundos, pode_ficar_em_silencio
       } = req.body;
 
       const data: any = {
         ativo, provider, modelo, nome_agente, tom,
         area_negocio, system_prompt_extra, max_tokens,
         contexto_mensagens, usuarios_habilitados, delay_segundos,
-        proativo_ativo, horario_proativo, min_horas_silencio
+        pode_ficar_em_silencio: pode_ficar_em_silencio === undefined ? undefined : !!pode_ficar_em_silencio,
       };
       if (api_key && !api_key.includes('•')) {
         data.api_key = api_key;

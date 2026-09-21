@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { chatFinanceiroService } from './chat-financeiro.service';
+import { isAdminEmpresa } from '../../shared/roles';
 
 export const chatFinanceiroController = {
 
@@ -76,10 +77,9 @@ export const chatFinanceiroController = {
 
   async updateConfig(req: Request, res: Response, next: NextFunction) {
     try {
-      const nivel = (req as any).user.nivel;
-      const tipo = (req as any).user.tipo_usuario;
-
-      if (nivel !== 'super_admin' && tipo !== 'master') {
+      // Chat interno segue como estava: master ou creator (a exclusividade do creator
+      // vale só para a configuração do agente de WhatsApp).
+      if (!isAdminEmpresa((req as any).user)) {
         return res.status(403).json({ message: 'Apenas administradores podem configurar o chat financeiro' });
       }
 
