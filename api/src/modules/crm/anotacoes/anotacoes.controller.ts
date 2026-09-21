@@ -35,7 +35,10 @@ export const anotacoesController = {
     try {
       const empresaId = (req as any).user.empresa_id;
       const usuarioId = (req as any).user.id;
-      const data: CreateAnotacaoDto = req.body;
+      // `origem` NUNCA vem do cliente: a rota é a interface, e tudo que entra por ela é
+      // anotação de gente. Aceitar do body deixaria forjar "evento do sistema" — que o
+      // prompt do agente trata como registro confiável.
+      const data: CreateAnotacaoDto = { ...req.body, origem: 'usuario' };
 
       const anotacao = await anotacoesService.create(empresaId, usuarioId, data);
       res.status(201).json(anotacao);

@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import SeletorModeloWhatsApp from '@/components/whatsapp/SeletorModeloWhatsApp'
+import { useCanalWhatsApp, useModelosWhatsApp } from '@/hooks/useCanalWhatsApp'
+import { previaModelo, type ModeloConfigurado } from '@/api/canalWhatsapp'
 import {
   X, Send, ChevronRight, ChevronLeft, AlertCircle, CheckCircle,
   Loader2, MessageSquare, Users, Eye, Clock, Zap, Search, ArrowRight, Calendar, CalendarClock
@@ -87,6 +90,20 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
   const [step, setStep] = useState<Step>('destinatarios')
   const [modo, setModo] = useState<Modo>('todos')
   const [template, setTemplate] = useState('')
+  // Número oficial: disparo para quem não escreveu nas últimas 24h só chega com
+  // MODELO aprovado — por isso ele é o padrão. Texto livre fica como opção para
+  // quem está conversando agora.
+  const { data: canal } = useCanalWhatsApp()
+  const oficial = canal?.provedor === 'cloud_api'
+  const [usarModelo, setUsarModelo] = useState(true)
+  const [modeloDisp, setModeloDisp] = useState<ModeloConfigurado | null>(null)
+  const { data: modelosDisp = [], isLoading: carregandoModelosDisp, refetch: refetchModelosDisp } = useModelosWhatsApp(oficial)
+  const comModelo = oficial && usarModelo
+  useEffect(() => {
+    if (!comModelo) return
+    const m = modelosDisp.find(x => x.nome === modeloDisp?.nome && x.idioma === modeloDisp?.idioma)
+    setTemplate(m && modeloDisp ? previaModelo(m, modeloDisp.variaveis, modeloDisp.cabecalho) : '')
+  }, [comModelo, modeloDisp, modelosDisp])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [disparoId, setDisparoId] = useState<number | null>(null)
   const [status, setStatus] = useState<DisparoStatus | null>(null)
@@ -293,6 +310,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
         intervalo_min_seg: intervaloMin,
         intervalo_max_seg: intervaloMax,
       }
+      if (comModelo && modeloDisp) body.modelo_whatsapp = modeloDisp
       if (estagioPosDeparoId) {
         body.estagio_pos_disparo_id = estagioPosDeparoId
       }
@@ -318,6 +336,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
   }
 
   const handleClose = () => {
+    setModeloDisp(null)
     if (pollRef.current) clearInterval(pollRef.current)
     setStep('destinatarios')
     setTemplate('')
@@ -738,6 +757,44 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                   </span>
                 </div>
               )}
+              {oficial && (
+                <div className="border border-emerald-200 rounded-lg p-3 space-y-3 bg-emerald-50/40">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setUsarModelo(true)}
+                      className={`px-3 py-1.5 rounded-full text-sm border ${usarModelo ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-700'}`}
+                    >
+                      Modelo aprovado
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setUsarModelo(false); setTemplate('') }}
+                      className={`px-3 py-1.5 rounded-full text-sm border ${!usarModelo ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-700'}`}
+                    >
+                      Texto livre
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-600">
+                    {usarModelo
+                      ? 'WhatsApp oficial: modelo aprovado pela Meta chega em qualquer contato. As variáveis aceitam [PrimeiroNome], [Nome]… e são preenchidas lead a lead.'
+                      : 'Texto livre só é entregue a quem escreveu para o número oficial nas últimas 24h. Os demais aparecem como falha no relatório, com o motivo.'}
+                  </p>
+                  {usarModelo && (
+                    <SeletorModeloWhatsApp
+                      modelos={modelosDisp}
+                      carregando={carregandoModelosDisp}
+                      valor={modeloDisp}
+                      onChange={setModeloDisp}
+                      modo="variaveis"
+                      sugestaoPrimeira="[PrimeiroNome]"
+                      onRecarregar={() => refetchModelosDisp()}
+                    />
+                  )}
+                </div>
+              )}
+
+              {!comModelo && (<>
               <div data-tour="disp-variaveis">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                   Inserir variável
@@ -785,8 +842,10 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                 </div>
               </div>
 
+              </>)}
+
               {/* Aviso: mensagem sem variável de nome */}
-              {template.trim().length > 0 && !/\[Nome\]|\[PrimeiroNome\]/i.test(template) && (
+              {!comModelo && template.trim().length > 0 && !/\[Nome\]|\[PrimeiroNome\]/i.test(template) && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex gap-2 text-sm text-amber-700">
                   <AlertCircle size={16} className="shrink-0 mt-0.5" />
                   <span>
@@ -957,7 +1016,8 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                 </span>
                 <button
                   onClick={handleDisparar}
-                  disabled={!template.trim() || loading || totalSelecionados === 0 || (agendar && !agendadoPara)}
+                  disabled={!template.trim() || loading || totalSelecionados === 0 || (agendar && !agendadoPara) ||
+                    (comModelo && (!modeloDisp || modeloDisp.variaveis.some(v => !v.trim())))}
                   data-tour="disp-enviar"
                   className="flex items-center gap-2 px-5 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 text-sm font-medium"
                 >

@@ -105,8 +105,23 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
     data_vencimento: '',
   })
 
-  // Preencher formulário com dados do lead ao abrir em modo edição
+  // Preencher formulário com dados do lead ao abrir em modo edição.
+  //
+  // Em modo CRIAÇÃO o país volta para o Brasil, sempre. O modal não desmonta ao
+  // fechar (`if (!isOpen) return null` mais abaixo), então sem este ramo o
+  // seletor guardava o país do cadastro anterior: quem lançava um lead de
+  // Portugal e em seguida um do Brasil gravava o segundo como 351 + número
+  // brasileiro. Foram 6 cards assim em agosto/2026, e o envio falhava com "não
+  // tem conta no WhatsApp" num número que a tela mostrava certo.
   useEffect(() => {
+    if (!isOpen) return
+
+    if (!isEditMode) {
+      setCodigoPais('55')
+      setCodigoCustom('')
+      return
+    }
+
     if (isEditMode && initialLead) {
       const { code, rest } = detectAndStripCode(initialLead.telefone || '')
       if (PAISES_CODES.includes(code)) {
@@ -208,6 +223,9 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
       })
 
       onClose()
+      // O país entra no reset junto com o resto: ele é parte do telefone.
+      setCodigoPais('55')
+      setCodigoCustom('')
       setFormData({
         funil_id: funilId,
         estagio_id: estagioId,

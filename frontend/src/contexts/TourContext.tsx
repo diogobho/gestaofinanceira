@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useTourPersistence } from '@/tour/useTourPersistence'
 import { tours, tourPorId } from '@/tour/steps'
 import type { Tour, TourStep } from '@/tour/types'
+import { isAdminEmpresa } from '@/utils/roles'
 
 interface TourContextData {
   /** Inicia um tour pelo id. Ignora se o tour não existir. */
@@ -57,7 +58,7 @@ export const TourProvider: React.FC<{ children: React.ReactNode }> = ({ children
   rotaAtualRef.current = location.pathname
 
   const isAdminOrMaster = useMemo(
-    () => user?.nivel === 'super_admin' || user?.tipo_usuario === 'master',
+    () => isAdminEmpresa(user),
     [user],
   )
 

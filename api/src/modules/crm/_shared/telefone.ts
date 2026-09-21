@@ -72,18 +72,65 @@ export function variantesTelefone(valor: string | null | undefined): string[] {
   return [...new Set([digitos, chave, com9, `55${chave}`, `55${com9}`])];
 }
 
-/** Os 8 dígitos finais — a parte que não muda com DDI nem com o 9º dígito. */
-function final8(valor: string | null | undefined): string | null {
+/**
+ * Os dígitos, só quando dá para tratá-los como telefone. Fora dessa faixa é
+ * vazio, ramal, ID ou lixo colado: não dá para comparar, então não dá para
+ * acusar divergência.
+ */
+function digitosComparaveis(valor: string | null | undefined): string | null {
   const digitos = String(valor || '').replace(/\D/g, '');
-  // Fora dessa faixa não é telefone comparável (vazio, ramal, ID, lixo colado).
   if (digitos.length < 10 || digitos.length > 15) return null;
-  return digitos.slice(-8);
+  return digitos;
+}
+
+/**
+ * O MESMO número com o DDI 55 sobrando de um lado.
+ *
+ * Cadastro antigo colou o 55 do Brasil na frente de número que já tinha o DDI
+ * dele (`55` + `13016139577` dos EUA). Não é outra pessoa: é o mesmo destino
+ * escrito de duas formas, e o WhatsApp resolve. Bloquear aqui só tiraria do ar
+ * um envio que funciona.
+ */
+function mesmoNumeroCom55Sobrando(a: string, b: string): boolean {
+  return a === `55${b}` || b === `55${a}`;
+}
+
+/**
+ * Os dois lados apontam para o mesmo destino?
+ *
+ * Compara duas vezes de propósito: nos dígitos como estão e na `chaveTelefone`.
+ * O 55 sobrando precisa da comparação crua porque a chave normaliza um lado e o
+ * outro não — `5531994770550` vira `3194770550` (é BR reconhecível), enquanto
+ * `555531994770550` fica inteiro (15 dígitos não casam padrão nenhum), e aí as
+ * chaves não se encontram mesmo sendo o mesmo número.
+ */
+function mesmoDestino(a: string, b: string): boolean {
+  if (a === b || mesmoNumeroCom55Sobrando(a, b)) return true;
+
+  const chaveA = chaveTelefone(a);
+  const chaveB = chaveTelefone(b);
+  if (!chaveA || !chaveB) return false;
+
+  return chaveA === chaveB || mesmoNumeroCom55Sobrando(chaveA, chaveB);
 }
 
 /**
  * true quando o telefone do lead e o número do contato são, ambos, telefones
  * plausíveis e apontam para pessoas diferentes — o cenário em que a mensagem
  * sairia para quem não é o dono do card.
+ *
+ * A comparação é pela `chaveTelefone` INTEIRA, não pelo fim do número. Comparar
+ * só os 8 dígitos finais deixava passar justamente o erro mais comum de
+ * cadastro, que é no começo: `351`+`5191070326` (DDI de Portugal grudado num
+ * número brasileiro) e `55`+`5191070326` terminam igual, e a mensagem saía para
+ * um JID que não existe — "não tem conta no WhatsApp" num número que o card
+ * mostrava certo. Mesma coisa com DDD trocado: `5521973587656` contra
+ * `5555973587656`.
+ *
+ * O que a chave já absorve, e por isso NÃO é divergência: o 9º dígito e o DDI
+ * 55 ausente de um dos lados — as duas formas em que o mesmo número brasileiro
+ * aparece conforme a origem do cadastro. Bloquear essas quebraria quase toda a
+ * base (2.690 vínculos legítimos só na empresa 5).
  */
 export function vinculoDivergente(
   telefoneLead: string | null | undefined,
@@ -94,11 +141,32 @@ export function vinculoDivergente(
   const jid = String(whatsappIdContato || '');
   if (jid.includes('@lid') || jid.includes('@g.us')) return false;
 
-  const lead = final8(telefoneLead);
-  const contato = final8(numeroContato);
+  const lead = digitosComparaveis(telefoneLead);
+  const contato = digitosComparaveis(numeroContato);
   if (!lead || !contato) return false;
 
-  return lead !== contato;
+  return !mesmoDestino(lead, contato);
+}
+
+/**
+ * A divergência está só no COMEÇO do número — mesmo assinante nos 8 dígitos
+ * finais, DDI ou DDD escrito de outro jeito (`351`+`5191070326` contra
+ * `55`+`5191070326`, ou DDD 21 contra 55).
+ *
+ * Serve para graduar o bloqueio: aqui é erro de cadastro, e uma resposta
+ * recebida naquela conversa já prova qual é o destino real. Quando os 8 finais
+ * também diferem é OUTRA pessoa — foi para isso que o guard nasceu, e nesse
+ * caso nada isenta: o card da Lani Sian aponta para uma conversa com 554
+ * mensagens recebidas de outro número.
+ */
+export function divergenciaApenasNoPrefixo(
+  telefoneLead: string | null | undefined,
+  numeroContato: string | null | undefined
+): boolean {
+  const lead = String(telefoneLead || '').replace(/\D/g, '');
+  const contato = String(numeroContato || '').replace(/\D/g, '');
+  if (lead.length < 10 || contato.length < 10) return false;
+  return lead.slice(-8) === contato.slice(-8);
 }
 
 /** Mensagem de erro única para os pontos de envio. */

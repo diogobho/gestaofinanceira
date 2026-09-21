@@ -24,6 +24,9 @@ import ChatBubble, { ChatDateSeparator } from './ChatBubble'
 import AgenteIALeadToggle from './AgenteIALeadToggle'
 import FollowupFalhadoItem from './FollowupFalhadoItem'
 import { WhatsAppFormatToolbar } from '@/components/ui/WhatsAppFormatToolbar'
+import SeletorModeloWhatsApp from '@/components/whatsapp/SeletorModeloWhatsApp'
+import { useCanalWhatsApp, useJanelaWhatsApp, useModelosWhatsApp, useEnviarModeloLead } from '@/hooks/useCanalWhatsApp'
+import type { ModeloConfigurado } from '@/api/canalWhatsapp'
 import type { Lead, EstagioFunil, HistoricoMensagem, TarefaTipo, TarefaPrioridade, AnotacaoTipo, LeadOrigem } from '@/types/crm'
 
 interface LeadDetailsModalProps {
@@ -145,6 +148,25 @@ const arquivarLead = useArquivarLead()
   )
   const historico = lead?.contato_whatsapp_id ? historicoContato : historicoLead
 
+  // Número oficial (Cloud API): texto livre só dentro da janela de 24h aberta pela
+  // última mensagem DO CLIENTE; fora dela, só modelo aprovado.
+  const { data: canal } = useCanalWhatsApp()
+  const oficial = canal?.provedor === 'cloud_api'
+  const { data: janela, refetch: refetchJanela } = useJanelaWhatsApp(
+    lead?.id,
+    oficial && activeTab === 'mensagem' && canWhatsApp
+  )
+  const janelaFechada = oficial && janela?.provedor === 'cloud_api' && !janela.aberta
+  const [mostrarModelo, setMostrarModelo] = useState(false)
+  const [modeloSel, setModeloSel] = useState<ModeloConfigurado | null>(null)
+  const { data: modelos = [], isLoading: carregandoModelos, refetch: refetchModelos } = useModelosWhatsApp(oficial && mostrarModelo)
+  const enviarModelo = useEnviarModeloLead()
+  // Mensagem nova no histórico pode ter reaberto a janela.
+  useEffect(() => {
+    if (oficial) refetchJanela()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historico?.length, oficial])
+
   const { data: tarefas } = useTarefasLead(activeTab === 'tarefas' ? lead?.id : undefined)
   const createTarefa = useCreateTarefa()
   const updateTarefa = useUpdateTarefa()
@@ -219,9 +241,29 @@ const arquivarLead = useArquivarLead()
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleEnviarMensagem()
+      if (!janelaFechada) handleEnviarMensagem()
     }
   }
+
+  const handleEnviarModelo = async () => {
+    if (!modeloSel) return
+    await enviarModelo.mutateAsync({
+      leadId: lead.id,
+      nome: modeloSel.nome,
+      idioma: modeloSel.idioma,
+      corpo: modeloSel.variaveis,
+      cabecalho: modeloSel.cabecalho,
+    })
+    setModeloSel(null)
+    setMostrarModelo(false)
+  }
+
+  const restaJanela = (() => {
+    const s = janela?.restaSegundos ?? 0
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    return h > 0 ? `${h}h${m > 0 ? ` ${m}min` : ''}` : `${m}min`
+  })()
 
   const handleToggleRecording = async () => {
     if (isRecording) {
@@ -1031,6 +1073,68 @@ const handleArquivar = async () => {
                 </div>
               )}
 
+              {/* Número oficial: estado da janela de 24h e envio de modelo aprovado */}
+              {oficial && janela?.provedor === 'cloud_api' && (
+                <div className={`px-4 py-2 border-t text-xs flex flex-wrap items-center gap-2 ${
+                  janela.aberta ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'
+                }`}>
+                  {janela.aberta ? (
+                    <span>
+                      WhatsApp oficial · janela aberta — texto livre até daqui a <strong>{restaJanela}</strong>
+                    </span>
+                  ) : (
+                    <span className="flex items-start gap-1.5 flex-1 min-w-0">
+                      <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                      <span>
+                        <strong>Janela de 24h fechada.</strong>{' '}
+                        {janela.ultimaEntrada
+                          ? 'O cliente não escreve há mais de 24h.'
+                          : 'O cliente ainda não escreveu para o número oficial.'}{' '}
+                        Pela regra da Meta, só modelo aprovado é entregue até ele responder.
+                      </span>
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setMostrarModelo(v => !v)}
+                    className={`ml-auto px-2.5 py-1 rounded-md font-medium border ${
+                      janela.aberta
+                        ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                        : 'border-amber-400 bg-white text-amber-900 hover:bg-amber-100'
+                    }`}
+                  >
+                    {mostrarModelo ? 'Fechar modelo' : 'Enviar modelo'}
+                  </button>
+                </div>
+              )}
+              {oficial && mostrarModelo && (
+                <div className="px-4 py-3 border-t bg-white space-y-3 max-h-[45vh] overflow-y-auto">
+                  <SeletorModeloWhatsApp
+                    modelos={modelos}
+                    carregando={carregandoModelos}
+                    valor={modeloSel}
+                    onChange={setModeloSel}
+                    modo="literal"
+                    sugestaoPrimeira={(lead.nome || '').trim().split(/\s+/)[0] || ''}
+                    onRecarregar={() => refetchModelos()}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => { setMostrarModelo(false); setModeloSel(null) }}
+                      className="px-3 py-1.5 text-sm rounded-lg border hover:bg-gray-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleEnviarModelo}
+                      disabled={!modeloSel || enviarModelo.isPending || modeloSel.variaveis.some(v => !v.trim())}
+                      className="px-3 py-1.5 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      <Send size={14} /> {enviarModelo.isPending ? 'Enviando…' : 'Enviar modelo'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Input area */}
               <div className="p-3 bg-white border-t">
                 {selectedFile ? (
@@ -1044,7 +1148,7 @@ const handleArquivar = async () => {
                     />
                     <button
                       onClick={handleEnviarMedia}
-                      disabled={leadEnviarMedia.isPending}
+                      disabled={leadEnviarMedia.isPending || janelaFechada}
                       className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 disabled:opacity-50"
                     >
                       <Send size={18} />
@@ -1093,7 +1197,9 @@ const handleArquivar = async () => {
                         value={mensagem}
                         onChange={(e) => setMensagem(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Digite uma mensagem…  (Enter envia • Shift+Enter pula linha)"
+                        placeholder={janelaFechada
+                          ? 'Janela de 24h fechada — use “Enviar modelo” acima'
+                          : 'Digite uma mensagem…  (Enter envia • Shift+Enter pula linha)'}
                         rows={2}
                         className="w-full px-3.5 py-2.5 border rounded-2xl text-sm leading-relaxed focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none overflow-y-auto"
                         style={{ minHeight: '56px', maxHeight: '160px' }}
@@ -1101,8 +1207,8 @@ const handleArquivar = async () => {
                     </div>
                     <button
                       onClick={handleEnviarMensagem}
-                      disabled={!mensagem.trim() || leadEnviarMensagem.isPending}
-                      title="Enviar mensagem (Enter)"
+                      disabled={!mensagem.trim() || leadEnviarMensagem.isPending || janelaFechada}
+                      title={janelaFechada ? 'Janela de 24h fechada — envie um modelo aprovado' : 'Enviar mensagem (Enter)'}
                       className="p-3 mb-1 bg-green-500 text-white rounded-full hover:bg-green-600 disabled:opacity-50 shrink-0 shadow-sm transition-colors"
                     >
                       <Send size={20} />

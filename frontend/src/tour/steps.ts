@@ -81,17 +81,30 @@ export const welcomeTour: Tour = {
       element: '[data-tour="nav-agente"]',
       titulo: 'Agente IA',
       descricao:
-        'Sua assistente de inteligência artificial para atender e qualificar leads automaticamente.',
+        'Seu agente de inteligência artificial para atender e qualificar leads automaticamente.',
       lado: 'right',
       permissao: 'agente',
       requerSidebar: true,
     },
     {
-      element: '[data-tour="widget-ia"]',
-      titulo: 'Sexta-feira — sua consultora IA',
+      // A âncora `nav-suporte` já existia na Sidebar e nenhum passo a usava: o módulo
+      // de chamados (migration 068) ficava invisível para quem faz o tour de entrada,
+      // justamente quem mais precisa saber onde pedir ajuda. Sem `permissao` de
+      // propósito — pedir ajuda não depende de módulo liberado.
+      element: '[data-tour="nav-suporte"]',
+      titulo: 'Suporte',
       descricao:
-        'Este botão flutuante abre a <b>Sexta-feira</b>, que responde dúvidas sobre seus números ' +
-        'e ajuda a tomar decisões. Ela está disponível em qualquer tela.',
+        'Travou em alguma coisa? Abra um chamado aqui e nossa equipe responde. ' +
+        'Fica disponível para qualquer usuário, sem depender de permissão.',
+      lado: 'right',
+      requerSidebar: true,
+    },
+    {
+      element: '[data-tour="widget-ia"]',
+      titulo: 'Duo — seu assistente de IA',
+      descricao:
+        'Este botão flutuante abre o <b>Duo</b>, que responde dúvidas sobre seus números ' +
+        'e ajuda a tomar decisões. Ele está disponível em qualquer tela.',
       lado: 'left',
       alinhamento: 'end',
     },
@@ -373,7 +386,18 @@ export const dashboardTour: Tour = {
     {
       element: '[data-tour="dash-graficos"]',
       titulo: 'Gráficos de evolução',
-      descricao: 'Receitas × despesas mês a mês e a distribuição por categoria.',
+      descricao: 'Receitas × despesas mês a mês e a situação das parcelas.',
+      rota: '/dashboard',
+      lado: 'top',
+      alinhamento: 'center',
+      permissao: 'dashboard',
+    },
+    {
+      element: '[data-tour="dash-detalhamento"]',
+      titulo: 'Quem pagou e com o que foi gasto',
+      descricao:
+        'Cada recebimento e cada gasto do período, agrupado por <b>cliente</b>, <b>produto</b>, ' +
+        '<b>categoria</b> ou <b>descrição</b>. Clique num nome para ver os lançamentos dele.',
       rota: '/dashboard',
       lado: 'top',
       alinhamento: 'center',
@@ -836,16 +860,16 @@ export const whatsappTour: Tour = {
   ],
 }
 
-/** Tour do Agente IA (Sexta-feira). */
+/** Tour do Agente IA (o Duo). */
 export const agenteTour: Tour = {
   id: 'agente',
   nome: 'Tutorial: Agente IA',
-  iniciarNaRota: '/agente-sexta-feira',
+  iniciarNaRota: '/agente-duo',
   passos: [
     {
-      titulo: '🤖 Sexta-feira — sua consultora IA',
+      titulo: 'Duo — seu assistente de IA',
       descricao: 'Tire dúvidas sobre o sistema, seus números e abordagens de venda.',
-      rota: '/agente-sexta-feira',
+      rota: '/agente-duo',
       lado: 'over',
       alinhamento: 'center',
     },
@@ -853,9 +877,9 @@ export const agenteTour: Tour = {
       element: '[data-tour="agente-abas"]',
       titulo: 'As abas',
       descricao:
-        '<b>Sexta-feira</b> (chat) · <b>Configurar Agente</b> (provedor de IA, personalidade, ' +
+        '<b>Duo</b> (chat) · <b>Configurar Agente</b> (provedor de IA, personalidade, ' +
         'instruções e delay) · <b>Como Funciona</b> (arquitetura, follow-ups e guards).',
-      rota: '/agente-sexta-feira',
+      rota: '/agente-duo',
       lado: 'bottom',
       alinhamento: 'start',
     },
@@ -864,8 +888,8 @@ export const agenteTour: Tour = {
       titulo: 'Converse',
       descricao:
         'Faça perguntas como "resumo do mês" ou "parcelas a vencer". Use as sugestões rápidas ' +
-        'para começar. Ela também sabe explicar o sistema e sugerir abordagens de venda.',
-      rota: '/agente-sexta-feira',
+        'para começar. Ele também sabe explicar o sistema e sugerir abordagens de venda.',
+      rota: '/agente-duo',
       lado: 'top',
       alinhamento: 'center',
     },
@@ -875,7 +899,7 @@ export const agenteTour: Tour = {
       element: '[data-tour="agente-tab-configurar"]',
       titulo: '👉 Clique em "Configurar Agente"',
       descricao: 'Vamos conhecer as configurações do agente de IA que atende no WhatsApp.',
-      rota: '/agente-sexta-feira',
+      rota: '/agente-duo',
       lado: 'bottom',
       papeis: ['super_admin', 'admin_empresa'],
       avancarAoClicar: true,
@@ -886,7 +910,7 @@ export const agenteTour: Tour = {
       descricao:
         'Este interruptor liga ou desliga o agente para a empresa inteira. Depois, o controle ' +
         'fino é por estágio (🤖 na coluna do funil) ou por lead.',
-      rota: '/agente-sexta-feira',
+      rota: '/agente-duo',
       lado: 'bottom',
       papeis: ['super_admin', 'admin_empresa'],
       semVoltar: true,
@@ -897,7 +921,7 @@ export const agenteTour: Tour = {
       descricao:
         'Escolha entre <b>Claude</b> e <b>Gemini</b> e informe a API key. A chave Gemini também ' +
         'habilita a transcrição automática de áudios recebidos.',
-      rota: '/agente-sexta-feira',
+      rota: '/agente-duo',
       lado: 'bottom',
       papeis: ['super_admin', 'admin_empresa'],
     },
@@ -907,7 +931,7 @@ export const agenteTour: Tour = {
       descricao:
         'O coração do agente: personalidade, tom de voz, produtos, preços e regras de conversa. ' +
         'Quanto mais específicas, mais o agente soa como a sua equipe.',
-      rota: '/agente-sexta-feira',
+      rota: '/agente-duo',
       lado: 'top',
       papeis: ['super_admin', 'admin_empresa'],
     },
@@ -915,7 +939,7 @@ export const agenteTour: Tour = {
       element: '[data-tour="agente-tab-como-funciona"]',
       titulo: '👉 Clique em "Como Funciona"',
       descricao: 'Para fechar, a documentação viva de como os agentes trabalham.',
-      rota: '/agente-sexta-feira',
+      rota: '/agente-duo',
       lado: 'bottom',
       avancarAoClicar: true,
     },
@@ -926,7 +950,7 @@ export const agenteTour: Tour = {
         'Arquitetura do agente reativo e dos follow-ups, o passo a passo de como montar o fluxo ' +
         'de atendimento na visão Fluxo do CRM e as regras de proteção (anti-ban, conversa viva, ' +
         'janela 08h–20h). Fim do tour!',
-      rota: '/agente-sexta-feira',
+      rota: '/agente-duo',
       lado: 'top',
       alinhamento: 'center',
       semVoltar: true,
@@ -963,6 +987,124 @@ export const configEmailTour: Tour = {
       descricao: 'Depois de salvar, envie um teste para confirmar que está tudo funcionando.',
       rota: '/configuracoes/email',
       lado: 'top',
+    },
+  ],
+}
+
+/**
+ * Tour da aba Agendamentos (dentro de /crm).
+ *
+ * Não é uma rota própria: a tela vive numa ABA do CRM. Por isso o primeiro passo é
+ * interativo (`avancarAoClicar`) e aponta para o botão da aba — sem clicar nele, o
+ * conteúdo não existe no DOM e todos os passos seguintes ficariam sem âncora.
+ */
+export const agendamentosTour: Tour = {
+  id: 'agendamentos',
+  nome: 'Tutorial: Agendamentos',
+  passos: [
+    {
+      element: '[data-tour="crm-aba-agendamentos"]',
+      titulo: '📅 Agendamentos',
+      descricao:
+        'Aqui fica tudo que o sistema <b>vai enviar sozinho</b> — follow-ups do agente de IA, ' +
+        'follow-ups manuais e disparos programados. Clique na aba para abrir.',
+      rota: '/crm',
+      lado: 'bottom',
+      avancarAoClicar: true,
+    },
+    {
+      element: '[data-tour="ag-resumo"]',
+      titulo: 'O panorama em quatro números',
+      descricao:
+        '<b>Agendados</b> é o que ainda vai sair no horário. <b>Atrasados</b> é o que já passou ' +
+        'da hora e o sistema segue tentando. <b>Falhos</b> exige a sua atenção. ' +
+        'Atrasado não é falha — é só o horário que escorregou.',
+      rota: '/crm',
+      lado: 'bottom',
+    },
+    {
+      element: '[data-tour="ag-filtros"]',
+      titulo: 'Filtrar por situação',
+      descricao:
+        'Cada aba responde uma pergunta: o que vai sair, o que atrasou, o que falhou, o que já ' +
+        'foi enviado e o que foi cancelado. Comece por <b>Falhos</b> quando algo parecer errado.',
+      rota: '/crm',
+      lado: 'bottom',
+    },
+    {
+      element: '[data-tour="ag-filtros-sec"]',
+      titulo: 'Estreitar a busca',
+      descricao:
+        'Filtre por responsável (o número de WhatsApp que envia), por estágio do funil ou por ' +
+        'tipo — só Agente IA ou só manual.',
+      rota: '/crm',
+      lado: 'bottom',
+    },
+    {
+      element: '[data-tour="ag-lista"]',
+      titulo: 'Cada linha é um envio programado',
+      descricao:
+        'A faixa colorida à esquerda mostra a situação de relance. A linha traz o lead, o tipo ' +
+        'da ação, quando sai e em qual estágio; abaixo, por qual número a mensagem vai. ' +
+        '<b>Clique num item</b> para ver o histórico completo, o motivo de uma falha e as ' +
+        'próximas ações daquele lead.',
+      rota: '/crm',
+      lado: 'top',
+    },
+    {
+      element: '[data-tour="followup-intervalo"]',
+      titulo: 'Ritmo e horário de envio',
+      descricao:
+        'O <b>intervalo</b> espaça uma mensagem da outra para proteger seu número. O ' +
+        '<b>horário de envio</b> vale para toda a empresa: fora dele nada sai, e o que vencer ' +
+        'é reagendado para a próxima abertura — sem se perder.',
+      rota: '/crm',
+      lado: 'bottom',
+    },
+  ],
+}
+
+/** Tour do Suporte (chamados). */
+export const suporteTour: Tour = {
+  id: 'suporte',
+  nome: 'Tutorial: Suporte',
+  iniciarNaRota: '/suporte',
+  passos: [
+    {
+      titulo: '🛟 Suporte',
+      descricao:
+        'Precisa de ajuda? Abra um chamado aqui e nossa equipe responde. Não depende de ' +
+        'permissão nenhuma — está disponível para qualquer usuário.',
+      rota: '/suporte',
+      lado: 'over',
+      alinhamento: 'center',
+    },
+    {
+      element: '[data-tour="suporte-novo"]',
+      titulo: 'Abrir um chamado',
+      descricao:
+        'Descreva o que aconteceu e anexe print ou arquivo se ajudar. Quanto mais concreto ' +
+        '(o que você fez, o que esperava, o que apareceu), mais rápido a resposta.',
+      rota: '/suporte',
+      lado: 'left',
+    },
+    {
+      element: '[data-tour="suporte-lista"]',
+      titulo: 'Seus chamados',
+      descricao:
+        'Todos os seus chamados ficam aqui, do mais recente ao mais antigo. Clique num deles ' +
+        'para abrir a conversa e acompanhar as respostas.',
+      rota: '/suporte',
+      lado: 'right',
+    },
+    {
+      element: '[data-tour="suporte-filtro"]',
+      titulo: 'Filtrar por situação',
+      descricao:
+        '<b>Na fila</b> é o que está com a nossa equipe. <b>Com o cliente</b> é o que está ' +
+        'esperando você responder. Vale conferir esse de vez em quando.',
+      rota: '/suporte',
+      lado: 'bottom',
     },
   ],
 }
@@ -1092,8 +1234,10 @@ export const tours: Tour[] = [
   despesasTour,
   parcelasTour,
   sessoesTour,
+  agendamentosTour,
   whatsappTour,
   agenteTour,
+  suporteTour,
   configEmailTour,
   adminTour,
   perfilTour,

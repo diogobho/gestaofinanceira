@@ -40,7 +40,7 @@ export default function KanbanCard({ lead, index, onClick }: KanbanCardProps) {
           {...provided.dragHandleProps}
           onClick={() => onClick?.(lead)}
           className={`
-            bg-white rounded-lg shadow-sm border p-2.5 mb-1.5 cursor-pointer
+            bg-white rounded-lg shadow-sm border p-2 mb-1 cursor-pointer
             hover:shadow-md transition-all
             ${snapshot.isDragging ? 'shadow-lg ring-2 ring-primary-500 ring-opacity-50' : ''}
             ${hasUnread
@@ -50,7 +50,7 @@ export default function KanbanCard({ lead, index, onClick }: KanbanCardProps) {
           `}
         >
           {/* Header com Avatar */}
-          <div className="flex items-start gap-2 mb-1.5">
+          <div className="flex items-start gap-2 mb-1">
             <div className="relative">
               <Avatar
                 name={lead.nome}
@@ -101,12 +101,20 @@ export default function KanbanCard({ lead, index, onClick }: KanbanCardProps) {
             )}
           </div>
 
-          {/* Valor e tags */}
-          <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-gray-100">
-            {lead.valor_potencial ? (
+          {/*
+            Valor e tags — a faixa inteira some quando não há nem um nem outro.
+            `valor_potencial` é `numeric` no Postgres e chega como STRING: "0.00"
+            é truthy, então o teste antigo (`lead.valor_potencial ?`) imprimia
+            "R$ 0,00" em 91% dos leads (11.996 de 13.127). Era uma linha inteira
+            de ruído no card, com divisor e tudo, empurrando lead para fora da
+            coluna sem dizer nada.
+          */}
+          {(Number(lead.valor_potencial) > 0 || (lead.tags?.length ?? 0) > 0) && (
+          <div className="flex items-center justify-between mt-1 pt-1 border-t border-gray-100">
+            {Number(lead.valor_potencial) > 0 ? (
               <span className="flex items-center gap-1 text-xs font-medium text-green-600">
                 <DollarSign size={12} />
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(lead.valor_potencial)}
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(lead.valor_potencial))}
               </span>
             ) : (
               <span />
@@ -132,9 +140,10 @@ export default function KanbanCard({ lead, index, onClick }: KanbanCardProps) {
               </div>
             )}
           </div>
+          )}
 
           {/* Indicador de tarefa */}
-          <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+          <div className="mt-1 flex items-center gap-1.5 text-xs">
             {lead.proxima_tarefa ? (() => {
               const venc = new Date(lead.proxima_tarefa.data_vencimento)
               const hoje = new Date()
@@ -178,29 +187,43 @@ export default function KanbanCard({ lead, index, onClick }: KanbanCardProps) {
             )}
           </div>
 
-          {/* Responsável */}
-          {lead.responsavel_nome && (
-            <div className="mt-1 flex items-center gap-1 text-xs text-gray-400">
-              <User size={11} />
-              <span className="truncate">{lead.responsavel_nome}</span>
-            </div>
-          )}
-
-          {/* Disparo counter */}
-          {(lead.total_disparos || 0) > 0 && (
-            <div className="mt-1 flex items-center gap-1 text-xs text-amber-600">
-              <Send size={11} />
-              <span>{lead.total_disparos}x disparado</span>
-              {lead.ultimo_estagio_disparo && (
-                <span className="text-amber-400 truncate">· {lead.ultimo_estagio_disparo}</span>
+          {/* Responsável e disparos na MESMA linha: eram duas, e cada linha a
+              menos no card é mais um lead visível na coluna. Quebram sozinhas
+              quando não couberem lado a lado. */}
+          {(lead.responsavel_nome || (lead.total_disparos || 0) > 0 || lead.total_recebidas != null) && (
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+              {/* Só vem com a ordem "Mais mensagens recebidas": mostra o número que
+                  decidiu a posição do card na coluna. */}
+              {lead.total_recebidas != null && (
+                <span className="flex items-center gap-1 font-medium text-primary-600" title="Mensagens recebidas nesta conversa">
+                  <MessageCircle size={11} className="shrink-0" />
+                  <span>{lead.total_recebidas} {lead.total_recebidas === 1 ? 'recebida' : 'recebidas'}</span>
+                </span>
+              )}
+              {lead.responsavel_nome && (
+                <span className="flex min-w-0 items-center gap-1 text-gray-400">
+                  <User size={11} className="shrink-0" />
+                  <span className="truncate">{lead.responsavel_nome}</span>
+                </span>
+              )}
+              {(lead.total_disparos || 0) > 0 && (
+                <span className="flex min-w-0 items-center gap-1 text-amber-600">
+                  <Send size={11} className="shrink-0" />
+                  <span>{lead.total_disparos}x disparado</span>
+                  {lead.ultimo_estagio_disparo && (
+                    <span className="truncate text-amber-400">· {lead.ultimo_estagio_disparo}</span>
+                  )}
+                </span>
               )}
             </div>
           )}
 
-          {/* WhatsApp status indicator */}
-          {lead.contato_whatsapp_id && (
-            <div className="mt-1.5 flex items-center gap-1.5 text-xs">
-              {hasUnread ? (
+          {/* Status do WhatsApp e IA/follow-up dividem a MESMA faixa — eram dois
+              blocos empilhados. `flex-wrap` devolve a segunda linha só quando o
+              conteúdo realmente não couber. */}
+          {(lead.contato_whatsapp_id || agenteAtivo || (lead.followup_pendente_count ?? 0) > 0) && (
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+              {lead.contato_whatsapp_id && (hasUnread ? (
                 <span className="flex items-center gap-1 text-green-600 font-medium">
                   <MessageCircle size={12} className="fill-green-500 text-green-500" />
                   {unreadCount} {unreadCount === 1 ? 'nova mensagem' : 'novas mensagens'}
@@ -220,13 +243,8 @@ export default function KanbanCard({ lead, index, onClick }: KanbanCardProps) {
                   <MessageCircle size={12} />
                   WhatsApp conectado
                 </span>
-              )}
-            </div>
-          )}
+              ))}
 
-          {/* Linha de status: agente IA + follow-up */}
-          {(agenteAtivo || (lead.followup_pendente_count ?? 0) > 0) && (
-            <div className="mt-1 flex items-center gap-2 flex-wrap">
               {/* Agente IA ativo */}
               {agenteAtivo && !lead.contato_whatsapp_id && (
                 <span

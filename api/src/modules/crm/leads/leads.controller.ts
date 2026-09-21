@@ -459,6 +459,9 @@ export const leadsController = {
         return res.status(404).json({ message: 'Lead não encontrado' });
       }
 
+      // A mensagem sai pelo WhatsApp do responsável do card (ver resolverRemetente).
+      const remetenteId = await contatosService.resolverRemetente(lead.responsavel_id, usuarioId);
+
       // Se o lead não tem contato vinculado, criar/encontrar pelo telefone
       let contatoId = lead.contato_whatsapp_id;
       if (!contatoId) {
@@ -466,7 +469,7 @@ export const leadsController = {
           return res.status(400).json({ message: 'Lead não possui telefone nem contato WhatsApp vinculado' });
         }
 
-        const contato = await contatosService.findOrCreateByNumero(lead.telefone, usuarioId, empresaId);
+        const contato = await contatosService.findOrCreateByNumero(lead.telefone, remetenteId, empresaId);
         contatoId = contato.id;
 
         // Vincular contato ao lead
@@ -478,7 +481,7 @@ export const leadsController = {
       }
 
       const resultado = await contatosService.enviarMensagem(
-        usuarioId,
+        remetenteId,
         empresaId,
         contatoId,
         mensagem,
@@ -489,13 +492,9 @@ export const leadsController = {
         return res.status(400).json({ message: resultado.error });
       }
 
-      // Transferir propriedade do lead se o executor for diferente do dono atual
-      await leadsService.transferirPropriedadeSeDiferente(
-        parseInt(id),
-        usuarioId,
-        empresaId,
-        'mensagem_individual'
-      );
+      // Nada de transferir a propriedade do card por ter mandado mensagem: isso
+      // desfazia a troca manual de responsável (quem respondia virava dono) e
+      // agora o envio já sai pelo número do responsável de qualquer forma.
 
       // Registrar atividade
       await leadsService.registrarAtividade(
@@ -510,6 +509,65 @@ export const leadsController = {
       res.json({ ...resultado, contato_whatsapp_id: contatoId });
     } catch (error: any) {
       if (error.message.includes('não encontrado') || error.message.includes('não configurado') || error.message.includes('invalido')) {
+        return res.status(400).json({ message: error.message });
+      }
+      next(error);
+    }
+  },
+
+  // Enviar MODELO aprovado pelo número oficial (fora da janela de 24h é o único jeito)
+  async enviarModeloWhatsApp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const usuarioId = (req as any).user.id;
+      const empresaId = (req as any).user.empresa_id;
+      const leadId = parseInt(req.params.id);
+      const { nome, idioma, valores } = req.body ?? {};
+
+      if (!nome || typeof nome !== 'string') {
+        return res.status(400).json({ message: 'Escolha o modelo' });
+      }
+      const corpo = Array.isArray(valores?.corpo) ? valores.corpo.map((v: any) => String(v ?? '')) : [];
+      const cabecalho = valores?.cabecalho != null ? String(valores.cabecalho) : null;
+
+      const lead = await leadsService.getById(leadId, empresaId);
+      if (!lead) return res.status(404).json({ message: 'Lead não encontrado' });
+
+      const remetenteId = await contatosService.resolverRemetente(lead.responsavel_id, usuarioId);
+      let contatoId = lead.contato_whatsapp_id;
+      if (!contatoId) {
+        if (!lead.telefone) {
+          return res.status(400).json({ message: 'Lead não possui telefone nem contato WhatsApp vinculado' });
+        }
+        const contato = await contatosService.findOrCreateByNumero(lead.telefone, remetenteId, empresaId);
+        contatoId = contato.id;
+        const { query } = require('../../../config/database');
+        await query(`UPDATE leads SET contato_whatsapp_id = $1 WHERE id = $2 AND empresa_id = $3`, [
+          contatoId,
+          leadId,
+          empresaId,
+        ]);
+      }
+
+      const resultado = await contatosService.enviarModeloWhatsApp(
+        remetenteId,
+        empresaId,
+        contatoId!,
+        { nome, idioma: idioma ? String(idioma) : undefined, valores: { corpo, cabecalho } },
+        leadId
+      );
+      if (!resultado.success) return res.status(400).json({ message: resultado.error });
+
+      await leadsService.registrarAtividade(
+        leadId,
+        usuarioId,
+        empresaId,
+        'mensagem_enviada',
+        `Modelo "${nome}" enviado pelo WhatsApp oficial`,
+        { modelo: nome, messageId: resultado.messageId }
+      );
+      res.json({ ...resultado, contato_whatsapp_id: contatoId });
+    } catch (error: any) {
+      if (/não encontrado|não configurado|invalido/i.test(error.message || '')) {
         return res.status(400).json({ message: error.message });
       }
       next(error);
@@ -534,6 +592,9 @@ export const leadsController = {
         return res.status(404).json({ message: 'Lead não encontrado' });
       }
 
+      // Mídia também sai pelo WhatsApp do responsável do card.
+      const remetenteId = await contatosService.resolverRemetente(lead.responsavel_id, usuarioId);
+
       // Se o lead não tem contato vinculado, criar/encontrar pelo telefone
       let contatoId = lead.contato_whatsapp_id;
       if (!contatoId) {
@@ -541,7 +602,7 @@ export const leadsController = {
           return res.status(400).json({ message: 'Lead não possui telefone nem contato WhatsApp vinculado' });
         }
 
-        const contato = await contatosService.findOrCreateByNumero(lead.telefone, usuarioId, empresaId);
+        const contato = await contatosService.findOrCreateByNumero(lead.telefone, remetenteId, empresaId);
         contatoId = contato.id;
 
         // Vincular contato ao lead
@@ -553,7 +614,7 @@ export const leadsController = {
       }
 
       const resultado = await contatosService.enviarMedia(
-        usuarioId,
+        remetenteId,
         empresaId,
         contatoId,
         file.path,

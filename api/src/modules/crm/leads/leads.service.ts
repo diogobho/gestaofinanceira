@@ -5,7 +5,7 @@ import { followupsService } from '../followups/followups.service';
 import { funisService } from '../funis/funis.service';
 import { receitasService } from '../../receitas/receitas.service';
 import { extrairPassosFollowup, calcularAgendadoPara } from '../_shared/agendamento';
-import { digitosParaGravar, variantesTelefone } from '../_shared/telefone';
+import { digitosParaGravar, variantesTelefone, vinculoDivergente } from '../_shared/telefone';
 
 /**
  * Offset (em dias) de um passo de cadência relativo à ENTRADA no estágio — só definido
@@ -152,18 +152,51 @@ export interface FiltrosLead {
  * as outras ignoram `ordem_estagio`. O valor vira ORDER BY, então só entra por aqui —
  * `normalizarOrdem` reduz qualquer entrada a um destes nomes.
  */
-export type OrdemCards = 'manual' | 'recentes' | 'mensagem';
+export type OrdemCards =
+  | 'manual' | 'recentes' | 'antigos' | 'mensagem' | 'mais_recebidas'
+  | 'nome_az' | 'nome_za' | 'valor' | 'temperatura';
+
+// O banco é C.UTF-8: sem a collation ICU, "Álvaro" e "Érica" iam para depois do "z" e
+// maiúscula vinha antes de minúscula.
+const NOME_PT = `l.nome COLLATE "pt-BR-x-icu"`;
 
 const ORDEM_SQL: Record<OrdemCards, string> = {
   // `id` desempata: lead de webhook nasce com ordem_estagio = 0 e, sem desempate, a
   // coluna saía numa ordem diferente a cada carga.
   manual: 'l.ordem_estagio ASC, l.id ASC',
   recentes: 'l.created_at DESC, l.id DESC',
+  antigos: 'l.created_at ASC, l.id ASC',
   mensagem: 'cw.ultima_mensagem_at DESC NULLS LAST, l.created_at DESC, l.id DESC',
+  // `rec` só existe quando esta ordem é pedida — ver `juncaoRecebidas`.
+  mais_recebidas: 'rec.total_recebidas DESC, cw.ultima_mensagem_at DESC NULLS LAST, l.id DESC',
+  nome_az: `${NOME_PT} ASC, l.id ASC`,
+  nome_za: `${NOME_PT} DESC, l.id DESC`,
+  valor: 'l.valor_potencial DESC NULLS LAST, l.created_at DESC, l.id DESC',
+  temperatura: `CASE l.temperatura WHEN 'quente' THEN 0 WHEN 'morno' THEN 1 WHEN 'frio' THEN 2 ELSE 3 END,
+    cw.ultima_mensagem_at DESC NULLS LAST, l.id DESC`,
 };
 
 export function normalizarOrdem(valor: unknown): OrdemCards {
-  return valor === 'recentes' || valor === 'mensagem' ? valor : 'manual';
+  // hasOwn, não `in`: "constructor" também está `in` qualquer objeto, e o valor vira SQL.
+  return typeof valor === 'string' && Object.hasOwn(ORDEM_SQL, valor) ? (valor as OrdemCards) : 'manual';
+}
+
+/**
+ * Contagem de mensagens RECEBIDAS da conversa do lead (1:1, sem as cópias do vazamento).
+ * Só entra na consulta quando a ordem é `mais_recebidas`: são ~0,3 s no maior funil
+ * (5,7 mil leads), e as outras ordens não precisam pagar isso. A coluna volta no lead
+ * para o card mostrar o número que decidiu a posição.
+ */
+function juncaoRecebidas(ordem: OrdemCards): { join: string; coluna: string } {
+  if (ordem !== 'mais_recebidas') return { join: '', coluna: '' };
+  return {
+    join: `LEFT JOIN LATERAL (
+          SELECT COUNT(*)::int AS total_recebidas FROM historico_mensagens h
+          WHERE h.contato_whatsapp_id = l.contato_whatsapp_id AND h.direcao = 'entrada'
+            AND h.grupo_whatsapp_id IS NULL AND NOT h.copia_indevida
+        ) rec ON true`,
+    coluna: ', rec.total_recebidas',
+  };
 }
 
 export const leadsService = {
@@ -369,16 +402,19 @@ export const leadsService = {
       filtros
     );
 
+    const ordem = normalizarOrdem(filtros?.ordenar);
+    const recebidas = juncaoRecebidas(ordem);
     const result = await query(
       `WITH base AS (
         SELECT
-          ${this._selectColumns()},
+          ${this._selectColumns()}${recebidas.coluna},
           COUNT(*) OVER (PARTITION BY l.estagio_id) AS total_no_estagio,
-          ROW_NUMBER() OVER (PARTITION BY l.estagio_id ORDER BY ${ORDEM_SQL[normalizarOrdem(filtros?.ordenar)]}) AS rn
+          ROW_NUMBER() OVER (PARTITION BY l.estagio_id ORDER BY ${ORDEM_SQL[ordem]}) AS rn
         FROM leads l
         JOIN estagios_funil e ON l.estagio_id = e.id
         LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
         LEFT JOIN usuarios ur ON l.responsavel_id = ur.id
+        ${recebidas.join}
         ${whereClause}
       )
       SELECT * FROM base WHERE rn <= 100
@@ -407,15 +443,18 @@ export const leadsService = {
     const limitParam = paramCount;
     const offsetParam = paramCount + 1;
 
+    const ordem = normalizarOrdem(filtros?.ordenar);
+    const recebidas = juncaoRecebidas(ordem);
     const result = await query(
       `SELECT
-        ${this._selectColumns()}
+        ${this._selectColumns()}${recebidas.coluna}
       FROM leads l
       JOIN estagios_funil e ON l.estagio_id = e.id
       LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
       LEFT JOIN usuarios ur ON l.responsavel_id = ur.id
+      ${recebidas.join}
       ${whereClause}
-      ORDER BY ${ORDEM_SQL[normalizarOrdem(filtros?.ordenar)]}
+      ORDER BY ${ORDEM_SQL[ordem]}
       LIMIT $${limitParam} OFFSET $${offsetParam}`,
       params
     );
@@ -861,12 +900,61 @@ export const leadsService = {
       values
     );
 
+    // Corrigir o telefone tem que valer para o ENVIO, e o envio sai pelo
+    // `whatsapp_id` do contato vinculado — não por `leads.telefone`. Enquanto o
+    // vínculo velho ficava, o operador corrigia o número na tela e a mensagem
+    // continuava indo para o destino errado, sem nada na interface explicando por
+    // quê (tickets #44 e #45). Desvincular devolve o card ao caminho normal: o
+    // próximo envio resolve o contato pelo telefone novo (`findOrCreateByNumero`
+    // no controller, `resolverContatoParaLead` no disparo e no follow-up).
+    //
+    // Só quando o contato realmente aponta para outro destino: telefone reescrito
+    // na mesma forma (com/sem o 9º dígito, com/sem o DDI 55) não desfaz nada.
+    if (data.telefone && data.telefone !== lead.telefone && lead.contato_whatsapp_id) {
+      await this.desvincularContatoObsoleto(id, empresaId, usuarioId, data.telefone, lead.contato_whatsapp_id);
+    }
+
     // Registrar atividade
     await this.registrarAtividade(id, usuarioId, empresaId, 'atualizacao', 'Lead atualizado', {
       campos: Object.keys(data)
     });
 
     return this.getById(id, empresaId);
+  },
+
+  /**
+   * Desfaz o vínculo com a conversa quando ela não é mais o telefone do card.
+   *
+   * O histórico não é apagado: as mensagens ficam no contato antigo, que segue
+   * existindo. O que sai é o ponteiro do card — e a atividade registra a troca,
+   * para a conversa não sumir da tela sem explicação.
+   */
+  async desvincularContatoObsoleto(
+    leadId: number,
+    empresaId: number,
+    usuarioId: number,
+    telefoneNovo: string,
+    contatoId: number
+  ): Promise<void> {
+    const r = await query(
+      `SELECT numero, whatsapp_id FROM contatos_whatsapp WHERE id = $1`,
+      [contatoId]
+    );
+    const contato = r.rows[0];
+    if (!contato) return;
+
+    if (!vinculoDivergente(telefoneNovo, contato.numero, contato.whatsapp_id)) return;
+
+    await query(
+      `UPDATE leads SET contato_whatsapp_id = NULL WHERE id = $1 AND empresa_id = $2`,
+      [leadId, empresaId]
+    );
+
+    await this.registrarAtividade(
+      leadId, usuarioId, empresaId, 'atualizacao',
+      `Conversa do WhatsApp desvinculada: o telefone passou a ser ${telefoneNovo} e a conversa era do número ${contato.numero}`,
+      { contato_whatsapp_id_anterior: contatoId, telefone_novo: telefoneNovo, numero_anterior: contato.numero }
+    );
   },
 
   async mover(id: number, empresaId: number, usuarioId: number, data: MoveLeadDto): Promise<{ lead: Lead | null; clienteCriado: boolean }> {

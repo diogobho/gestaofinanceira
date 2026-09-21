@@ -1,5 +1,29 @@
 import { query } from '../../../config/database';
 
+export type Granularidade = 'dia' | 'semana' | 'mes' | 'ano';
+
+/**
+ * Como agrupar a série temporal e qual janela usar quando o usuário não
+ * escolheu período.
+ *
+ * A janela padrão muda com a granularidade de propósito: 6 meses em `dia` são
+ * ~180 colunas num gráfico de 260px de altura — ilegível e caro de transportar.
+ * Cada granularidade abre a janela que rende um número de pontos que cabe.
+ *
+ * `date_trunc('week')` no Postgres começa a semana na SEGUNDA (ISO-8601), que é
+ * como se fala de semana comercial aqui.
+ */
+const GRANULARIDADES: Record<Granularidade, { sql: (col: string) => string; janela: string }> = {
+  dia:    { sql: (c) => `TO_CHAR(${c}, 'YYYY-MM-DD')`,                      janela: '30 days' },
+  semana: { sql: (c) => `TO_CHAR(DATE_TRUNC('week', ${c}), 'YYYY-MM-DD')`,  janela: '12 weeks' },
+  mes:    { sql: (c) => `TO_CHAR(${c}, 'YYYY-MM')`,                         janela: '6 months' },
+  ano:    { sql: (c) => `TO_CHAR(${c}, 'YYYY')`,                            janela: '5 years' },
+};
+
+export function normalizarGranularidade(valor: unknown): Granularidade {
+  return valor === 'dia' || valor === 'semana' || valor === 'ano' ? valor : 'mes';
+}
+
 export interface FunilEstagioAcumulado {
   estagio_id: number;
   estagio_nome: string;
@@ -36,6 +60,8 @@ export interface DashboardMetricas {
 
   // Por período
   leadsPorMes: Array<{ mes: string; total: number; ganhos: number; perdidos: number }>;
+  /** Em que granularidade a série `leadsPorMes` foi agrupada. */
+  granularidade: Granularidade;
   valorPorMes: Array<{ mes: string; valor: number }>;
 
   // Por estágio
@@ -60,6 +86,8 @@ export interface DashboardMetricas {
   // Tarefas
   tarefasAtrasadas: number;
   tarefasHoje: number;
+  /** true quando um período foi aplicado — a tela troca o rótulo de "hoje". */
+  periodoAtivo?: boolean;
   tarefasPendentes: number;
 
   // Performance
@@ -92,7 +120,7 @@ function buildDateFilter(
 }
 
 export const dashboardService = {
-  async getMetricas(empresaId: number, funilId?: number, dataInicio?: string, dataFim?: string, responsavelId?: number): Promise<DashboardMetricas> {
+  async getMetricas(empresaId: number, funilId?: number, dataInicio?: string, dataFim?: string, responsavelId?: number, granularidade: Granularidade = 'mes'): Promise<DashboardMetricas> {
     // paramsBase: empresa + funil + responsavel — queries SEM filtro de data
     const paramsBase: any[] = [empresaId];
     let funilFilter = '';
@@ -147,21 +175,26 @@ export const dashboardService = {
 
     const temFiltroData = Boolean(dataInicio || dataFim);
 
-    // Criações por mês (referência: l.created_at)
-    const periodoCreated = temFiltroData ? dateFilterCreated : `AND l.created_at >= NOW() - INTERVAL '6 months'`;
+    // Série temporal (referência: l.created_at). O rótulo continua saindo na
+    // chave `mes` — é o contrato que a tela e a tabela já consomem — mas o que
+    // ele contém depende da granularidade: '2026-08-25', '2026-08' ou '2026'.
+    const gran = GRANULARIDADES[granularidade];
+    const balde = gran.sql('l.created_at');
+    const periodoCreated = temFiltroData ? dateFilterCreated : `AND l.created_at >= NOW() - INTERVAL '${gran.janela}'`;
     const criadosPorMesResult = await query(
-      `SELECT TO_CHAR(l.created_at, 'YYYY-MM') as mes, COUNT(*)::int as total
+      `SELECT ${balde} as mes, COUNT(*)::int as total
        FROM leads l
        WHERE l.empresa_id = $1 ${funilFilter} ${responsavelFilter} ${periodoCreated}
-       GROUP BY TO_CHAR(l.created_at, 'YYYY-MM')`,
+       GROUP BY ${balde}`,
       params
     );
 
     // Ganhos/perdidos por mês (referência: data_ganho_perdido)
-    const periodoGP = temFiltroData ? dateFilterGP : `AND l.data_ganho_perdido >= NOW() - INTERVAL '6 months'`;
+    const baldeGP = gran.sql('l.data_ganho_perdido');
+    const periodoGP = temFiltroData ? dateFilterGP : `AND l.data_ganho_perdido >= NOW() - INTERVAL '${gran.janela}'`;
     const ganhoPorMesResult = await query(
       `SELECT
-        TO_CHAR(l.data_ganho_perdido, 'YYYY-MM') as mes,
+        ${baldeGP} as mes,
         COUNT(*) FILTER (WHERE e.is_ganho = true)::int as ganhos,
         COUNT(*) FILTER (WHERE e.is_perdido = true)::int as perdidos,
         COALESCE(SUM(l.valor_potencial) FILTER (WHERE e.is_ganho = true), 0) as valor
@@ -170,7 +203,7 @@ export const dashboardService = {
        WHERE l.empresa_id = $1 ${funilFilter} ${responsavelFilter}
          AND l.data_ganho_perdido IS NOT NULL
          ${periodoGP}
-       GROUP BY TO_CHAR(l.data_ganho_perdido, 'YYYY-MM')`,
+       GROUP BY ${baldeGP}`,
       paramsGP
     );
 
@@ -188,7 +221,40 @@ export const dashboardService = {
     }
     const leadsPorMesMerged = Array.from(mesMap.values()).sort((a, b) => a.mes.localeCompare(b.mes));
 
-    // Leads por estágio (snapshot atual — sem filtro de data)
+    /*
+      Leads por estágio. Com período, conta os leads CRIADOS no período e mostra
+      onde eles estão hoje — era um snapshot que ignorava a data e ficava
+      parado enquanto o resto da tela mudava.
+
+      O recorte de data vai no ON do LEFT JOIN, não no WHERE: no WHERE ele
+      viraria INNER e os estágios vazios sumiriam da lista, mudando o desenho do
+      funil conforme o filtro.
+    */
+    /*
+      Esta consulta monta a PRÓPRIA lista de parâmetros, do zero.
+      Ela não pode reusar `paramsBase`: aquele array carrega funil E responsável,
+      mas aqui o funil aparece numa posição diferente (`e.funil_id`, não
+      `l.funil_id`) e o responsável precisa entrar no LEFT JOIN, não no WHERE.
+      A versão antiga chumbava `$2` para o funil e recebia `paramsBase` inteiro —
+      com responsável selecionado e sem funil, sobrava um parâmetro sem
+      placeholder e o Postgres derrubava a requisição com 08P01
+      ("bind message supplies 2 parameters, but prepared statement requires 1").
+      Era 500 na tela inteira do dashboard.
+    */
+    const paramsEstagio: any[] = [empresaId];
+    let filtroFunilEstagio = '';
+    if (funilId) {
+      paramsEstagio.push(funilId);
+      filtroFunilEstagio = `AND e.funil_id = $${paramsEstagio.length}`;
+    }
+    // Responsável entra no JOIN dos leads: no WHERE ele derrubaria os estágios
+    // que não têm lead daquela pessoa, mudando o desenho do funil.
+    let filtroRespEstagio = '';
+    if (responsavelId) {
+      paramsEstagio.push(responsavelId);
+      filtroRespEstagio = `AND l.responsavel_id = $${paramsEstagio.length}`;
+    }
+    const dateFilterEstagio = buildDateFilter(paramsEstagio, dataInicio, dataFim, 'l.created_at');
     const leadsPorEstagioResult = await query(
       `SELECT
         e.nome as estagio,
@@ -198,11 +264,12 @@ export const dashboardService = {
        FROM estagios_funil e
        JOIN funis f ON e.funil_id = f.id
        LEFT JOIN leads l ON l.estagio_id = e.id AND l.arquivado = false AND l.empresa_id = $1
+            ${filtroRespEstagio} ${dateFilterEstagio}
        WHERE f.empresa_id = $1
-       ${funilId ? 'AND e.funil_id = $2' : ''}
+       ${filtroFunilEstagio}
        GROUP BY e.id, e.nome, e.cor, e.ordem
        ORDER BY e.ordem ASC`,
-      paramsBase
+      paramsEstagio
     );
 
     // Leads por temperatura (referência: l.created_at)
@@ -232,7 +299,11 @@ export const dashboardService = {
       params
     );
 
-    // Atividades recentes (últimas 10) — sem filtro de data
+    // Atividades recentes: as últimas 10 DO PERÍODO (referência: a.created_at,
+    // quando a atividade aconteceu). Antes eram sempre as 10 últimas da empresa,
+    // então a lista não mudava ao filtrar o período.
+    const paramsAtividades = [...paramsBase];
+    const dateFilterAtividade = buildDateFilter(paramsAtividades, dataInicio, dataFim, 'a.created_at');
     const atividadesResult = await query(
       `SELECT
         a.id,
@@ -244,23 +315,33 @@ export const dashboardService = {
        FROM atividades_lead a
        JOIN leads l ON a.lead_id = l.id
        WHERE l.empresa_id = $1
-       ${funilFilter} ${responsavelFilter}
+       ${funilFilter} ${responsavelFilter} ${dateFilterAtividade}
        ORDER BY a.created_at DESC
        LIMIT 10`,
-      paramsBase
+      paramsAtividades
     );
 
-    // Tarefas — sem filtro de data (sempre reflete estado atual)
+    /*
+      Tarefas. A referência é `data_vencimento` — quando a tarefa é para ser
+      feita. Sem período são os números de hoje; com período, os do período,
+      pela mesma razão do card de follow-ups: a interseção de "hoje" com um
+      intervalo que pode nem conter hoje daria zero sem explicação.
+
+      "Atrasadas" mantém o `< CURRENT_DATE` mesmo com período — atrasado é
+      relativo a hoje, não ao recorte escolhido.
+    */
+    const paramsTarefas = [...paramsBase];
+    const dateFilterTarefa = buildDateFilter(paramsTarefas, dataInicio, dataFim, 't.data_vencimento');
     const tarefasResult = await query(
       `SELECT
         COUNT(*) FILTER (WHERE t.data_vencimento < CURRENT_DATE AND t.status NOT IN ('concluida', 'cancelada')) as atrasadas,
-        COUNT(*) FILTER (WHERE t.data_vencimento::date = CURRENT_DATE AND t.status NOT IN ('concluida', 'cancelada')) as hoje,
+        COUNT(*) FILTER (WHERE ${temFiltroData ? 'TRUE' : "t.data_vencimento::date = CURRENT_DATE"} AND t.status NOT IN ('concluida', 'cancelada')) as hoje,
         COUNT(*) FILTER (WHERE t.status NOT IN ('concluida', 'cancelada')) as pendentes
        FROM tarefas_lead t
        JOIN leads l ON t.lead_id = l.id
        WHERE l.empresa_id = $1
-       ${funilFilter} ${responsavelFilter}`,
-      paramsBase
+       ${funilFilter} ${responsavelFilter} ${dateFilterTarefa}`,
+      paramsTarefas
     );
 
     const tarefas = tarefasResult.rows[0];
@@ -298,6 +379,7 @@ export const dashboardService = {
       valorGanho: parseFloat(gp.valor_ganho),
       taxaConversao: Math.round(taxaConversao * 10) / 10,
 
+      granularidade,
       leadsPorMes: leadsPorMesMerged.map(r => ({
         mes: r.mes,
         total: r.total,
@@ -330,6 +412,7 @@ export const dashboardService = {
 
       atividadesRecentes: atividadesResult.rows,
 
+      periodoAtivo: temFiltroData,
       tarefasAtrasadas: parseInt(tarefas.atrasadas),
       tarefasHoje: parseInt(tarefas.hoje),
       tarefasPendentes: parseInt(tarefas.pendentes),

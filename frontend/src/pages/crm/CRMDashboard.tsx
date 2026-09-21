@@ -21,14 +21,34 @@ import { Link } from 'react-router-dom'
 import { TourHelpButton } from '@/components/tour/TourHelpButton'
 import type { FunilAnalytics } from '@/types/crm'
 import { DateRangePresets } from '@/components/ui/DateRangePresets'
+import type { Granularidade } from '@/api/crm'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from 'recharts'
+// A paleta do dashboard do Conta Azul é a única do projeto que passou pelo
+// validador contra as superfícies reais — reusar em vez de escolher hex novo.
+import { usePaletaViz } from '@/pages/dashboard/contaazul/paleta'
+
+/** Uma linha de `leadsPorMes` do endpoint /crm/dashboard. */
+interface LeadsPorMes { mes: string; total: number; ganhos: number; perdidos: number }
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 
+/**
+ * Rótulo de um período da série temporal, na tabela.
+ *
+ * Desde que o agrupamento virou configurável, a chave `mes` pode ser
+ * '2026-08-25' (dia/semana), '2026-08' (mês) ou '2026' (ano) — a versão antiga
+ * assumia sempre `YYYY-MM` e imprimia "undefined/26" no agrupamento anual.
+ * A forma é deduzida do próprio valor, então tabela e gráfico nunca divergem.
+ */
 const formatMonth = (mes: string) => {
-  const [year, month] = mes.split('-')
+  const partes = String(mes).split('-')
   const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-  return `${months[parseInt(month) - 1]}/${year.slice(2)}`
+  if (partes.length === 1) return partes[0]                                  // 2026
+  const [ano, mesNum, dia] = partes
+  const nome = months[parseInt(mesNum) - 1] ?? mesNum
+  if (partes.length === 2) return `${nome}/${ano.slice(2)}`                  // Ago/26
+  return `${dia}/${mesNum}/${ano.slice(2)}`                                  // 25/08/26
 }
 
 const temperaturaColors: Record<string, string> = {
@@ -233,6 +253,157 @@ function FunilAcumulado({ data }: { data: FunilAnalytics }) {
   )
 }
 
+/**
+ * Evolução mensal do funil — criados, ganhos e perdidos.
+ *
+ * Escolha da forma: são três séries sobre o tempo, mas a base costuma ter poucos
+ * meses (e a conta nova tem UM). Linha com um ponto não desenha nada; barra
+ * agrupada lê bem com um mês e continua legível com doze.
+ *
+ * As cores saem de `paleta.ts`, que passou no validador contra as superfícies
+ * reais do app — este trio (azul/verde/laranja) é exatamente o conjunto de 3
+ * que foi aprovado, com ΔE 9,2 no pior par sob deuteranopia. Não trocar hex sem
+ * rodar o validador de novo.
+ *
+ * A tabela logo abaixo permanece de propósito: é ela que atende quem não
+ * distingue as cores e quem precisa do número exato.
+ */
+const ROTULO_EVOLUCAO: Record<Granularidade, string> = {
+  dia: 'Evolucao Diaria',
+  semana: 'Evolucao Semanal',
+  mes: 'Evolucao Mensal',
+  ano: 'Evolucao Anual',
+}
+
+const OPCOES_GRANULARIDADE: { valor: Granularidade; rotulo: string }[] = [
+  { valor: 'dia', rotulo: 'Dia' },
+  { valor: 'semana', rotulo: 'Semana' },
+  { valor: 'mes', rotulo: 'Mês' },
+  { valor: 'ano', rotulo: 'Ano' },
+]
+
+const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+
+/**
+ * Rótulo do eixo por granularidade. O backend devolve sempre na chave `mes`,
+ * mas o conteúdo muda: '2026-08-25' (dia e semana), '2026-08' (mês) ou '2026'.
+ * A semana mostra o dia em que ela começa — `DATE_TRUNC('week')` no Postgres
+ * começa na segunda.
+ */
+function rotuloPeriodo(valor: string, g: Granularidade): string {
+  const [ano, mes, dia] = String(valor).split('-')
+  const mesCurto = MESES_CURTOS[Number(mes) - 1] ?? mes
+  if (g === 'ano') return ano
+  if (g === 'mes') return `${mesCurto}/${ano.slice(2)}`
+  if (g === 'semana') return `${dia}/${mes}`
+  return `${dia}/${mes}`
+}
+
+function GraficoEvolucaoMensal({
+  dados,
+  granularidade,
+  onGranularidade,
+}: {
+  dados: LeadsPorMes[]
+  granularidade: Granularidade
+  onGranularidade: (g: Granularidade) => void
+}) {
+  const paleta = usePaletaViz()
+
+  const series = [
+    { chave: 'total' as const, nome: 'Criados', cor: paleta.saldo },
+    { chave: 'ganhos' as const, nome: 'Ganhos', cor: paleta.receber },
+    { chave: 'perdidos' as const, nome: 'Perdidos', cor: paleta.pagar },
+  ]
+
+  const dadosGrafico = dados.map(d => ({ ...d, rotulo: rotuloPeriodo(d.mes, granularidade) }))
+
+  return (
+    <div className="mb-5">
+      {/* Seletor de agrupamento. Mesmo padrão do seletor de fidelidade dos
+          planos: abas segmentadas, 2x2 no celular para o alvo de toque não
+          encolher demais. */}
+      <div className="mb-3 flex justify-end">
+        <div className="inline-grid grid-cols-4 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-700" role="tablist" aria-label="Agrupar por">
+          {OPCOES_GRANULARIDADE.map(o => (
+            <button
+              key={o.valor}
+              type="button"
+              role="tab"
+              aria-selected={granularidade === o.valor}
+              onClick={() => onGranularidade(o.valor)}
+              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                granularidade === o.valor
+                  ? 'bg-white text-primary-700 shadow-sm dark:bg-gray-800 dark:text-primary-300'
+                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-300'
+              }`}
+            >
+              {o.rotulo}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {dados.length === 0 ? (
+        /* Mesma altura do gráfico: se o vazio fosse mais curto, o card encolheria
+           ao trocar de agrupamento e o navegador puxaria o scroll junto. */
+        <div className="flex items-center justify-center text-center" style={{ height: 260 }}>
+          <p className="max-w-xs text-sm text-gray-400">
+            Sem movimentacao no periodo com este agrupamento.
+            <span className="mt-1 block text-xs text-gray-300">
+              Tente um agrupamento maior ou amplie o periodo acima.
+            </span>
+          </p>
+        </div>
+      ) : (
+      <div style={{ height: 260 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={dadosGrafico} margin={{ top: 18, right: 8, left: -18, bottom: 0 }} barGap={2}>
+          {/* Grade recessiva: só horizontal, para o olho comparar altura. */}
+          <CartesianGrid strokeDasharray="3 3" stroke={paleta.grid} vertical={false} />
+          <XAxis dataKey="rotulo" tick={{ fontSize: 11, fill: paleta.eixo }} tickLine={false} axisLine={false} />
+          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: paleta.eixo }} tickLine={false} axisLine={false} width={38} />
+          <Tooltip
+            cursor={{ fill: paleta.grid, opacity: 0.45 }}
+            contentStyle={{
+              backgroundColor: paleta.tooltipBg,
+              border: `1px solid ${paleta.tooltipBorda}`,
+              borderRadius: 8,
+              fontSize: 12,
+              color: paleta.tooltipTexto,
+            }}
+            labelStyle={{ color: paleta.tooltipTexto, fontWeight: 600 }}
+            formatter={(v: any, nome: any) => [`${v} lead${Number(v) === 1 ? '' : 's'}`, nome]}
+          />
+          {/* O texto da legenda usa cor de TEXTO, não a cor da série — quem
+              carrega a identidade é a bolinha ao lado. Colorir a palavra deixa
+              o rótulo com contraste ruim e some para quem não distingue a cor. */}
+          <Legend
+            wrapperStyle={{ fontSize: 12 }}
+            iconType="circle"
+            iconSize={8}
+            formatter={(valor: any) => <span style={{ color: paleta.eixo }}>{valor}</span>}
+          />
+          {series.map(s => (
+            <Bar key={s.chave} dataKey={s.chave} name={s.nome} fill={s.cor} radius={[4, 4, 0, 0]} maxBarSize={38}>
+              {/* Rótulo direto: com o aviso de contraste da paleta, o número
+                  visível é o alívio exigido — a cor nunca responde sozinha. */}
+              <LabelList
+                dataKey={s.chave}
+                position="top"
+                style={{ fontSize: 10, fill: paleta.eixo, fontWeight: 600 }}
+                formatter={(v: any) => (Number(v) > 0 ? v : '')}
+              />
+            </Bar>
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+      </div>
+      )}
+    </div>
+  )
+}
+
 function FunilDiario({ data }: { data: FunilAnalytics }) {
   const { acumulado, diario } = data
 
@@ -335,9 +506,13 @@ export default function CRMDashboard() {
 
   const { data: funis } = useFunis()
   const { data: usuarios } = useUsuariosEmpresa()
-  const { data: metricas, isLoading, refetch } = useCRMDashboard(selectedFunilId, dateFilters)
+  /* Granularidade da série temporal. Fica aqui, e não dentro do gráfico, porque
+     quem refaz a consulta é o hook — agregar dia/semana/mês/ano no cliente
+     exigiria baixar lead a lead. */
+  const [granularidade, setGranularidade] = useState<Granularidade>('mes')
+  const { data: metricas, isLoading, refetch } = useCRMDashboard(selectedFunilId, dateFilters, granularidade)
   const { data: funilAnalyticsRaw, isLoading: isLoadingFunil } = useCRMFunilAnalytics(selectedFunilId, diasDiario, dateFilters)
-  const { data: followupMetricas } = useFollowupMetricas()
+  const { data: followupMetricas } = useFollowupMetricas(selectedFunilId, dateFilters)
 
   const limparFiltroData = () => {
     setDataInicio('')
@@ -518,7 +693,7 @@ export default function CRMDashboard() {
         <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
           <div className="flex items-center gap-2">
             <Calendar size={20} className="text-amber-500" />
-            <span className="font-medium text-amber-700">Tarefas para Hoje</span>
+            <span className="font-medium text-amber-700">{metricas.periodoAtivo ? 'Tarefas no Periodo' : 'Tarefas para Hoje'}</span>
           </div>
           <p className="text-3xl font-bold text-amber-700 mt-2">{metricas.tarefasHoje}</p>
         </div>
@@ -552,11 +727,11 @@ export default function CRMDashboard() {
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-amber-600">{followupMetricas.pendentes_hoje}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Para hoje</p>
+              <p className="text-xs text-gray-500 mt-0.5">{followupMetricas?.periodo_ativo ? 'No periodo' : 'Para hoje'}</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-green-600">{followupMetricas.enviados_hoje}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Enviados hoje</p>
+              <p className="text-xs text-gray-500 mt-0.5">{followupMetricas?.periodo_ativo ? 'Enviados' : 'Enviados hoje'}</p>
             </div>
             <div className="text-center">
               <p className={`text-2xl font-bold ${followupMetricas.total_falhados > 0 ? 'text-red-500' : 'text-gray-400'}`}>
@@ -686,20 +861,35 @@ export default function CRMDashboard() {
       </div>
 
       {/* Evolucao Mensal */}
-      {metricas.leadsPorMes.length > 0 && (
+      {/*
+        O card fica SEMPRE montado. Ele era condicionado a `leadsPorMes.length > 0`
+        e, desde que o seletor de agrupamento passou a morar aqui dentro, escolher
+        um agrupamento sem dados no período fazia o card inteiro desaparecer —
+        levando o seletor junto, sem caminho de volta. O vazio agora é tratado
+        dentro do gráfico.
+      */}
+      {(
         <div className="bg-white p-4 rounded-lg shadow-sm">
           <h3 className="font-medium text-gray-800 mb-1 flex items-center gap-2">
             <TrendingUp size={18} className="text-gray-400" />
-            Evolucao Mensal
+            {ROTULO_EVOLUCAO[granularidade]}
           </h3>
           <p className="text-xs text-gray-400 mb-4">
             Criados: data de cadastro · Ganhos/Perdidos/Valor: data em que o evento ocorreu
           </p>
+
+          <GraficoEvolucaoMensal
+            dados={metricas.leadsPorMes}
+            granularidade={granularidade}
+            onGranularidade={setGranularidade}
+          />
+
+          {metricas.leadsPorMes.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-2 px-3 font-medium text-gray-600">Mes</th>
+                  <th className="text-left py-2 px-3 font-medium text-gray-600">{granularidade === 'ano' ? 'Ano' : granularidade === 'mes' ? 'Mes' : 'Periodo'}</th>
                   <th className="text-center py-2 px-3 font-medium text-gray-600">Criados</th>
                   <th className="text-center py-2 px-3 font-medium text-green-600">Ganhos</th>
                   <th className="text-center py-2 px-3 font-medium text-red-600">Perdidos</th>
@@ -739,6 +929,7 @@ export default function CRMDashboard() {
               </tfoot>
             </table>
           </div>
+          )}
         </div>
       )}
 

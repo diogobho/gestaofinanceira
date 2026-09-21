@@ -24,8 +24,8 @@ export default function CRMComAbas({ variante }: CRMComAbasProps) {
       <div className="border-b border-gray-200 bg-white px-4 md:px-6 dark:border-gray-700 dark:bg-gray-900">
         <Tabs
           tabs={[
-            { key: 'funil',  label: t.funil,        icon: <LayoutGrid className="h-4 w-4" /> },
-            { key: 'agenda', label: 'Agendamentos', icon: <CalendarClock className="h-4 w-4" /> }
+            { key: 'funil',  label: t.funil,        icon: <LayoutGrid className="h-4 w-4" />, dataTour: 'crm-aba-funil' },
+            { key: 'agenda', label: 'Agendamentos', icon: <CalendarClock className="h-4 w-4" />, dataTour: 'crm-aba-agendamentos' }
           ]}
           active={aba}
           onChange={(k) => setAba(k as 'funil' | 'agenda')}

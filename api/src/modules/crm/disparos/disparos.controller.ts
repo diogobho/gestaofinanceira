@@ -43,7 +43,7 @@ export const disparosController = {
       const { lead_ids, todos, template, funil_id, estagio_pos_disparo_id, agendado_para,
               intervalo_min_seg, intervalo_max_seg,
               estagio_id, responsavel_id, temperatura, origem,
-              sem_tarefa, com_tarefa_hoje, com_tarefa_atrasada } = req.body;
+              sem_tarefa, com_tarefa_hoje, com_tarefa_atrasada, modelo_whatsapp } = req.body;
 
       if (!template || !template.trim()) {
         return res.status(400).json({ message: 'template é obrigatório' });
@@ -78,6 +78,14 @@ export const disparosController = {
         sem_tarefa: sem_tarefa === true,
         com_tarefa_hoje: com_tarefa_hoje === true,
         com_tarefa_atrasada: com_tarefa_atrasada === true,
+        modelo_whatsapp: modelo_whatsapp?.nome
+          ? {
+              nome: String(modelo_whatsapp.nome),
+              idioma: modelo_whatsapp.idioma ? String(modelo_whatsapp.idioma) : undefined,
+              variaveis: Array.isArray(modelo_whatsapp.variaveis) ? modelo_whatsapp.variaveis.map(String) : [],
+              cabecalho: modelo_whatsapp.cabecalho != null ? String(modelo_whatsapp.cabecalho) : null,
+            }
+          : undefined,
       });
 
       res.json({ disparo_id: disparoId });
@@ -171,8 +179,15 @@ export const disparosController = {
     try {
       const empresaId = req.user!.empresa_id;
       const id = parseInt(req.params.id);
-      const { template, agendado_para } = req.body;
-      const result = await disparosService.editarAgendado(id, empresaId, { template, agendado_para });
+      const { template, agendado_para, assunto, estagio_pos_disparo_id, intervalo_min, intervalo_max } = req.body;
+      const result = await disparosService.editarAgendado(id, empresaId, {
+        template, agendado_para, assunto,
+        estagio_pos_disparo_id: estagio_pos_disparo_id === undefined
+          ? undefined
+          : (estagio_pos_disparo_id === null || estagio_pos_disparo_id === '' ? null : Number(estagio_pos_disparo_id)),
+        intervalo_min: intervalo_min === undefined ? undefined : Number(intervalo_min),
+        intervalo_max: intervalo_max === undefined ? undefined : Number(intervalo_max),
+      });
       if (!result) return res.status(404).json({ error: 'Disparo não encontrado ou já processado' });
       res.json(result);
     } catch (error) {

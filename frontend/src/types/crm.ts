@@ -34,6 +34,8 @@ export interface PassoFollowupConfig {
   data_fixa?: string | null;     // 'YYYY-MM-DD'
   hora_envio?: string | null;    // 'HH:MM'
   dias_semana?: number[] | null; // 0=Dom..6=Sáb, null = todos os dias
+  // Número oficial: modelo aprovado que sai no lugar do passo com a janela de 24h fechada.
+  modelo_whatsapp?: { nome: string; idioma?: string; variaveis: string[]; cabecalho?: string | null } | null;
 }
 
 export interface EstagioFollowupConfig {
@@ -84,6 +86,8 @@ export type FollowupErroCategoria =
   | 'conflito_config'
   | 'config_ausente'
   | 'lead_arquivado'
+  /** Cancelamento feito por uma pessoa na tela — o motivo digitado fica em `erro`. */
+  | 'cancelado_usuario'
   | 'desconhecido';
 
 export interface FollowupAgendado {
@@ -188,6 +192,8 @@ export interface Lead {
   estagio_nome?: string;
   estagio_cor?: string;
   foto_url?: string;
+  /** Da conversa vinculada (contatos_whatsapp) — é o que ordena "Última mensagem primeiro". */
+  ultima_mensagem_at?: string | null;
   contato?: ContatoWhatsApp;
   tags?: Tag[];
   codigo_externo?: string;
@@ -208,6 +214,8 @@ export interface Lead {
   total_tarefas_pendentes?: number;
   total_anotacoes?: number;
   total_disparos?: number;
+  /** Mensagens recebidas na conversa — só vem com a ordem "Mais mensagens recebidas". */
+  total_recebidas?: number;
   ultimo_estagio_disparo?: string | null;
   total_no_estagio?: number;
   followup_pendente_count?: number;
@@ -502,6 +510,8 @@ export interface HistoricoMensagem {
   media_mimetype?: string;
   media_tamanho?: number;
   gifPlayback?: boolean;
+  /** Arquivo apagado pela cota de mídia da conta (migration 076). */
+  midia_expirada_em?: string | null;
   enviado_at: string;
   lido_at?: string;
   entregue_at?: string;
@@ -528,6 +538,8 @@ export interface AgenteIAConfig {
   contexto_mensagens: number;
   usuarios_habilitados: number[];
   delay_segundos: number;
+  /** Pode não responder quando a mensagem não pede resposta (migration 077). */
+  pode_ficar_em_silencio?: boolean;
   /** Follow-ups de IA parados na fila (só saem quando o agente estiver ativo). */
   followups_pausados?: number;
 }

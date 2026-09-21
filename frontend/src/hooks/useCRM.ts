@@ -1,7 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useState, useCallback } from 'react'
 import toast from 'react-hot-toast'
-import { funisApi, estagiosApi, leadsApi, contatosApi, tagsApi, origensApi, tarefasApi, anotacoesApi, dashboardApi, agenteIaApi, usuariosEmpresaApi, followupsApi, FiltrosLead } from '@/api/crm'
+import { funisApi, estagiosApi, leadsApi, contatosApi, tagsApi, origensApi, tarefasApi, anotacoesApi, dashboardApi, agenteIaApi, usuariosEmpresaApi, followupsApi, FiltrosLead, type Granularidade } from '@/api/crm'
 import type { CreateLeadDto, UpdateLeadDto, MoverLeadDto, CreateTagDto, CreateOrigemDto, CreateTarefaDto, UpdateTarefaDto, CreateAnotacaoDto, Lead, EstagioFunil, AgenteIAConfig } from '@/types/crm'
 
 // ========== FUNIS ==========
@@ -88,14 +88,22 @@ export const useUpdateEstagio = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; estagio_apos_resposta_id?: number | null; estagio_apos_envio_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null; auto_criar_lead?: boolean; auto_criar_lead_usuarios?: number[] | null; agente_ia_ativo?: boolean; reuniao_lembretes?: import('@/types/crm').ReuniaoLembretesConfig | null }> }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; estagio_apos_resposta_id?: number | null; estagio_apos_envio_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null; auto_criar_lead?: boolean; auto_criar_lead_usuarios?: number[] | null; agente_ia_ativo?: boolean; instrucoes_agente_ia?: string | null; reuniao_lembretes?: import('@/types/crm').ReuniaoLembretesConfig | null }> }) =>
       estagiosApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'estagios'] })
       queryClient.invalidateQueries({ queryKey: ['crm', 'funis'] })
       toast.success('Estágio atualizado!')
     },
-    onError: () => {
+    onError: (err: any) => {
+      // Conflito entre os dias do passo e a janela de envio da empresa: o backend
+      // recusa e devolve 400 com a explicação. Mostrar "Erro ao atualizar estágio"
+      // esconderia justamente a informação que resolve o problema.
+      const msg = err?.response?.data?.message
+      if (err?.response?.status === 400 && msg) {
+        toast.error(msg, { duration: 9000 })
+        return
+      }
       toast.error('Erro ao atualizar estágio')
     },
   })
@@ -559,6 +567,24 @@ export const useTarefasLead = (leadId: number | undefined) => {
   })
 }
 
+/**
+ * Tarefas da empresa inteira (a tela de Agendamentos as mostra ao lado dos
+ * follow-ups). Reusa `GET /crm/tarefas` — o mesmo endpoint que a tela já chamava
+ * direto; o que muda é ganhar cache e não refazer a consulta a cada render.
+ */
+export const useTarefasEmpresa = (filtros?: {
+  status?: string
+  responsavel_id?: number
+  funil_tipo?: 'aquisicao' | 'cx'
+}) => {
+  return useQuery({
+    queryKey: ['crm', 'tarefas-empresa', filtros?.status, filtros?.responsavel_id, filtros?.funil_tipo],
+    queryFn: () => tarefasApi.listByEmpresa(filtros),
+    refetchInterval: 60000,
+    placeholderData: keepPreviousData,
+  })
+}
+
 export const useCreateTarefa = () => {
   const queryClient = useQueryClient()
 
@@ -796,11 +822,21 @@ export interface DashboardDateFilters {
   responsavel_id?: number
 }
 
-export const useCRMDashboard = (funilId?: number, filters?: DashboardDateFilters) => {
+export const useCRMDashboard = (funilId?: number, filters?: DashboardDateFilters, granularidade?: Granularidade) => {
   return useQuery({
-    queryKey: ['crm', 'dashboard', funilId, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id],
-    queryFn: () => dashboardApi.getMetricas(funilId, filters),
+    // A granularidade entra na chave: sem isso, trocar de dia para mês devolve
+    // o cache anterior e o gráfico não muda.
+    queryKey: ['crm', 'dashboard', funilId, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id, granularidade],
+    queryFn: () => dashboardApi.getMetricas(funilId, filters, granularidade),
     staleTime: 60000,
+    /*
+      Mantém os dados do filtro anterior enquanto o novo carrega.
+      Sem isto, mudar qualquer filtro cria uma queryKey nova, `isLoading` volta a
+      ser true, a página inteira é trocada por um spinner, a altura colapsa e o
+      navegador joga o scroll para o topo. Com `keepPreviousData` o conteúdo
+      continua na tela e só `isFetching` muda.
+    */
+    placeholderData: keepPreviousData,
   })
 }
 
@@ -808,6 +844,7 @@ export const useCRMFunilAnalytics = (funilId?: number, dias?: number, filters?: 
   return useQuery({
     queryKey: ['crm', 'dashboard', 'funil', funilId, dias, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id],
     queryFn: () => dashboardApi.getFunilAnalytics(funilId, dias, filters),
+    placeholderData: keepPreviousData,
     staleTime: 60000,
   })
 }
@@ -1081,18 +1118,28 @@ export const useReagendarFollowup = () => {
   })
 }
 
-export const useAllFollowups = (filtro: 'hoje' | 'semana' | 'atrasados' | 'todos' = 'hoje', status?: string) => {
+export const useAllFollowups = (
+  filtro: 'hoje' | 'semana' | 'atrasados' | 'todos' = 'hoje',
+  status?: string,
+  funilTipo?: 'aquisicao' | 'cx'
+) => {
   return useQuery({
-    queryKey: ['crm', 'followups-todos', filtro, status],
-    queryFn: () => followupsApi.listarTodos(filtro, status),
+    queryKey: ['crm', 'followups-todos', filtro, status, funilTipo],
+    queryFn: () => followupsApi.listarTodos(filtro, status, funilTipo),
     refetchInterval: 60000,
+    // Trocar de filtro não pode esvaziar a lista: sem isto a queryKey nova zera os
+    // dados, a altura do bloco colapsa e o navegador joga o scroll para o topo.
+    placeholderData: keepPreviousData,
   })
 }
 
-export const useFollowupMetricas = () => {
+export const useFollowupMetricas = (funilId?: number, filters?: DashboardDateFilters) => {
   return useQuery({
-    queryKey: ['crm', 'followups-metricas'],
-    queryFn: () => followupsApi.metricas(),
+    // Os filtros entram na chave: sem isso, trocar de funil devolveria o cache
+    // do funil anterior e os cinco números continuariam os mesmos.
+    queryKey: ['crm', 'followups-metricas', funilId, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id],
+    queryFn: () => followupsApi.metricas(funilId, filters),
     refetchInterval: 60000,
+    placeholderData: keepPreviousData,
   })
 }

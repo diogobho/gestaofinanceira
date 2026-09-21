@@ -7,6 +7,9 @@ export interface Anotacao {
   usuario_id: number;
   conteudo: string;
   tipo: 'nota' | 'importante' | 'lembrete';
+  // Autor da anotação (migration 069). O agente de IA usa isto para não confundir os
+  // próprios registros automáticos com observações escritas por um vendedor.
+  origem: 'usuario' | 'agente' | 'sistema';
   created_at: Date;
   updated_at: Date;
   usuario_nome?: string;
@@ -16,6 +19,8 @@ export interface CreateAnotacaoDto {
   lead_id: number;
   conteudo: string;
   tipo?: 'nota' | 'importante' | 'lembrete';
+  // Só o backend define: a rota de criação sempre grava 'usuario'.
+  origem?: 'usuario' | 'agente' | 'sistema';
 }
 
 export interface UpdateAnotacaoDto {
@@ -53,15 +58,16 @@ export const anotacoesService = {
 
   async create(empresaId: number, usuarioId: number, data: CreateAnotacaoDto): Promise<Anotacao> {
     const result = await query(
-      `INSERT INTO anotacoes_lead (lead_id, empresa_id, usuario_id, conteudo, tipo)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO anotacoes_lead (lead_id, empresa_id, usuario_id, conteudo, tipo, origem)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
       [
         data.lead_id,
         empresaId,
         usuarioId,
         data.conteudo,
-        data.tipo || 'nota'
+        data.tipo || 'nota',
+        data.origem || 'usuario'
       ]
     );
 

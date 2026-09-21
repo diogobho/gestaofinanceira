@@ -1,5 +1,7 @@
 import { LayoutList, DollarSign, User, CheckCircle2, Clock, Calendar } from 'lucide-react'
 import type { Lead, EstagioFunil } from '@/types/crm'
+import type { OrdemCards } from '@/api/crm'
+import { compararLeads } from '@/components/crm/OrdenarCards'
 
 /**
  * Visão em LISTA (tabela) dos leads de um funil — compartilhada entre o funil de
@@ -22,12 +24,17 @@ interface ListViewProps {
   onCardClick: (lead: Lead) => void
   /** Texto do vazio (ex.: "Nenhum cliente no funil CX" / "Nenhum lead no funil"). */
   emptyLabel?: string
+  /** Ordem escolhida no seletor. Fora da manual, a tabela segue a ordem geral em vez de
+   *  ficar agrupada por estágio. */
+  ordem?: OrdemCards
 }
 
-export default function CRMListView({ colunas, onCardClick, emptyLabel = 'Nenhum lead no funil' }: ListViewProps) {
+export default function CRMListView({ colunas, onCardClick, emptyLabel = 'Nenhum lead no funil', ordem = 'manual' }: ListViewProps) {
   const leads = colunas.flatMap(col =>
     col.leads.map(l => ({ ...l, estagio_nome: l.estagio_nome ?? col.nome, estagio_cor: l.estagio_cor ?? col.cor }))
   )
+  const comparar = compararLeads(ordem)
+  if (comparar) leads.sort(comparar)
 
   if (leads.length === 0) {
     return (
@@ -72,6 +79,11 @@ export default function CRMListView({ colunas, onCardClick, emptyLabel = 'Nenhum
                       <p className="text-xs text-gray-400">{lead.empresa}</p>
                     )}
                   </div>
+                  {lead.total_recebidas != null && (
+                    <span className="ml-1 text-xs text-primary-600" title="Mensagens recebidas nesta conversa">
+                      {lead.total_recebidas} {lead.total_recebidas === 1 ? 'recebida' : 'recebidas'}
+                    </span>
+                  )}
                   {(lead.mensagens_nao_lidas ?? 0) > 0 && (
                     <span className="ml-1 px-1.5 py-0.5 bg-green-500 text-white text-xs font-bold rounded-full">
                       {lead.mensagens_nao_lidas}

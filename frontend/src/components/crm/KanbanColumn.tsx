@@ -50,7 +50,7 @@ export default function KanbanColumn({
       }`}
     >
       {/* Header da coluna */}
-      <div className="p-3 border-b border-gray-200">
+      <div className="px-3 py-2 border-b border-gray-200">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* Grip handle para arrastar a coluna */}
@@ -124,7 +124,7 @@ export default function KanbanColumn({
             ref={provided.innerRef}
             {...provided.droppableProps}
             className={`
-              flex-1 p-2 min-h-[200px] overflow-y-auto
+              flex-1 px-2 py-1.5 min-h-[200px] overflow-y-auto
               ${snapshot.isDraggingOver ? 'bg-primary-50' : ''}
             `}
           >

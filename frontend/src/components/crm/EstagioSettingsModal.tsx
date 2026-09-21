@@ -63,6 +63,7 @@ export default function EstagioSettingsModal({
   const [autoCriarUsuarios, setAutoCriarUsuarios] = useState<number[]>([])
   // Agente de IA reativo (responde às mensagens do lead neste estágio)
   const [agenteIaAtivo, setAgenteIaAtivo] = useState(false)
+  const [instrucoesAgenteIa, setInstrucoesAgenteIa] = useState('')
   // Lembretes de reunião (−24h/−1h + resgate de no-show)
   const [reuniaoLembretes, setReuniaoLembretes] = useState<ReuniaoLembretesValue>(reuniaoLembretesPadrao())
 
@@ -84,6 +85,7 @@ export default function EstagioSettingsModal({
       setAutoCriarLead(estagio.auto_criar_lead ?? false)
       setAutoCriarUsuarios(estagio.auto_criar_lead_usuarios ?? [])
       setAgenteIaAtivo(estagio.agente_ia_ativo ?? false)
+      setInstrucoesAgenteIa(estagio.instrucoes_agente_ia ?? '')
       setReuniaoLembretes(configParaLembretes(estagio.reuniao_lembretes))
       const base = followupConfigParaCadencia(estagio.followup_config)
       if (appendPassoOnOpen) {
@@ -135,6 +137,7 @@ export default function EstagioSettingsModal({
           auto_criar_lead: autoCriarLead,
           auto_criar_lead_usuarios: autoCriarLead ? autoCriarUsuarios : [],
           agente_ia_ativo: agenteIaAtivo,
+          instrucoes_agente_ia: instrucoesAgenteIa,
           reuniao_lembretes: lembretesParaConfig(reuniaoLembretes),
         }
       })
@@ -310,11 +313,36 @@ export default function EstagioSettingsModal({
                   </span>
                   <span className="block text-xs text-gray-400 mt-0.5">
                     Quando ligado, o agente <strong>responde</strong> às mensagens que o lead enviar enquanto estiver neste estágio,
-                    seguindo a orientação do passo atual da cadência abaixo. Independente do follow-up (que só envia as mensagens agendadas).
+                    seguindo a instrução abaixo. Independente do follow-up (que só envia as mensagens agendadas).
                     Pode ser sobrescrito lead a lead na tela do lead.
                   </span>
                 </span>
               </label>
+
+              {agenteIaAtivo && (
+                <div className="mt-3 pl-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Instrução do agente neste estágio
+                  </label>
+                  <textarea
+                    value={instrucoesAgenteIa}
+                    onChange={(e) => setInstrucoesAgenteIa(e.target.value)}
+                    rows={6}
+                    placeholder={
+                      'Ex.: O objetivo aqui é fazer o lead responder e abrir conversa.\n' +
+                      'Não apresente o programa nem fale de preço neste estágio.\n' +
+                      'Se ele demonstrar interesse, ofereça uma conversa com a Débora.\n' +
+                      'Se pedir valores, diga que quem passa isso é a Débora na conversa.'
+                    }
+                    className="w-full px-3 py-2 border rounded-lg text-sm leading-relaxed resize-y focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    O que o agente deve buscar e o que ele <strong>não</strong> pode fazer ao responder neste
+                    estágio. Vale só para as respostas — as mensagens da cadência têm a instrução delas em cada passo.
+                    Em branco, o agente responde apenas com o prompt geral da empresa.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

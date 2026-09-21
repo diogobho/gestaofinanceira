@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { dashboardService } from './dashboard.service';
+import { dashboardService, normalizarGranularidade } from './dashboard.service';
 import { AuthRequest } from '../../../middlewares/auth.middleware';
 
 function parseDate(value?: string): string | undefined {
@@ -26,8 +26,11 @@ export const dashboardController = {
       const dataInicio = parseDate(req.query.data_inicio as string | undefined);
       const dataFim = parseDate(req.query.data_fim as string | undefined);
       const responsavelId = req.query.responsavel_id ? parseInt(req.query.responsavel_id as string) : undefined;
+      // Valor inválido cai em 'mes' — a granularidade entra em interpolação de
+      // SQL, então só os quatro nomes conhecidos podem passar daqui.
+      const granularidade = normalizarGranularidade(req.query.granularidade);
 
-      const metricas = await dashboardService.getMetricas(empresaId, funilId, dataInicio, dataFim, responsavelId);
+      const metricas = await dashboardService.getMetricas(empresaId, funilId, dataInicio, dataFim, responsavelId, granularidade);
       res.json(metricas);
     } catch (error) {
       next(error);

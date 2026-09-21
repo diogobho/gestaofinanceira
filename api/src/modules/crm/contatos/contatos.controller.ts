@@ -80,8 +80,11 @@ export const contatosController = {
         return res.status(400).json({ message: 'mensagem é obrigatória' });
       }
 
+      // Com lead no contexto, quem fala é o WhatsApp do responsável do card.
+      const remetenteId = await contatosService.resolverRemetenteDoLead(lead_id, empresaId, usuarioId);
+
       const resultado = await contatosService.enviarMensagem(
-        usuarioId,
+        remetenteId,
         empresaId,
         parseInt(id),
         mensagem,
@@ -142,8 +145,13 @@ export const contatosController = {
         return res.status(400).json({ message: 'Arquivo obrigatorio' });
       }
 
+      // Com lead no contexto, quem fala é o WhatsApp do responsável do card.
+      const remetenteId = await contatosService.resolverRemetenteDoLead(
+        lead_id ? parseInt(lead_id) : undefined, empresaId, usuarioId
+      );
+
       const resultado = await contatosService.enviarMedia(
-        usuarioId,
+        remetenteId,
         empresaId,
         parseInt(id),
         file.path,

@@ -51,6 +51,7 @@ router.delete('/leads/:id/tags/:tagId', leadsController.removeTag);
 // WhatsApp messaging via lead (auto-cria contato se necessario)
 router.post('/leads/:id/mensagem', leadsController.enviarMensagemWhatsApp);
 router.post('/leads/:id/media', upload.single('file'), leadsController.enviarMediaWhatsApp);
+router.post('/leads/:id/whatsapp/modelo', leadsController.enviarModeloWhatsApp);
 router.get('/leads/:id/historico-whatsapp', leadsController.getHistoricoWhatsApp);
 router.post('/leads/:id/marcar-lido', leadsController.marcarLidoWhatsApp);
 
