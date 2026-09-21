@@ -89,6 +89,13 @@ async function pagina(url, rotulo) {
       ok(`nome de exibição aprovado: "${p.verified_name}"`);
     } else if (p.new_name_status === 'PENDING_REVIEW') {
       wa(`troca para "${p.new_display_name}" em análise na Meta — até aprovar, quem recebe continua vendo "${p.verified_name}", e é esse nome que aparece no vídeo`);
+    } else if (p.new_name_status === 'APPROVED') {
+      // Aprovado e ainda assim fora do ar: é o caso de 19/09/2026. Quem só lê
+      // `name_status` vê "DECLINED" e dá o pedido por perdido.
+      wa(`troca para "${p.new_display_name}" APROVADA, mas ainda não em vigor — quem recebe vê "${p.verified_name}". ` +
+         (p.code_verification_status === 'VERIFIED'
+           ? 'o número está verificado; confira em Gerenciador do WhatsApp → Números de telefone'
+           : `o número está ${p.code_verification_status}: reverifique (request_code + verify_code) para o nome entrar`));
     } else {
       wa(`name_status ${p.name_status} para "${p.verified_name}" — quem recebe não vê nome verificado, e é isso que aparece no vídeo`);
     }

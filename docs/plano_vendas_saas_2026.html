@@ -1,0 +1,603 @@
+<title>Plano de Vendas — Gestão Financeira SaaS | Ago–Dez 2026</title>
+<style>
+  :root {
+    --font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Times New Roman', serif;
+    --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-data: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+    --ink: #13264C;
+    --body-c: #2C3550;
+    --muted: #6B7489;
+    --ground: #F7F8FB;
+    --surface: #FFFFFF;
+    --surface-alt: #F0F2F7;
+    --rule: #DDE1EA;
+    --rule-strong: #C3CAD8;
+    --accent: #A8842F;
+    --accent-soft: #D2B773;
+    --accent-wash: #FBF6E9;
+    --positive: #0E9F72;
+    --positive-wash: #E8F7F1;
+    --risk: #A8462A;
+    --risk-wash: #FBEFEA;
+
+    --measure: 66ch;
+    --s1: 0.35rem;
+    --s2: 0.7rem;
+    --s3: 1.1rem;
+    --s4: 1.8rem;
+    --s5: 2.8rem;
+    --s6: 4rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #EEF1F7; --body-c: #C6CEDD; --muted: #8B94A8;
+      --ground: #0C1730; --surface: #14213C; --surface-alt: #1A2A4A;
+      --rule: #27385C; --rule-strong: #3A4E76;
+      --accent: #D2B773; --accent-soft: #A8842F; --accent-wash: #1E2743;
+      --positive: #34D399; --positive-wash: #102E2A;
+      --risk: #E5906F; --risk-wash: #2E1D17;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ink: #EEF1F7; --body-c: #C6CEDD; --muted: #8B94A8;
+    --ground: #0C1730; --surface: #14213C; --surface-alt: #1A2A4A;
+    --rule: #27385C; --rule-strong: #3A4E76;
+    --accent: #D2B773; --accent-soft: #A8842F; --accent-wash: #1E2743;
+    --positive: #34D399; --positive-wash: #102E2A;
+    --risk: #E5906F; --risk-wash: #2E1D17;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--body-c);
+    font-family: var(--font-body);
+    font-size: 16.5px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1000px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .prose { max-width: var(--measure); }
+
+  h1, h2, h3 { font-family: var(--font-display); color: var(--ink); text-wrap: balance; margin: 0; font-weight: 600; }
+  h1 { font-size: clamp(1.9rem, 4.5vw, 2.7rem); line-height: 1.1; letter-spacing: -0.01em; }
+  h2 { font-size: clamp(1.4rem, 2.8vw, 1.8rem); line-height: 1.2; }
+  h3 { font-size: 1.1rem; line-height: 1.3; }
+  h4 { font-family: var(--font-body); font-size: 0.98rem; font-weight: 650; color: var(--ink); margin: 0; }
+  p { margin: 0; }
+  strong { color: var(--ink); font-weight: 650; }
+
+  a { color: var(--accent); text-underline-offset: 2px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  .eyebrow {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--accent); margin: 0;
+  }
+  .lede { font-size: 1.08rem; }
+
+  .stack { display: flex; flex-direction: column; }
+  .stack-2 > * + * { margin-top: var(--s2); }
+  .stack-3 > * + * { margin-top: var(--s3); }
+  .stack-4 > * + * { margin-top: var(--s4); }
+
+  .masthead { border-bottom: 3px solid var(--ink); padding-bottom: var(--s3); }
+  .masthead .meta-row {
+    display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); align-items: center;
+    font-size: 0.78rem; color: var(--muted); font-family: var(--font-data);
+  }
+  .pill {
+    display: inline-block; padding: 0.14rem 0.55rem; border-radius: 999px;
+    font-family: var(--font-body); font-size: 0.68rem; font-weight: 700;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    background: var(--accent-wash); color: var(--accent); border: 1px solid var(--accent-soft);
+  }
+
+  section { margin-top: var(--s5); }
+  .sec-head { border-top: 1px solid var(--rule-strong); padding-top: var(--s3); margin-bottom: var(--s3); }
+
+  .kpis {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+  }
+  .kpi { background: var(--surface); padding: var(--s3); }
+  .kpi dt {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 var(--s2);
+  }
+  .kpi dd {
+    margin: 0; font-family: var(--font-display); font-size: 1.7rem;
+    line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums;
+  }
+  .kpi .note { display: block; margin-top: var(--s2); font-size: 0.76rem; color: var(--muted); }
+  .kpi-accent dd { color: var(--accent); }
+  .kpi-pos dd { color: var(--positive); }
+
+  .scroller { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 540px; font-size: 0.87rem; }
+  caption {
+    caption-side: bottom; text-align: left; padding: var(--s2) var(--s3);
+    font-size: 0.76rem; color: var(--muted); border-top: 1px solid var(--rule);
+  }
+  th, td { padding: 0.52rem var(--s3); text-align: left; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--muted); background: var(--surface-alt);
+    border-bottom: 1px solid var(--rule-strong); white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-family: var(--font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tot td { font-weight: 700; color: var(--ink); background: var(--accent-wash); border-top: 2px solid var(--accent-soft); }
+  .row-ink td { color: var(--ink); font-weight: 600; }
+  .pos { color: var(--positive); font-weight: 650; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--s3); }
+  .card { background: var(--surface); border: 1px solid var(--rule); border-top: 3px solid var(--accent-soft); padding: var(--s3); }
+  .card-risk { border-top-color: var(--risk); }
+  .card p { font-size: 0.86rem; }
+  .card .field { font-size: 0.8rem; color: var(--muted); }
+  .card .field b { color: var(--ink); font-weight: 650; }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-wash); padding: var(--s3); }
+  .callout-risk { border-left-color: var(--risk); background: var(--risk-wash); }
+  .callout p, .callout li { font-size: 0.9rem; }
+
+  ul.clean { margin: 0; padding-left: 1.1rem; }
+  ul.clean li { margin-bottom: var(--s2); }
+  ul.clean li:last-child { margin-bottom: 0; }
+
+  .faq { display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+  .faq details { background: var(--surface); }
+  .faq summary {
+    padding: var(--s3); cursor: pointer; font-weight: 650; color: var(--ink);
+    font-size: 1rem; list-style: none; display: flex; gap: var(--s2); align-items: baseline;
+  }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::before { content: "+"; color: var(--accent); font-family: var(--font-data); font-weight: 700; }
+  .faq details[open] summary::before { content: "−"; }
+  .faq .ans { padding: 0 var(--s3) var(--s3) 2.1rem; font-size: 0.95rem; }
+
+  .footnote { font-size: 0.8rem; color: var(--muted); }
+
+  @media (max-width: 620px) {
+    body { font-size: 16px; }
+    .wrap { padding: var(--s4) var(--s3) var(--s5); }
+  }
+  @media print { body { background: #fff; } section { break-inside: avoid; } .faq details { display: block; } }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead stack stack-3">
+    <p class="eyebrow">DuoFuturo &middot; Plano Comercial</p>
+    <h1>Plano de Vendas — Gestão Financeira SaaS</h1>
+    <p class="lede prose">708 clientes reais do Instituto, já dentro do nosso CRM CX. Não é prospecção fria: é base ativa, com relação estabelecida. Este documento mostra a meta até dezembro, a margem real por usuário e quando o investimento se paga.</p>
+    <div class="meta-row">
+      <span>12 de agosto de 2026</span><span>&middot;</span>
+      <span>Horizonte: 20 semanas</span><span>&middot;</span>
+      <span class="pill">Versão Beta</span>
+    </div>
+  </header>
+
+  <!-- ════ NÚMEROS ════ -->
+  <section>
+    <dl class="kpis">
+      <div class="kpi">
+        <dt>Base abordável</dt><dd>708</dd>
+        <span class="note">Clientes reais no CRM CX</span>
+      </div>
+      <div class="kpi kpi-accent">
+        <dt>MRR bruto dez</dt><dd>R$ 41,2 mil</dd>
+        <span class="note">171 assinaturas, churn 5%/mês</span>
+      </div>
+      <div class="kpi kpi-pos">
+        <dt>Margem de contribuição</dt><dd>82%</dd>
+        <span class="note">Custo medido de R$ 48,54/empresa</span>
+      </div>
+      <div class="kpi">
+        <dt>Investido até hoje</dt><dd>R$ 144 mil</dd>
+        <span class="note">11 meses de construção</span>
+      </div>
+      <div class="kpi kpi-pos">
+        <dt>Payback</dt><dd>Fev 2027</dd>
+        <span class="note">6 meses após o início do plano</span>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ════ BASE ════ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Onde vamos vender</p>
+      <h2>A base é cliente, não lead</h2>
+    </div>
+
+    <div class="stack stack-3">
+      <p class="prose">A diferença muda a abordagem inteira: essas pessoas já compraram do Instituto, já confiam na marca e já conhecem quem fala com elas. Não precisamos gerar confiança — precisamos apresentar a ferramenta. E fazemos isso <strong>usando o próprio CRM</strong>, por grupo ou individualmente.</p>
+
+      <div class="scroller">
+        <table>
+          <caption>Funis de CX no CRM, contagem de 12/08. Os demais funis somam 1.185 clientes e ficam como expansão para 2027.</caption>
+          <thead>
+            <tr><th>Base</th><th class="num">Clientes</th><th class="num">Plano</th><th>Perfil e argumento de entrada</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Leadership Club</strong></td>
+              <td class="num">160</td>
+              <td class="num">Enterprise</td>
+              <td>Operação madura, já tem equipe. Dor é atropelo no atendimento e falta de processo.</td>
+            </tr>
+            <tr>
+              <td><strong>Escola</strong></td>
+              <td class="num">548</td>
+              <td class="num">Profissional</td>
+              <td>Operação em formação. Dor é não saber se o mês fechou no lucro.</td>
+            </tr>
+            <tr class="tot"><td>Total</td><td class="num">708</td><td class="num">—</td><td>Meta de 171 assinaturas = 24% de penetração</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout prose">
+        <h4>Como abordar, usando a ferramenta que estamos vendendo</h4>
+        <ul class="clean" style="margin-top:var(--s2)">
+          <li><strong>Nos grupos (topo):</strong> uma dor concreta por semana com número real, e uma mini-aula de 15 min mostrando a tela resolvendo aquela dor. Conteúdo, não oferta.</li>
+          <li><strong>Individual pelo CRM (conversão):</strong> disparo segmentado por funil com intervalo anti-bloqueio, e o chat do card para a conversa um a um. Cada abordagem fica registrada, com origem e estágio — o placar semanal sai do próprio sistema.</li>
+          <li><strong>Vender usando o produto é a melhor demonstração que temos.</strong> A cliente vê o CRM funcionando na conversa em que está sendo convidada a assiná-lo.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ UNIT ECONOMICS ════ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Custo e margem</p>
+      <h2>Quanto custa servir um usuário</h2>
+    </div>
+
+    <div class="stack stack-4">
+      <p class="prose">Custos de infraestrutura medidos no servidor de produção, não estimados. O dado que mais importa: cada instância de WhatsApp consome <strong>148 MB de memória</strong> e cerca de 1% de um núcleo — memória é o limite, processamento não é.</p>
+
+      <div class="scroller">
+        <table>
+          <caption>Custo marginal mensal por empresa. Servidor de 4 vCPU e 16 GB comporta cerca de 40 instâncias de WhatsApp com folga.</caption>
+          <thead>
+            <tr><th>Componente</th><th class="num">Profissional</th><th class="num">Enterprise</th><th>Origem do número</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Taxa Asaas</td><td class="num">R$ 5,52</td><td class="num">R$ 9,25</td><td>2,52% e 2,33% do preço, mix 70% cartão / 30% Pix</td></tr>
+            <tr><td>Instâncias de WhatsApp</td><td class="num">R$ 5,00</td><td class="num">R$ 30,00</td><td>1 compartilhada vs. 6 dedicadas, a R$ 5 cada</td></tr>
+            <tr><td>Banco e backup</td><td class="num">R$ 1,00</td><td class="num">R$ 2,00</td><td>Maior cliente real usa 12 MB — teto de 5 GB folgado</td></tr>
+            <tr><td>API de IA</td><td class="num">R$ 5,00</td><td class="num">R$ 20,00</td><td>Assistente vs. agente proativo, por volume de resposta</td></tr>
+            <tr><td>Suporte humano</td><td class="num">R$ 16,67</td><td class="num">R$ 33,33</td><td>20 e 40 min/mês a R$ 50/h</td></tr>
+            <tr class="tot"><td>Custo por empresa</td><td class="num">R$ 33,19</td><td class="num">R$ 94,58</td><td>—</td></tr>
+            <tr class="row-ink"><td>Custo por usuário</td><td class="num">R$ 8,30</td><td class="num">R$ 15,76</td><td>4 e 6 usuários inclusos</td></tr>
+            <tr class="row-ink"><td>Margem de contribuição</td><td class="num pos">84,8%</td><td class="num pos">76,2%</td><td>Sobre R$ 219 e R$ 397</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <h4>O Enterprise tem margem menor</h4>
+          <p style="margin-top:var(--s2)">76% contra 85% do Profissional, porque promete um WhatsApp por usuária — seis processos em vez de um. É a única linha de custo que cresce junto com o número de usuárias.</p>
+        </div>
+        <div class="card">
+          <h4>O usuário adicional é o melhor produto</h4>
+          <p style="margin-top:var(--s2)">R$ 100/mês com custo marginal de R$ 16,33 — <strong>84% de margem</strong> e zero custo de aquisição. Perguntar "quantas pessoas mexem no financeiro?" no diagnóstico é qualificação e receita ao mesmo tempo.</p>
+        </div>
+        <div class="card">
+          <h4>Teto de infraestrutura</h4>
+          <p style="margin-top:var(--s2)">O plano exige cerca de 350 instâncias em dezembro, contra 10 hoje. São ~9 servidores, já embutidos no custo de R$ 5 por instância. Precisa entrar no planejamento de infra de setembro.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ INVESTIMENTO E PAYBACK ════ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Quanto já foi gasto</p>
+      <h2>Investimento e payback</h2>
+    </div>
+
+    <div class="stack stack-4">
+      <p class="prose">O sistema está em construção desde <strong>setembro de 2025</strong> — 11 meses, 53.207 linhas de código, 62 migrações de banco e 253 arquivos. O custo de criação é quase todo hora de trabalho, e o número abaixo é custo de oportunidade do fundador, não desembolso em caixa.</p>
+
+      <div class="scroller">
+        <table>
+          <caption>Horas são estimativa por volume de código (~38 linhas mantidas por hora); as demais linhas são medidas. <strong>Substituir pelas horas reais quando houver registro.</strong></caption>
+          <thead>
+            <tr><th>Item</th><th class="num">Conservador</th><th class="num">Central</th><th class="num">Integral</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Horas de desenvolvimento</td><td class="num">900 h</td><td class="num">1.400 h</td><td class="num">1.800 h</td></tr>
+            <tr><td>Custo da hora</td><td class="num">R$ 100</td><td class="num">R$ 100</td><td class="num">R$ 100</td></tr>
+            <tr><td>Trabalho</td><td class="num">R$ 90.000</td><td class="num">R$ 140.000</td><td class="num">R$ 180.000</td></tr>
+            <tr><td>Infra e APIs (11 meses)</td><td class="num">R$ 3.700</td><td class="num">R$ 3.700</td><td class="num">R$ 3.700</td></tr>
+            <tr class="tot"><td>Total investido</td><td class="num">R$ 93.700</td><td class="num">R$ 143.700</td><td class="num">R$ 183.700</td></tr>
+            <tr class="row-ink"><td>Payback no cenário do plano</td><td class="num">Jan 2027</td><td class="num">Fev 2027</td><td class="num">Mar 2027</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="scroller">
+        <table>
+          <caption>Lucro operacional = MRR líquido menos custo de servir. Acumulado de ago a dez: R$ 100.455, cobrindo 70% do investimento central.</caption>
+          <thead>
+            <tr><th>Mês</th><th class="num">Base</th><th class="num">MRR líquido</th><th class="num">Custo de servir</th><th class="num">Lucro operacional</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Agosto</td><td class="num">17</td><td class="num">R$ 4.480</td><td class="num">−R$ 825</td><td class="num">R$ 3.655</td></tr>
+            <tr><td>Setembro</td><td class="num">66</td><td class="num">R$ 17.108</td><td class="num">−R$ 3.204</td><td class="num">R$ 13.904</td></tr>
+            <tr><td>Outubro</td><td class="num">103</td><td class="num">R$ 26.535</td><td class="num">−R$ 5.000</td><td class="num">R$ 21.535</td></tr>
+            <tr><td>Novembro</td><td class="num">138</td><td class="num">R$ 35.490</td><td class="num">−R$ 6.699</td><td class="num">R$ 28.791</td></tr>
+            <tr class="row-ink"><td><strong>Dezembro</strong></td><td class="num">156</td><td class="num">R$ 40.142</td><td class="num">−R$ 7.572</td><td class="num">R$ 32.570</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout callout-risk prose">
+        <h4>O que não está nessa conta</h4>
+        <p><strong>Custo da operação comercial.</strong> As 30 conversas semanais precisam de alguém dedicado. Se isso custar R$ 5.000/mês entre salário e comissão, o payback vai de fevereiro para <strong>abril de 2027</strong> — segue saudável, mas é decisão de contratação que precisa entrar no orçamento agora, não depois.</p>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <h4>Manutenção</h4>
+          <p style="margin-top:var(--s2)">Correção de defeito, monitoramento e suporte técnico. Estimativa de <strong>25 h/mês</strong> (R$ 2.500), tendendo a subir com a base — a cada 50 clientes novas, some 5 h/mês.</p>
+        </div>
+        <div class="card">
+          <h4>Atualização</h4>
+          <p style="margin-top:var(--s2)">Recurso novo e evolução de produto. <strong>40 h/mês</strong> (R$ 4.000) para manter ritmo competitivo. É investimento, e pode ser cortado sem quebrar o serviço — manutenção não pode.</p>
+        </div>
+        <div class="card">
+          <h4>Custo fixo mensal a partir de setembro</h4>
+          <p style="margin-top:var(--s2)">Manutenção e atualização somam <strong>R$ 6.500/mês</strong>. Ficam cobertos pelo lucro operacional a partir de setembro (R$ 13.904).</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ PROJEÇÃO ════ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Meta e reajuste</p>
+      <h2>Projeção de vendas e de preço</h2>
+    </div>
+
+    <div class="stack stack-4">
+      <p class="prose">30 conversas por semana geram 10 assinaturas, com <strong>7 dias de teste grátis</strong> como garantia — e não como produto: o cadastro é feito junto com a cliente na chamada, e o teste serve para tirar o risco da decisão, não para postergá-la.</p>
+
+      <div class="scroller">
+        <table>
+          <caption>Mix de 25% Enterprise e 75% Profissional, ticket médio de R$ 263,50, churn de 5%/mês. Dezembro tem 3 semanas úteis.</caption>
+          <thead>
+            <tr><th>Mês</th><th class="num">Novas</th><th class="num">Base</th><th class="num">MRR bruto</th><th class="num">MRR líquido</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Agosto <span class="footnote">— montagem e piloto</span></td><td class="num">16</td><td class="num">17</td><td class="num">R$ 4.593</td><td class="num">R$ 4.480</td></tr>
+            <tr><td>Setembro <span class="footnote">— regime</span></td><td class="num">50</td><td class="num">66</td><td class="num">R$ 17.538</td><td class="num">R$ 17.108</td></tr>
+            <tr><td>Outubro <span class="footnote">— indicação</span></td><td class="num">40</td><td class="num">103</td><td class="num">R$ 27.201</td><td class="num">R$ 26.535</td></tr>
+            <tr><td>Novembro <span class="footnote">— retenção</span></td><td class="num">40</td><td class="num">138</td><td class="num">R$ 36.381</td><td class="num">R$ 35.490</td></tr>
+            <tr class="row-ink"><td><strong>Dezembro</strong> <span class="footnote">— plano anual</span></td><td class="num">25</td><td class="num">156</td><td class="num">R$ 41.150</td><td class="num">R$ 40.142</td></tr>
+            <tr class="tot"><td>Período</td><td class="num">171</td><td class="num">—</td><td class="num">R$ 126.863</td><td class="num">R$ 123.755</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="scroller">
+        <table>
+          <caption>Quem assina em 2026 mantém o preço por 12 meses. Isso cria urgência agora e reduz churn depois.</caption>
+          <thead>
+            <tr><th>Período</th><th class="num">Profissional</th><th class="num">Enterprise</th><th class="num">Usuário extra</th><th>Racional</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Ago–Dez 2026</td><td class="num">R$ 219</td><td class="num">R$ 397</td><td class="num">R$ 100</td><td>Preço de fundadora, durante o Beta</td></tr>
+            <tr class="row-ink"><td>Jan 2027</td><td class="num">R$ 249</td><td class="num">R$ 449</td><td class="num">R$ 110</td><td>+13%, fim do Beta e produto validado</td></tr>
+            <tr><td>Jul 2027</td><td class="num">R$ 279</td><td class="num">R$ 499</td><td class="num">R$ 120</td><td>+12%, reajuste semestral previsto em contrato</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="scroller">
+        <table>
+          <caption>A variável é a taxa de fechamento do diagnóstico — as 30 conversas semanais são as mesmas nos três cenários.</caption>
+          <thead>
+            <tr><th>Cenário</th><th class="num">Conversão</th><th class="num">Novas</th><th class="num">MRR líquido dez</th><th class="num">ARR de saída</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Conservador</td><td class="num">15%</td><td class="num">78</td><td class="num">R$ 18.443</td><td class="num">R$ 227 mil</td></tr>
+            <tr class="row-ink"><td><strong>Plano</strong></td><td class="num">33%</td><td class="num">171</td><td class="num">R$ 40.142</td><td class="num">R$ 494 mil</td></tr>
+            <tr><td>Agressivo</td><td class="num">40%</td><td class="num">205</td><td class="num">R$ 48.070</td><td class="num">R$ 591 mil</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ PREMIUM ════ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Proposta a definir</p>
+      <h2>Serviço Premium com consultor</h2>
+    </div>
+
+    <div class="stack stack-4">
+      <p class="prose">Aqui deixo a proposta, porque ainda não existe desenho fechado. A ideia é vender <strong>acompanhamento humano em cima do software</strong>, para a cliente que não quer aprender a usar — quer que alguém olhe o financeiro dela e diga o que fazer.</p>
+
+      <div class="scroller">
+        <table>
+          <caption>Proposta para validação. O preço precisa cobrir de 3 a 4 horas de consultor por cliente por mês.</caption>
+          <thead>
+            <tr><th>Item</th><th>Desenho proposto</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>O que a cliente recebe</strong></td><td>Uma sessão de 60 min por mês com consultor, olhando os números dela dentro do sistema; relatório mensal com diagnóstico e 3 ações prioritárias; canal direto com o consultor no WhatsApp entre as sessões.</td></tr>
+            <tr><td><strong>Tempo de consultor</strong></td><td>1 h de sessão + 2 h de preparo e relatório + 1 h de canal aberto = <strong>4 h por cliente/mês</strong></td></tr>
+            <tr><td><strong>Custo</strong></td><td>4 h a R$ 150/h = <strong>R$ 600</strong>, mais o custo do Enterprise (R$ 95) = R$ 695</td></tr>
+            <tr><td><strong>Preço sugerido</strong></td><td><strong>R$ 1.490/mês</strong> — Enterprise incluso. Margem de 53%.</td></tr>
+            <tr><td><strong>Capacidade</strong></td><td>Um consultor atende <strong>15 clientes</strong> (60 h/mês). Este é o teto, e é o que diferencia isso de software.</td></tr>
+            <tr class="row-ink"><td><strong>Meta até dezembro</strong></td><td>10 clientes = <strong>R$ 14.900 de MRR adicional</strong>, com 1 consultor. Não está na projeção acima.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout prose">
+        <h4>Três decisões que precisam de você</h4>
+        <ul class="clean" style="margin-top:var(--s2)">
+          <li><strong>Quem é o consultor.</strong> Se for você, o teto de 15 clientes compete com o seu tempo de CEO. Se for contratado, precisa de treino no sistema e no método antes de outubro.</li>
+          <li><strong>Margem menor é aceitável?</strong> 53% contra 76% do Enterprise puro. Em troca, o ticket triplica e a barreira de saída fica muito maior — cliente cancela software, cancela consultor com muito mais dificuldade.</li>
+          <li><strong>Vender para quem.</strong> Recomendo apenas os 160 do Leadership Club: é o perfil que já paga por acompanhamento e entende o valor de uma hora de consultoria.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ OPERAÇÃO ════ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">O que sustenta a venda</p>
+      <h2>Suporte e operação</h2>
+    </div>
+
+    <div class="stack stack-4">
+      <div class="cards">
+        <div class="card">
+          <h4>Número de suporte — solicitar agora</h4>
+          <p style="margin-top:var(--s2)">Chip <strong>novo e dedicado</strong>, nunca reaproveitado do comercial. Ele identifica o sistema, não uma pessoa.</p>
+          <p class="field" style="margin-top:var(--s2)"><b>Prazo:</b> solicitar nesta semana, no ar até 25/08.</p>
+        </div>
+        <div class="card">
+          <h4>Atendimento em camadas</h4>
+          <p style="margin-top:var(--s2)">IA responde 24/7 as dúvidas mapeadas; humano assume o que a IA não resolve, em até 4 h úteis; das 9h às 18h há alguém de plantão.</p>
+        </div>
+        <div class="card">
+          <h4>Vídeos e onboarding</h4>
+          <p style="margin-top:var(--s2)">8 vídeos de até 3 min em canal próprio da DuoFuturo, um por passo. Documento de onboarding disparado automaticamente na confirmação do pagamento.</p>
+        </div>
+        <div class="card">
+          <h4>Backup: 5 GB por empresa</h4>
+          <p style="margin-top:var(--s2)">Teto por conta. Hoje a maior cliente real usa <strong>12 MB</strong> — folga de 400 vezes. Vira argumento de segurança na venda, não limitação.</p>
+        </div>
+      </div>
+
+      <div class="callout callout-risk prose">
+        <h4>Duas travas técnicas antes de escalar</h4>
+        <ul class="clean" style="margin-top:var(--s2)">
+          <li><strong>Confirmar entrega de mensagem.</strong> Hoje o sistema grava "enviada" a partir de um identificador local, sem confirmação do WhatsApp. Um número restrito segue "enviando" e queimando follow-up em silêncio — aconteceu esta semana com um chip comercial. Sem isso, a meta de 30 conversas não é auditável.</li>
+          <li><strong>Monitorar o teto de 5 GB.</strong> Se as 156 empresas de dezembro usassem o limite cheio, seriam 780 GB contra 144 GB livres no disco. O teto é seguro porque ninguém chega perto, não porque cabe — precisa de alerta por conta.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ FAQ ════ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Persona: mulher, 40 anos ou mais, empreendedora</p>
+      <h2>Perguntas que ela realmente faz</h2>
+    </div>
+
+    <div class="stack stack-3">
+      <p class="prose">A objeção dessa persona quase nunca é preço — é <strong>medo de não dar conta da tecnologia</strong> e de perder o que já tem anotado. O FAQ do site e o roteiro da vendedora devem responder isso antes de falar de recurso. Texto curto, sem palavra em inglês, resposta primeiro e explicação depois.</p>
+
+      <div class="faq">
+        <details><summary>Preciso entender de computador para usar?</summary>
+          <div class="ans">Não. Se você usa WhatsApp, você usa o sistema. As telas são as mesmas do começo ao fim, e cada passo tem um vídeo de 3 minutos mostrando exatamente onde clicar.</div></details>
+        <details><summary>E se eu perder tudo o que cadastrei?</summary>
+          <div class="ans">Não perde. Seus dados ficam guardados com cópia de segurança automática, com espaço de 5 GB por empresa — muito mais do que qualquer cliente nossa usa hoje. Não depende do seu computador nem do seu celular.</div></details>
+        <details><summary>Funciona no celular?</summary>
+          <div class="ans">Sim, funciona no celular, no tablet e no computador, sem instalar nada. É só abrir o site e entrar.</div></details>
+        <details><summary>Vou ter que digitar tudo de novo?</summary>
+          <div class="ans">Não. A gente importa sua lista de clientes de uma planilha, e o sistema pode buscar suas movimentações direto do banco, sem você lançar uma por uma.</div></details>
+        <details><summary>E se eu não gostar?</summary>
+          <div class="ans">Você tem 7 dias para testar sem pagar nada. Se não fizer sentido, a gente cancela para você — sem multa e sem precisar ligar para ninguém.</div></details>
+        <details><summary>Quem me ajuda quando eu travar?</summary>
+          <div class="ans">Um número de WhatsApp só para suporte. Responde na hora, todos os dias. Quando for algo que precisa de pessoa, alguém do time assume no mesmo dia útil.</div></details>
+        <details><summary>Quanto tempo até estar funcionando?</summary>
+          <div class="ans">Uma semana. No dia da assinatura você recebe um passo a passo com 7 etapas, uma por dia, cada uma de poucos minutos.</div></details>
+        <details><summary>Posso falar com uma pessoa, não com robô?</summary>
+          <div class="ans">Pode. O atendimento começa automático para resolver rápido o que é simples, mas você pode pedir uma pessoa a qualquer momento e ela assume a conversa.</div></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ RISCOS ════ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">O que pode não acontecer</p>
+      <h2>Riscos</h2>
+    </div>
+
+    <div class="cards">
+      <div class="card card-risk">
+        <h4>Conversão não sustenta 33%</h4>
+        <p style="margin-top:var(--s2)">Derruba o ARR de R$ 494 mil para R$ 227 mil. É o risco de maior impacto.</p>
+        <p class="field" style="margin-top:var(--s2)"><b>Mitigação:</b> cadastro feito na chamada, não trial autoatendido. Recalibrar a meta em setembro com dado nosso.</p>
+      </div>
+      <div class="card card-risk">
+        <h4>Penetração de 24% na base</h4>
+        <p style="margin-top:var(--s2)">171 assinaturas em 708 clientes é alto para qualquer base — e a base não se renova como prospecção.</p>
+        <p class="field" style="margin-top:var(--s2)"><b>Mitigação:</b> abrir os outros funis de CX (1.185 clientes) a partir de novembro e ativar indicação em outubro.</p>
+      </div>
+      <div class="card card-risk">
+        <h4>Atendimento vira gargalo</h4>
+        <p style="margin-top:var(--s2)">156 clientes em Beta sem onboarding automático e suporte com IA trocam receita por churn.</p>
+        <p class="field" style="margin-top:var(--s2)"><b>Mitigação:</b> os três pré-requisitos como porteira de agosto; check-in em D+30 desde outubro.</p>
+      </div>
+      <div class="card card-risk">
+        <h4>Churn de 5% é premissa</h4>
+        <p style="margin-top:var(--s2)">Não há histórico para estimar retenção. O número é chute informado, não medição.</p>
+        <p class="field" style="margin-top:var(--s2)"><b>Mitigação:</b> primeira medição real em setembro, com a safra de agosto completando 30 dias.</p>
+      </div>
+      <div class="card card-risk">
+        <h4>Desgastar a relação do Instituto</h4>
+        <p style="margin-top:var(--s2)">Grupo de clientes virar vitrine de venda queima a comunidade e a confiança na marca.</p>
+        <p class="field" style="margin-top:var(--s2)"><b>Mitigação:</b> nos grupos só entra conteúdo; venda acontece na conversa individual.</p>
+      </div>
+      <div class="card card-risk">
+        <h4>Premium consome o tempo do CEO</h4>
+        <p style="margin-top:var(--s2)">15 clientes premium são 60 h/mês. Se o consultor for você, o plano compra receita com tempo de gestão.</p>
+        <p class="field" style="margin-top:var(--s2)"><b>Mitigação:</b> começar com 5 clientes e decidir sobre contratar consultor em outubro.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ PLACAR ════ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Acompanhamento</p>
+      <h2>Placar semanal</h2>
+    </div>
+
+    <div class="stack stack-3">
+      <div class="scroller">
+        <table>
+          <caption>Reunião de 30 min toda sexta. Os cinco números saem de relatório do CRM, sem planilha paralela.</caption>
+          <thead>
+            <tr><th>Indicador</th><th class="num">Meta</th><th>O que revela</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Conversas iniciadas</td><td class="num">30/sem</td><td>Se o ritmo nos grupos e no CRM está sendo cumprido</td></tr>
+            <tr><td>Diagnósticos realizados</td><td class="num">15/sem</td><td>Se a dor está sendo nomeada de forma que gera reunião</td></tr>
+            <tr><td>Assinaturas fechadas</td><td class="num">10/sem</td><td>Se oferta e preço estão certos</td></tr>
+            <tr><td>Onboarding concluído em 7 dias</td><td class="num">80%</td><td>Melhor previsor de churn que temos</td></tr>
+            <tr><td>Usuários extras por conta</td><td class="num">tendência</td><td>Alavanca de 84% de margem sem custo de aquisição</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="footnote prose">Dados de produção de 12/08/2026: 160 e 548 clientes nos funis de CX, preços e limites dos planos, 148 MB de memória por instância de WhatsApp, 12 MB de conteúdo na maior conta, 53.207 linhas de código e 62 migrações desde set/2025. Premissas a confirmar antes de virar meta contratada: taxas do Asaas (tabela pública), horas reais de desenvolvimento, custo/hora do consultor e churn.</p>
+    </div>
+  </section>
+
+</div>

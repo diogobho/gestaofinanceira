@@ -91,7 +91,9 @@ export interface FiltrosLead {
   ordenar?: OrdemCards
 }
 
-export type OrdemCards = 'manual' | 'recentes' | 'mensagem'
+export type OrdemCards =
+  | 'manual' | 'recentes' | 'antigos' | 'mensagem' | 'mais_recebidas'
+  | 'nome_az' | 'nome_za' | 'valor' | 'temperatura'
 
 // Leads
 export const leadsApi = {
@@ -438,11 +440,32 @@ export interface Followup {
   hora_envio?: string | null
   dias_semana: number[] | null
   created_at: string
+  updated_at?: string
+  claim_at?: string | null
+  passo_ordem?: number | null
+  mover_apos_envio?: boolean
+  /** Quem CRIOU o agendamento — não necessariamente quem envia. */
   usuario_nome?: string
   lead_nome?: string
   lead_telefone?: string
+  lead_arquivado?: boolean
+  funil_id?: number
+  estagio_id?: number
   estagio_nome?: string
   estagio_cor?: string
+  /**
+   * Quem ENVIA: o responsável do lead (fallback para o criador). É o dono do chip —
+   * a mensagem sai por este número, não pelo de quem agendou.
+   */
+  responsavel_id?: number
+  responsavel_nome?: string
+  responsavel_porta?: number | null
+  /**
+   * O passo guardado aqui não corresponde mais à cadência do estágio ATUAL do lead.
+   * Acontece quando o follow-up falhou, o lead mudou de etapa e ele foi reagendado
+   * depois: o cancelamento por mudança de estágio só alcança quem está 'pendente'.
+   */
+  cadencia_desatualizada?: boolean
 }
 
 export interface FollowupMetricas {
@@ -527,8 +550,12 @@ export const followupsApi = {
   setConfig: (data: Partial<ConfigEnvio>) =>
     api.put<ConfigEnvio>('/crm/followups/config', data).then(r => r.data),
 
-  cancelar: (id: number) =>
-    api.delete<Followup>(`/crm/followups/${id}`).then(r => r.data),
+  // `motivo` é opcional: quando a pessoa informa, fica registrado no próprio
+  // follow-up (categoria `cancelado_usuario`) e a tela consegue explicar depois
+  // por que aquele envio não aconteceu.
+  cancelar: (id: number, motivo?: string) =>
+    api.delete<Followup>(`/crm/followups/${id}`, { data: motivo ? { motivo } : undefined })
+      .then(r => r.data),
 
   reagendar: (id: number, agendado_para: string) =>
     api.patch<Followup>(`/crm/followups/${id}/reagendar`, { agendado_para }).then(r => r.data),

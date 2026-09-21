@@ -5,7 +5,7 @@ import { PrivateRoute } from './PrivateRoute'
 import { Layout } from '@/components/layout'
 import { Login } from '@/pages/auth/Login'
 import { Register } from '@/pages/auth/Register'
-import { Dashboard } from '@/pages/Dashboard'
+import { DashboardComAbas } from '@/pages/dashboard/DashboardComAbas'
 import { LandingPage } from '@/pages/landing/LandingPage'
 import { ClientsList } from '@/pages/clientes/ClientsList'
 import { RevenuesList } from '@/pages/receitas/RevenuesList'
@@ -16,8 +16,10 @@ import { UserManagement } from '@/pages/admin/UserManagement'
 import { UserProfile } from '@/pages/perfil/UserProfile'
 import { WhatsAppConfig } from '@/pages/whatsapp/WhatsAppConfig'
 import { MetaCloudApi } from '@/pages/whatsapp/MetaCloudApi'
-import { CRMDashboard, CRMComAbas } from '@/pages/crm'
+import { OnboardingPainel } from '@/pages/onboarding/OnboardingPainel'
+import { CRMDashboardComAbas, CRMComAbas } from '@/pages/crm'
 import { AgenteFinanceiro } from '@/pages/agente/AgenteFinanceiro'
+import { Suporte } from '@/pages/suporte/Suporte'
 import { EmailConfig } from '@/pages/configuracoes/EmailConfig'
 import { Planos } from '@/pages/planos/Planos'
 import { MinhaConta } from '@/pages/minha-conta/MinhaConta'
@@ -52,7 +54,7 @@ const AppRoutes: React.FC = () => {
           path="/dashboard"
           element={
             <PrivateRoute requiredPermission="dashboard">
-              <Dashboard />
+              <DashboardComAbas />
             </PrivateRoute>
           }
         />
@@ -99,7 +101,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/whatsapp"
           element={
-            <PrivateRoute requiredPermission="whatsapp">
+            <PrivateRoute requiredPermission="whatsapp" requiredCapacidade="whatsapp_qr">
               <WhatsAppConfig />
             </PrivateRoute>
           }
@@ -117,7 +119,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/crm"
           element={
-            <PrivateRoute requiredPermission="crm">
+            <PrivateRoute requiredPermission="crm" requiredCapacidade="crm">
               <CRMComAbas variante="aquisicao" />
             </PrivateRoute>
           }
@@ -125,28 +127,37 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/crm/dashboard"
           element={
-            <PrivateRoute requiredPermission="crm">
-              <CRMDashboard />
+            <PrivateRoute requiredPermission="crm" requiredCapacidade="crm">
+              <CRMDashboardComAbas />
             </PrivateRoute>
           }
         />
         <Route
           path="/crm-cx"
           element={
-            <PrivateRoute requiredPermission="crm">
+            <PrivateRoute requiredPermission="crm" requiredCapacidade="crm">
               <CRMComAbas variante="cx" />
             </PrivateRoute>
           }
         />
 
         <Route
-          path="/agente-sexta-feira"
+          path="/agente-duo"
           element={
             <PrivateRoute requiredPermission="agente">
               <AgenteFinanceiro />
             </PrivateRoute>
           }
         />
+
+        {/* Suporte é de todo mundo: sem requiredPermission — quem usa o sistema
+            precisa poder pedir ajuda, seja qual for o papel dele. */}
+        <Route path="/suporte" element={<PrivateRoute><Suporte /></PrivateRoute>} />
+
+        {/* O assistente se chamava "Sexta-feira" até 24/08/2026. O caminho antigo
+            fica de pé porque está em link salvo, e o catch-all lá embaixo mandaria
+            quem clicasse para o dashboard, sem explicação. */}
+        <Route path="/agente-sexta-feira" element={<Navigate to="/agente-duo" replace />} />
 
         {/* Configurações de e-mail — apenas admin */}
         <Route
@@ -164,6 +175,18 @@ const AppRoutes: React.FC = () => {
 
         {/* Perfil - todos os usuários autenticados */}
         <Route path="/perfil" element={<UserProfile />} />
+
+        {/* Boas-vindas de conta nova: acompanhamento e modelos. Quem barra e o
+            backend (super_admin); a pagina mostra "acesso restrito" para nao
+            piscar conteudo de outras empresas. */}
+        <Route
+          path="/onboarding"
+          element={
+            <PrivateRoute requiredRole={['super_admin']}>
+              <OnboardingPainel />
+            </PrivateRoute>
+          }
+        />
 
         {/* Rotas admin - apenas super_admin e master */}
         <Route

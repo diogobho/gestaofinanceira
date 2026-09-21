@@ -13,9 +13,9 @@ import {
   MessageSquare, MessageSquareText,
   Kanban, KanbanSquare,
   BarChart3, ChartArea,
-  Sparkles, WandSparkles,
+  Sparkles, WandSparkles, LifeBuoy, Headset,
   Moon, Sun,
-  Mail, MailOpen,
+  Mail, MailOpen, PartyPopper,
   CreditCard, Wallet,
   HeartHandshake, Handshake,
 } from 'lucide-react'
@@ -26,22 +26,27 @@ import { TourButton } from '@/components/tour/TourButton'
 // Símbolo já recortado e quadrado; o logo.png original é 1920x1080 e, em h-8,
 // renderizava o símbolo minúsculo cercado de margem vazia.
 import logo from '/icons/icon-192.png'
+import { isAdminEmpresa, rotuloTipo } from '@/utils/roles'
+import { useCapacidades } from '@/hooks/useCapacidades'
+import type { Capacidade } from '@/utils/capacidades'
 
 // Navegação com permissões associadas
 const navigationItems = [
   { name: 'Dashboard',     href: '/dashboard',         icon: LayoutDashboard, iconHover: LayoutGrid,        permissao: 'dashboard', tour: 'nav-dashboard'      },
   // `end: true` — sem isso o NavLink de /crm também fica ativo em /crm/dashboard (match por prefixo)
-  { name: 'CRM / Funil',  href: '/crm',               icon: Kanban,          iconHover: KanbanSquare,      permissao: 'crm',       tour: 'nav-crm',           end: true },
-  { name: 'CRM Dashboard', href: '/crm/dashboard',     icon: BarChart3,       iconHover: ChartArea,         permissao: 'crm',       tour: 'nav-crm-dashboard'  },
-  { name: 'CRM CX',       href: '/crm-cx',            icon: HeartHandshake,  iconHover: Handshake,         permissao: 'crm',       tour: 'nav-crm-cx'         },
+  { name: 'CRM / Funil',  href: '/crm',               icon: Kanban,          iconHover: KanbanSquare,      permissao: 'crm',       capacidade: 'crm' as const,       tour: 'nav-crm',           end: true },
+  { name: 'CRM Dashboard', href: '/crm/dashboard',     icon: BarChart3,       iconHover: ChartArea,         permissao: 'crm',       capacidade: 'crm' as const,       tour: 'nav-crm-dashboard'  },
+  { name: 'CRM CX',       href: '/crm-cx',            icon: HeartHandshake,  iconHover: Handshake,         permissao: 'crm',       capacidade: 'crm' as const,       tour: 'nav-crm-cx'         },
   { name: 'Clientes',     href: '/clientes',           icon: Users,           iconHover: UserCheck,         permissao: 'clientes',  tour: 'nav-clientes'       },
   { name: 'Receitas',     href: '/receitas',           icon: TrendingUp,      iconHover: ArrowUpCircle,     permissao: 'receitas',  tour: 'nav-receitas'       },
   { name: 'Despesas',     href: '/despesas',           icon: TrendingDown,    iconHover: ArrowDownCircle,   permissao: 'despesas',  tour: 'nav-despesas'       },
   { name: 'Parcelas',     href: '/parcelas',           icon: DollarSign,      iconHover: BadgeDollarSign,   permissao: 'parcelas',  tour: 'nav-parcelas'       },
   { name: 'Sessões',      href: '/sessoes',            icon: Calendar,        iconHover: CalendarCheck,     permissao: 'sessoes',   tour: 'nav-sessoes'        },
-  { name: 'WhatsApp',     href: '/whatsapp',           icon: MessageSquare,   iconHover: MessageSquareText, permissao: 'whatsapp',  tour: 'nav-whatsapp'       },
+  { name: 'WhatsApp',     href: '/whatsapp',           icon: MessageSquare,   iconHover: MessageSquareText, permissao: 'whatsapp',  capacidade: 'whatsapp_qr' as const,  tour: 'nav-whatsapp'       },
   // Varinha mágica (fada-madrinha): no hover ela "lança o feitiço" e viram faíscas
-  { name: 'Agente IA',     href: '/agente-sexta-feira', icon: WandSparkles,    iconHover: Sparkles,          permissao: 'agente',    tour: 'nav-agente'         },
+  { name: 'Agente IA',     href: '/agente-duo', icon: WandSparkles,    iconHover: Sparkles,          permissao: 'agente',    tour: 'nav-agente'         },
+  // Sem `permissao`: pedir ajuda não depende de papel nem de módulo liberado.
+  { name: 'Suporte',      href: '/suporte',            icon: LifeBuoy,        iconHover: Headset,                                   tour: 'nav-suporte'        },
 ]
 
 interface SidebarProps {
@@ -53,24 +58,36 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { user, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const { userPhoto } = useUserPhoto()
+  const { pode } = useCapacidades()
 
   // Verificar se é admin ou master (acesso total)
   const isAdminOrMaster = useMemo(() => {
-    return user?.nivel === 'super_admin' || user?.tipo_usuario === 'master'
+    return isAdminEmpresa(user)
   }, [user])
 
-  // Filtrar navegação baseado nas permissões
+  // Filtrar navegação: primeiro o PLANO (o que a empresa contratou), depois a
+  // PERMISSÃO (o que o master liberou para este usuário). São camadas diferentes e
+  // nenhuma substitui a outra: o master tem todas as permissões e ainda assim não
+  // enxerga um módulo que a empresa não assinou.
+  //
+  // Aqui o item SOME do menu, ao contrário do botão dentro da tela, que fica
+  // apagado explicando. É a diferença entre uma ação que a pessoa procura ("por
+  // que não posso disparar?") e uma seção inteira que ela nunca comprou: menu com
+  // metade dos itens travados é um menu que anuncia o que você não tem, toda vez.
+  // Quem quer comparar planos tem a tela de Planos, que existe para isso.
   const navigation = useMemo(() => {
-    if (isAdminOrMaster) {
-      return navigationItems
-    }
+    const doPlano = navigationItems.filter(
+      item => !('capacidade' in item) || pode(item.capacidade as Capacidade)
+    )
 
-    // Usuário comum: filtrar por permissões
-    return navigationItems.filter(item => {
+    if (isAdminOrMaster) return doPlano
+
+    // Usuário comum: filtrar também por permissões
+    return doPlano.filter(item => {
       const permissoes = user?.permissoes || {}
       return permissoes[item.permissao as keyof typeof permissoes] !== false
     })
-  }, [user, isAdminOrMaster])
+  }, [user, isAdminOrMaster, pode])
 
   // Fechar sidebar ao clicar em um link (apenas em mobile)
   const handleNavClick = () => {
@@ -94,8 +111,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   // Texto do nível do usuário
   const getUserLevelText = () => {
     if (user?.nivel === 'super_admin') return 'Administrador'
-    if (user?.tipo_usuario === 'master') return 'Master'
-    if (user?.tipo_usuario === 'comum') return 'Usuário'
+    if (user?.tipo_usuario) return rotuloTipo(user)
     return user?.nivel || user?.funcao || 'Usuário'
   }
 
@@ -226,6 +242,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               </span>
               Config. E-mail
             </NavLink>
+            {/* Boas-vindas: é da DuoFuturo, atravessa todas as empresas do banco —
+                por isso só super_admin, e não o isAdminOrMaster do bloco. */}
+            {user?.nivel === 'super_admin' && (
+              <NavLink
+                to="/onboarding"
+                onClick={handleNavClick}
+                className={({ isActive }) =>
+                  `group flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-200 shadow-[inset_3px_0_0_0_#D2B773]'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`
+                }
+              >
+                <span className="relative w-5 h-5 mr-3 flex-shrink-0">
+                  <PartyPopper className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out group-hover:opacity-0 group-hover:scale-75" />
+                  <Sparkles className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100" />
+                </span>
+                Boas-vindas
+              </NavLink>
+            )}
             <NavLink
               to="/admin"
               onClick={handleNavClick}

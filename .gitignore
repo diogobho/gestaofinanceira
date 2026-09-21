@@ -106,3 +106,8 @@ api/scripts/*.csv
 
 # NÃO ignorar frontend/public/{avatar,signature} nem src/assets: são 190 KB de
 # SVG/PNG que a aplicação carrega em tela. Sem eles o Duo e a assinatura somem.
+
+# Downloads de navegador e rascunhos parados na árvore: uma página salva de 700 KB
+# não é fonte, e o .bak é a versão anterior de um arquivo que já está versionado.
+/processo_comercial_completo*.html
+*.bak.html

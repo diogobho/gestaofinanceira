@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import swaggerUi from 'swagger-ui-express';
 import { env } from './config/env';
+import { asaasService } from './services/asaas.service';
+import { isMainInstance } from './shared/utils';
 import { swaggerSpec } from './config/swagger';
 import { errorHandler } from './middlewares/error.middleware';
 import authRoutes from './modules/auth/auth.routes';
@@ -18,15 +20,18 @@ import whatsappInstanciasRoutes from './modules/whatsapp/instancias/instancias.r
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
 import crmRoutes from './modules/crm';
 import webhookRoutes from './modules/crm/webhook/webhook.routes';
-import suporteRoutes from './modules/suporte/suporte.routes';
-import midiaRoutes from './modules/midia/midia.routes';
 import chatFinanceiroRoutes from './modules/chat-financeiro/chat-financeiro.routes';
 import configuracoesSmtpRoutes from './modules/configuracoes-smtp/configuracoes-smtp.routes';
 import assinaturasRoutes from './modules/assinaturas/assinaturas.routes';
+import suporteRoutes from './modules/suporte/suporte.routes';
+import midiaRoutes from './modules/midia/midia.routes';
 import automacoesRoutes from './modules/automacoes/automacoes.routes';
 import pluggyRoutes from './modules/pluggy/pluggy.routes';
 import pluggyWebhookRoutes from './modules/pluggy/pluggy.webhook.routes';
+import contaazulRoutes from './modules/contaazul/contaazul.routes';
+import contaazulDashboardRoutes from './modules/contaazul/contaazul.dashboard.routes';
 import metaWhatsappRoutes from './modules/whatsapp/meta/meta-whatsapp.routes';
+import onboardingRoutes from './modules/onboarding/onboarding.routes';
 import { iniciarWorkerPluggy } from './modules/pluggy/pluggy.queue';
 import { checkSubscription } from './middlewares/subscription.middleware';
 import path from 'path';
@@ -42,9 +47,13 @@ import './jobs/disparo-scheduler';
 
 // Lembretes de reunião agendada (-24h/-1h + no-show)
 import './jobs/reuniao-lembretes-scheduler';
-
-// Limpeza de anexos órfãos do suporte (diário, 04:00)
 import './jobs/suporte-limpeza-scheduler';
+
+// Cota de mídia do WhatsApp por empresa (1 GB, o arquivo mais antigo sai primeiro)
+import './jobs/midia-retencao-scheduler';
+
+// Aviso de fim do teste grátis (1 dia antes, 09:00 de Brasília)
+import './jobs/trial-aviso-scheduler';
 
 // Agente IA — worker BullMQ
 import { iniciarWorkerAgente } from './modules/agente-ia/agente-ia.queue';
@@ -76,7 +85,14 @@ app.use(cors((req, callback) => {
   }
   callback(null, { origin: env.CORS_ORIGINS, credentials: true });
 }));
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({
+  limit: '50mb',
+  // O webhook da Meta é validado pela assinatura X-Hub-Signature-256, calculada sobre
+  // o corpo CRU — o JSON re-serializado não bate byte a byte. Guardado só nessa rota.
+  verify: (req: any, _res, buf) => {
+    if (req.originalUrl?.includes('/whatsapp/meta/webhook')) req.rawBody = buf;
+  },
+}));
 app.use(checkSubscription);
 
 // Mídia de conversa (áudio/imagem/vídeo/PDF do WhatsApp) — SEMPRE autenticada.
@@ -108,6 +124,16 @@ app.use('/api/gestao/crm', webhookRoutes);
 // Webhook Pluggy Open Finance - rota pública (valida X-Pluggy-Secret)
 app.use('/api/pluggy', pluggyWebhookRoutes);
 app.use('/api/gestao/pluggy', pluggyWebhookRoutes);
+
+// Conta Azul — OAuth2. O /callback é público (chega o navegador vindo do Conta Azul,
+// sem header); a proteção é o `state` de uso único.
+app.use('/api/contaazul', contaazulRoutes);
+app.use('/api/gestao/contaazul', contaazulRoutes);
+
+// Dashboard financeiro do Conta Azul — exige JWT e é restrito à Panteras/super_admin.
+// Vem depois do bloco OAuth porque só monta em /dashboard, sem conflitar com ele.
+app.use('/api/contaazul/dashboard', contaazulDashboardRoutes);
+app.use('/api/gestao/contaazul/dashboard', contaazulDashboardRoutes);
 
 // Webhook Meta WhatsApp Cloud API - rota pública (validada via verify_token)
 // /api/whatsapp/meta = path que o Nginx passa (strip de /api/gestao/ → /api/)
@@ -146,15 +172,17 @@ app.use('/api/gestao/crm', crmRoutes);
 app.use('/api', chatFinanceiroRoutes);
 app.use('/api/gestao', chatFinanceiroRoutes);
 app.use('/api/configuracoes-smtp', configuracoesSmtpRoutes);
-app.use('/api', suporteRoutes);
-app.use('/api/gestao', suporteRoutes);
 app.use('/api/gestao/configuracoes-smtp', configuracoesSmtpRoutes);
 app.use('/api', assinaturasRoutes);
 app.use('/api/gestao', assinaturasRoutes);
+app.use('/api', suporteRoutes);
+app.use('/api/gestao', suporteRoutes);
 app.use('/api/automacoes', automacoesRoutes);
 app.use('/api/gestao/automacoes', automacoesRoutes);
 app.use('/api/pluggy', pluggyRoutes);
 app.use('/api/gestao/pluggy', pluggyRoutes);
+app.use('/api/onboarding', onboardingRoutes);
+app.use('/api/gestao/onboarding', onboardingRoutes);
 
 app.use(errorHandler);
 
@@ -164,4 +192,17 @@ app.listen(env.PORT, '0.0.0.0', () => {
   console.log(`📚 Documentação Swagger: http://localhost:${env.PORT}/api/docs`);
   iniciarWorkerAgente();
   iniciarWorkerPluggy();
+  conferirContaAsaas();
 });
+
+/**
+ * Diz nos logs, a cada boot, qual conta do Asaas a chave em uso representa.
+ * A trava de verdade está em asaasService.garantirContaCorreta(), no momento de
+ * assinar; isto aqui só evita descobrir a chave errada pela primeira venda.
+ */
+function conferirContaAsaas() {
+  if (!isMainInstance || !process.env.ASAAS_API_KEY) return;
+  asaasService.getConta()
+    .then(conta => console.log(`💳 Asaas: cobranças na conta ${conta.nome} (CNPJ ${conta.cnpj})`))
+    .catch(err => console.error('💳 Asaas: não deu para identificar a conta da chave —', err?.message || err));
+}

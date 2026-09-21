@@ -106,6 +106,7 @@
 
   .nota { font-size: .76rem; color: var(--muted); margin-top: 9px; padding-left: 2px; }
   .nota b { color: var(--navy); }
+  .nota a { color: var(--gold-2); text-decoration: underline; text-underline-offset: 2px; }
 
   /* ── CONECTORES ── */
   .conector { display: flex; flex-direction: column; align-items: center; padding: 4px 0; }
@@ -186,6 +187,33 @@
     max-height: 460px; overflow-y: auto;
   }
 
+  /* ── SPIN detalhado (fases + perguntas de exemplo) ── */
+  .spin { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin: 4px 0 12px; }
+  .spin-fase { background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--navy); border-radius: 10px; padding: 10px 12px; }
+  .spin-fase h4 { font-size: .8rem; color: var(--navy); display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+  .spin-letra { width: 22px; height: 22px; border-radius: 6px; background: var(--navy); color: var(--gold); display: flex; align-items: center; justify-content: center; font-size: .78rem; font-weight: 700; flex-shrink: 0; }
+  .spin-fase ul { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+  .spin-fase li { font-size: .76rem; color: var(--text); padding-left: 14px; position: relative; }
+  .spin-fase li::before { content: '›'; position: absolute; left: 3px; color: var(--gold-2); font-weight: 700; }
+  .spin-fase .fecho { font-size: .73rem; color: var(--muted); margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 6px; }
+
+  /* ── Checklist (o que registrar nas anotações do card) ── */
+  .check { list-style: none; display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+  .check li { font-size: .8rem; background: var(--bg); border-radius: 8px; border-left: 3px solid var(--blue); padding: 7px 10px; }
+  .check li b { color: var(--navy); }
+  .check li small { display: block; color: var(--muted); }
+
+  /* ── Tabela de decisão ── */
+  .tab-wrap { overflow-x: auto; margin: 6px 0 2px; }
+  table.decisao { width: 100%; border-collapse: collapse; font-size: .78rem; background: var(--card); min-width: 520px; }
+  table.decisao th, table.decisao td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+  table.decisao th { background: #eef2fb; color: var(--navy); font-size: .74rem; }
+  table.decisao td b { color: var(--navy); }
+
+  /* Exemplo prático (caixa neutra) */
+  .exemplo { background: #eef2fb; border: 1px solid #cfd9ef; border-left: 4px solid var(--blue); border-radius: 10px; padding: 10px 12px; font-size: .78rem; color: #33415a; margin: 8px 0; }
+  .exemplo b { color: var(--navy); }
+
   @media print {
     body { background: #fff; }
     .estagio, .mec, .desvio-card { box-shadow: none; }
@@ -199,7 +227,7 @@
 <header>
   <h1>Fluxo de Atendimento — <span>Escola Empreendedorismo</span></h1>
   <p>Como um lead percorre o funil no CRM: automações, cadências de follow-up e onde o Agente de IA atua. Do primeiro contato ao fechamento.</p>
-  <div class="stamp">Configuração vigente em 06/08/2026 · funil #24 · empresa Panteras</div>
+  <div class="stamp">Revisão de 10/08/2026 · funil #24 · empresa Panteras</div>
 </header>
 
 <div class="wrap">
@@ -678,6 +706,17 @@ Para marcar a reunião, ofereça dois horários prontos. Não deixe em aberto.</
     <b>Estado em 06/08/2026:</b> o agente de IA está <b>desligado no nível da empresa</b> (chave geral em Configurações → Agente IA). Enquanto estiver assim, o robô não responde mensagens recebidas e os follow-ups do tipo 🤖 <b>não são perdidos</b> — ficam pendentes e são reagendados de 60 em 60 minutos até religarem a chave. Os follow-ups de mensagem fixa (📝) e os lembretes de reunião continuam saindo normalmente.
   </div>
 
+  <div class="aviso" style="border-left-color:#3b82f6; background:#eef4ff; border-color:#cfd9ef; color:#1e3a6b;">
+    <b>Revisão de 10/08/2026 — o que ainda precisa ser configurado no CRM.</b> Até 06/08 este documento espelhava exatamente a configuração dos estágios no banco. Os pontos abaixo são a <b>nova regra do processo</b> e ainda precisam ser aplicados na tela de cadência/agente:
+    <ul style="margin:6px 0 0 18px; list-style: disc;">
+      <li><b>Objeção · D+10</b> — trocar o texto do encerramento pelo padrão das outras etapas e mudar o destino de <b>Perda para Nutrição</b>.</li>
+      <li><b>Reunião Realizada</b> — atualizar o briefing do passo pós-reunião para exigir a leitura dos 5 campos das anotações.</li>
+      <li><b>Fechamento</b> — atualizar o briefing do 1º passo (recapitulação + confirmação do combinado) e adotar a <b>tarefa de FUP em "combinado + 10 min"</b>, criada por lead.</li>
+      <li><b>Perda</b> — criar a régua de retorno (D+30, D+60, D+90); hoje o estágio não tem cadência nenhuma.</li>
+      <li><b>Nutrição</b> — substituir o briefing pelo novo, com os 6 ângulos distintos e a regra anti-repetição.</li>
+    </ul>
+  </div>
+
   <h2 class="secao">O funil, passo a passo</h2>
   <p class="secao-sub">Legenda dos passos: <span class="badge b-robo">🤖 IA</span> mensagem gerada pela IA a partir do <span style="background:#eef2fb;border:1px dashed #b8c4e0;border-radius:4px;padding:0 4px;">briefing</span> mostrado &nbsp;·&nbsp; <span class="badge b-manual">📝 Fixa</span> mensagem pré-escrita, mostrada no <span style="background:#dcf8c6;border-radius:4px;padding:0 4px;color:#14310f;">balão verde</span> exatamente como sai &nbsp;·&nbsp; "D+2" = dias após entrar no estágio (salvo quando marcado "após o anterior") &nbsp;·&nbsp; horário de Brasília, 09h, seg–sex</p>
 
@@ -736,6 +775,7 @@ Entendi que agora talvez não seja o melhor momento para conversarmos. Vou segui
         </ul>
         <p class="nota"><b>Cadência 100% de mensagem fixa</b> — nenhum dos três toques passa pela IA. A IA só entra aqui se o lead responder (agente reativo).</p>
         <p class="nota"><b>Qualquer resposta</b> (mensagem, emoji, áudio) já conta — o lead avança sozinho para <b>Qualificação</b>.</p>
+        <p class="nota"><b>Se o lead disser que não quer / não tem interesse:</b> não insista e não tente contornar — aqui ainda não houve levantamento nenhum, então não existe objeção para trabalhar. Agradeça, ofereça continuar mandando conteúdo (<em>"tranquilo! posso te mandar uns conteúdos de vez em quando, sem compromisso?"</em>) e <b>mova para Nutrição</b>. Ver a tabela <a href="#sem-interesse">Quando o lead diz que não tem interesse</a>.</p>
       </div>
     </div>
 
@@ -760,7 +800,51 @@ Entendi que agora talvez não seja o melhor momento para conversarmos. Vou segui
         <div class="objetivo">Entender quem é o lead, dores, objetivos e urgência (roteiro SPIN) — e levar ao agendamento da reunião.</div>
       </div>
       <div class="estagio-body">
-        <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>Enquanto o lead responde:</b> a conversa flui com o vendedor e/ou o agente de IA, seguindo o SPIN — <b>S</b>ituação ("me fala do seu negócio hoje"), <b>P</b>roblema ("o que você já tentou que não funcionou?"), <b>I</b>mplicação ("se continuar assim, como estará daqui a 6 meses?") e <b>N</b>ecessidade (encaminhar para a apresentação ou para a reunião). Uma pergunta por vez, sempre aberta.</p>
+        <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>Enquanto o lead responde:</b> a conversa flui com o vendedor e/ou o agente de IA, seguindo o SPIN. <b>Uma pergunta por vez, sempre aberta</b> — nunca duas perguntas na mesma mensagem e nunca opções fechadas para o lead escolher. Só passe para a fase seguinte quando a atual estiver realmente respondida.</p>
+
+        <div class="spin">
+          <div class="spin-fase">
+            <h4><span class="spin-letra">S</span> Situação — onde ele está hoje</h4>
+            <ul>
+              <li>me fala um pouco mais sobre você e o seu negócio?</li>
+              <li>qual é a sua área de atuação hoje?</li>
+              <li>como funciona o seu negócio no dia a dia?</li>
+              <li>quais são os produtos ou serviços que você vende?</li>
+            </ul>
+            <p class="fecho">Fecha a fase entendendo para onde ele quer ir: <em>"me conta seus objetivos e desafios"</em> / <em>"como vc está pensando em chegar nos seus objetivos?"</em></p>
+          </div>
+          <div class="spin-fase">
+            <h4><span class="spin-letra">P</span> Problema — o que está travando</h4>
+            <ul>
+              <li>o que vc já tentou que não funcionou?</li>
+              <li>e o que tem sido mais difícil aí?</li>
+              <li>o que te impede hoje de chegar nesse objetivo?</li>
+              <li>em que parte do processo vc sente que trava mais?</li>
+            </ul>
+            <p class="fecho">Acolha o que ele trouxer com uma frase curta — mas não entre na vitimização junto. Reconheceu, segue para a implicação.</p>
+          </div>
+          <div class="spin-fase">
+            <h4><span class="spin-letra">I</span> Implicação — o que isso custa</h4>
+            <ul>
+              <li>como isso tem impactado o seu negócio hoje?</li>
+              <li>e o que não ter isso resolvido tá impactando na sua vida?</li>
+              <li>se isso continuar assim, como estará daqui a 6 meses?</li>
+              <li>quanto vc acredita que deixa de faturar por mês por causa disso?</li>
+            </ul>
+            <p class="fecho">É aqui que nasce a urgência real — do custo de continuar parado, nunca da oferta.</p>
+          </div>
+          <div class="spin-fase">
+            <h4><span class="spin-letra">N</span> Necessidade — ele quer resolver agora?</h4>
+            <ul>
+              <li>pelo que vc me trouxe, [resumo com as palavras dele] — isso é algo que vc quer resolver agora?</li>
+              <li>o que mudaria pra vc se isso estivesse resolvido nos próximos meses?</li>
+              <li>resolver isso é prioridade pra vc esse ano ou fica pra depois?</li>
+              <li>faz sentido a gente conversar sobre isso com mais profundidade numa reunião rápida?</li>
+            </ul>
+            <p class="fecho">Com o "sim": perfil <b>Escola</b> → apresentação; perfil <b>Club</b> → reunião, com dois horários prontos ("pode ser terça 16h ou quarta 15h?").</p>
+          </div>
+        </div>
+
         <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>Critério para apresentar (perfil Escola):</b> o lead precisa ter <b>clareza dos próprios objetivos</b> e estar em <b>nível de consciência 3</b> (sabe que tem o problema e quer resolvê-lo). Faltando um dos dois, a IA não apresenta — continua o SPIN e leva para reunião, como no perfil Club.</p>
         <ul class="passos">
           <li class="robo"><span class="quando">D+2 · 09h<br><small style="font-weight:400">da entrada</small></span><span class="oque">🤖 Retomada da qualificação
@@ -773,6 +857,9 @@ Entendi que agora talvez não seja o melhor momento para conversarmos. Vou segui
 Entendi que agora talvez não seja o melhor momento para conversarmos. Vou seguir mandando conteúdos e novidades úteis de vez em quando. Quando fizer sentido conversar é só me chamar 😃</span></span></li>
         </ul>
         <p class="nota"><b>Agendou reunião →</b> o lead vai para <b>Reunião agendada</b> (o próprio agente move ao confirmar o horário, e registra a reunião como tarefa com data e hora).</p>
+        <p class="nota"><b>Se o lead disser que não quer / não tem interesse, o tratamento depende de quanto do SPIN já foi feito:</b><br>
+        · <b>SPIN ainda não desenvolvido</b> (ele respondeu pouco ou nada sobre situação/problema): não force. Ofereça mandar conteúdos e <b>mova para Nutrição</b>.<br>
+        · <b>SPIN já desenvolvido e ele recusa a reunião</b>: isso <b>não é falta de interesse, é objeção</b> — trabalhe conforme o levantamento de necessidade. Isole (<em>"se [motivo] não fosse problema, vc conversaria comigo?"</em>) e devolva usando o objetivo, a dor e o impacto que <b>ele mesmo nomeou</b>. Só vá para Nutrição se ele reafirmar depois disso.</p>
       </div>
     </div>
 
@@ -835,9 +922,17 @@ Entendi que agora talvez não seja o melhor momento para conversarmos. Vou segui
         <div class="objetivo">Aproveitar o calor da reunião para encaminhar a decisão.</div>
       </div>
       <div class="estagio-body">
+        <p class="nota" style="margin-top:0; margin-bottom:6px;"><b>👤 Obrigatório: registrar as anotações do card logo após a reunião.</b> É o que a IA lê para escrever tudo o que vem depois — pós-reunião, fechamento, objeção e reativação. Anotação vazia = mensagem genérica.</p>
+        <ul class="check">
+          <li><b>1. Quem é o lead</b><small>Nome, o que faz, tamanho/momento do negócio e perfil identificado (Escola CPF ou Club CNPJ).</small></li>
+          <li><b>2. Objetivo específico</b><small>O que ele quer alcançar, nas palavras dele e com número e prazo sempre que possível ("sair de 8k e chegar a 20k/mês até dezembro").</small></li>
+          <li><b>3. Desafio</b><small>O que está travando hoje e o que ele já tentou que não funcionou. É esta frase que volta em toda reconexão.</small></li>
+          <li><b>4. Objeção (se tiver)</b><small>Qual é, se foi isolada e se é a real: dinheiro, tempo, utilidade ("não é pra mim") ou autoridade (não é o decisor).</small></li>
+          <li><b>5. Próximos passos</b><small>O que ficou combinado, <b>com data e hora</b> ("fecha até as 18h de hoje", "responde na segunda", "vai falar com o sócio até quarta") e quem faz o quê. É esta linha que comanda os retornos do Fechamento.</small></li>
+        </ul>
         <ul class="passos">
           <li class="robo"><span class="quando">+1 hora<br><small style="font-weight:400">após entrar</small></span><span class="oque">🤖 Pós-reunião
-<span class="instr">A reunião acabou de acontecer. Faça uma recapitulação calorosa do que foi conversado e reforce o próximo passo combinado (use histórico e anotações). Coloque-se à disposição para dúvidas. Não invente valores nem próximos passos que não foram combinados. Use [PrimeiroNome], máx. 5 linhas.</span></span></li>
+<span class="instr">A reunião acabou de acontecer. LEIA AS ANOTAÇÕES DO CARD antes de escrever: quem é o lead, o objetivo específico, o desafio, a objeção (se houver) e os próximos passos combinados. Faça uma recapitulação calorosa amarrando o objetivo e o desafio que ELE nomeou, e reforce o próximo passo combinado com a data e a hora que estão nas anotações. Coloque-se à disposição para dúvidas. Não invente valores nem próximos passos que não foram combinados. Use [PrimeiroNome], máx. 5 linhas.</span></span></li>
         </ul>
         <p class="nota">Daqui o lead segue para <b>Fechamento</b> (quer avançar) ou <b>Objeção</b> (travou em preço, tempo, prioridade…) — nos dois casos, movido pelo comercial ou pelo próprio agente.</p>
       </div>
@@ -876,11 +971,13 @@ Entendi que agora talvez não seja o melhor momento para conversarmos. Vou segui
 <span class="instr">Pergunte como está o momento dele em relação ao ponto que foi conversado — cite o ponto real que ele trouxe — e se mudou alguma coisa desde a última conversa. Sem cobrança. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Não invente preços, links ou datas. Máx. 4 linhas.</span></span></li>
           <li class="robo"><span class="quando">D+7 · 09h</span><span class="oque">🤖 Reconexão com a dor/objetivo
 <span class="instr">Reconecte à dor e ao objetivo originais que ele te contou ("na nossa conversa você me disse que queria [objetivo] e que o maior desafio era [dor]") e pergunte se isso ainda é prioridade, para você ajustar os retornos. Use anotações e histórico. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Não invente preços, links ou datas. Máx. 4 linhas.</span></span></li>
-          <li class="manual"><span class="quando">D+10 · 09h</span><span class="oque">📝 Encerramento respeitoso <small>Última tentativa. É o passo que leva o lead para a Perda.</small>
-<span class="msg-fixa">Oi [<span class="var">PrimeiroNome</span>], tudo bem? Não quero ocupar o seu espaço sem que faça sentido.
+          <li class="manual"><span class="quando">D+10 · 09h</span><span class="oque">📝 Encerramento do ciclo ativo <small>Mesmo encerramento das demais etapas: tom de transição, nunca de rompimento. É o passo que leva o lead para a <b>Nutrição</b>.</small>
+<span class="msg-fixa">Oi [<span class="var">PrimeiroNome</span>], tudo bom?
 
-Se o momento mudar, é só me chamar, a porta fica aberta. Foi um prazer conversar com você!</span></span></li>
+Entendi que agora talvez não seja o melhor momento para conversarmos. Vou seguir mandando conteúdos e novidades úteis de vez em quando. Quando fizer sentido conversar é só me chamar 😃</span></span></li>
         </ul>
+        <p class="nota"><b>Encerramento padronizado:</b> antes esta etapa despedia o lead e mandava para a Perda. Agora ela usa o <b>mesmo texto e o mesmo destino das outras etapas</b> — quem não respondeu à régua de objeção vai para a <b>Nutrição</b>, não para a Perda. Perda fica reservada a quem recusa de forma explícita e definitiva, ou a quem esgota a régua do Fechamento.</p>
+        <p class="nota"><b>Se o lead disser aqui que não tem interesse:</b> não encerre na hora — este é exatamente o estágio de argumentar. Isole a objeção e siga a régua acima (caso real → como está o momento → reconexão com dor/objetivo). O encerramento é o último passo, não o primeiro.</p>
       </div>
     </div>
 
@@ -888,7 +985,7 @@ Se o momento mudar, é só me chamar, a porta fica aberta. Foi um prazer convers
       <div class="linha"></div>
       <div class="rotulos">
         <span class="rotulo r-verde">✅ respondeu → Fechamento (automático)</span>
-        <span class="rotulo r-vermelho">🔕 fim da cadência sem resposta → Perda</span>
+        <span class="rotulo r-vermelho">🔕 fim da cadência sem resposta → Nutrição</span>
       </div>
       <div class="seta">▼</div>
     </div>
@@ -900,17 +997,28 @@ Se o momento mudar, é só me chamar, a porta fica aberta. Foi um prazer convers
         <div class="nome">💰 Fechamento</div>
         <div class="badges">
           <span class="badge b-robo">🤖 IA reativa</span>
-          <span class="badge b-cadencia">📨 Cadência · 5 toques</span>
+          <span class="badge b-cadencia">📨 Cadência · 6 toques</span>
+          <span class="badge b-lembrete">🗒️ Guiada pelas anotações</span>
         </div>
-        <div class="objetivo">Conduzir à decisão: proposta, condições e o "sim".</div>
+        <div class="objetivo">Conduzir à decisão: proposta, condições e o "sim" — no ritmo que <b>o lead combinou</b>, não no ritmo da régua.</div>
       </div>
       <div class="estagio-body">
-        <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>Regra que atravessa a etapa inteira — sem urgência artificial:</b> a Escola é recorrente, não tem turma fechando nem vaga acabando. As cinco instruções proíbem "garanta sua vaga", "últimas vagas", "as condições valem até hoje". A urgência vem do <b>custo de continuar parado</b> e do <b>objetivo que o lead contou</b>, nunca da oferta.</p>
-        <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>As anotações do card mandam mais que a cadência:</b> se houver data de pagamento combinada, a IA respeita e não cobra antes.</p>
+        <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>Regra que atravessa a etapa inteira — sem urgência artificial:</b> a Escola é recorrente, não tem turma fechando nem vaga acabando. As instruções proíbem "garanta sua vaga", "últimas vagas", "as condições valem até hoje". A urgência vem do <b>custo de continuar parado</b> e do <b>objetivo que o lead contou</b>, nunca da oferta.</p>
+        <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>Quem manda aqui é a anotação do card, não a cadência.</b> O que o lead recebe é o que ficou registrado em <b>"próximos passos"</b> na Reunião Realizada — o combinado, com a data e a hora dele. A régua D+1 → D+7 é o <b>plano B</b>: só entra em cena quando não há combinado registrado, ou quando o combinado passou e o lead não respondeu.</p>
+        <div class="exemplo">
+          <b>Exemplo — anotação: "vai fechar até as 18h de hoje"</b><br>
+          · <b>na hora</b> → 1ª mensagem: recapitulação da reunião, amarrando o objetivo e o desafio dele + confirmação de que fecha até as 18h.<br>
+          · <b>18h10</b> (10 min depois do horário combinado) → se o card <b>não foi movido para Ganho</b>, sai o FUP perguntando se conseguiu concluir e se ficou algo travando.<br>
+          · <b>respondeu / pagou</b> → mover para <b>Ganho</b>. <b>Silêncio</b> → entra a régua D+1 → D+7.<br>
+          A mesma lógica vale para qualquer combinado: "responde na segunda" → FUP segunda + 10 min; "fala com o sócio até quarta" → FUP quarta + 10 min.
+        </div>
         <ul class="passos">
-          <li class="robo"><span class="quando">na hora<br><small style="font-weight:400">0 min</small></span><span class="oque">🤖 Encaminhamento do fechamento
-<span class="instr">A reunião foi boa e o lead demonstrou interesse em fechar. Recapitule o que foi alinhado (a dor que será resolvida, o resultado esperado e o próximo passo) usando o histórico, e encaminhe para o pagamento. NUNCA use escassez, prazo ou vaga ("garanta sua vaga", "as condições valem até hoje", "últimas vagas"): a Escola é recorrente e não tem turma fechando. A urgência vem do custo de continuar parado e do objetivo que o lead te contou, nunca da oferta. ANTES DE ESCREVER, LEIA AS ANOTAÇÕES DO CARD: elas mandam mais que esta cadência. Se houver data de pagamento combinada, respeite-a e não cobre antes. Se as anotações indicarem outro acordo com o lead, siga o acordo. Não invente links, valores ou formas de pagamento — se precisar do link, diga que envia na sequência. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Máx. 4 linhas.</span></span></li>
-          <li class="robo"><span class="quando">D+1 · 09h</span><span class="oque">🤖 Amarrar a decisão
+          <li class="robo"><span class="quando">na hora<br><small style="font-weight:400">0 min</small></span><span class="oque">🤖 Recapitulação da reunião + o combinado
+<span class="instr">A reunião foi boa e o lead demonstrou interesse em fechar. ANTES DE ESCREVER, LEIA AS ANOTAÇÕES DO CARD: quem é o lead, objetivo específico, desafio, objeção (se houver) e próximos passos. Faça a recapitulação da reunião amarrando o objetivo e o desafio que ELE nomeou e o resultado esperado, e confirme em voz alta o que ficou combinado, com a data e a hora que estão nas anotações ("ficou combinado que vc fecha até as 18h de hoje, é isso?"). NUNCA use escassez, prazo ou vaga ("garanta sua vaga", "as condições valem até hoje", "últimas vagas"): a Escola é recorrente e não tem turma fechando. A urgência vem do custo de continuar parado e do objetivo que o lead te contou, nunca da oferta. Se houver data de pagamento combinada, respeite-a e não cobre antes. Se as anotações indicarem outro acordo, siga o acordo. Não invente links, valores ou formas de pagamento — se precisar do link, diga que envia na sequência. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Máx. 4 linhas.</span></span></li>
+          <li class="robo"><span class="quando">combinado<br>+ 10 min<br><small style="font-weight:400">só se não foi movido</small></span><span class="oque">🤖 FUP do combinado
+<span class="instr">Passaram 10 minutos do horário que o lead combinou nas anotações do card e ele não concluiu (o card não foi movido para Ganho). Cobre de forma leve e sem peso: pergunte se conseguiu concluir e, se não, o que ficou travando. Uma pergunta só. Não repita a recapitulação inteira — referencie o combinado em uma linha ("vc tinha me dito que fechava até as 18h"). NUNCA use escassez, prazo ou vaga. Não invente links, valores ou formas de pagamento. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Máx. 3 linhas.</span>
+<small style="display:block;margin-top:6px;color:var(--muted)">⚠️ Agendado <b>por lead</b>: a cadência não lê a anotação sozinha. Ao registrar o combinado, o comercial cria a <b>tarefa no card</b> com o horário combinado + 10 min. Se o lead for movido para Ganho antes, a tarefa é cancelada.</small></span></li>
+          <li class="robo"><span class="quando">D+1 · 09h<br><small style="font-weight:400">plano B</small></span><span class="oque">🤖 Amarrar a decisão
 <span class="instr">Pergunte se ele conseguiu ver o que foi enviado e ajude a amarrar a decisão, gerando desejo pelo RESULTADO que ele disse querer. A urgência vem do objetivo dele e do custo de seguir parado. NUNCA use escassez, prazo ou vaga. Respeite o que estiver combinado em anotações. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Não invente preços, links ou datas. Máx. 4 linhas.</span></span></li>
           <li class="robo"><span class="quando">D+3 · 09h</span><span class="oque">🤖 Algo em aberto?
 <span class="instr">O lead ainda não concluiu. Pergunte com leveza se algo ficou em aberto ou se há alguma insegurança para dar esse passo, e reconecte ao objetivo dele. NUNCA use escassez, prazo ou vaga. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Não invente preços, links ou datas. Máx. 4 linhas.</span></span></li>
@@ -919,6 +1027,8 @@ Se o momento mudar, é só me chamar, a porta fica aberta. Foi um prazer convers
           <li class="robo"><span class="quando">D+7 · 09h</span><span class="oque">🤖 Última mensagem do ciclo <small>Encerra com respeito e porta aberta. É o passo que leva o lead para a Perda.</small>
 <span class="instr">Última mensagem do fechamento. Encerre com respeito: entendeu que talvez não seja o momento, a porta fica aberta e você seguirá enviando conteúdos úteis. Tom acolhedor, sem culpa. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Não invente preços, links ou datas. Máx. 4 linhas.</span></span></li>
         </ul>
+        <p class="nota"><b>A régua D+1 → D+7 não atropela o combinado:</b> se a anotação diz que o lead fecha na quarta, os passos que caírem antes disso são <b>adiados</b> — a IA é instruída a respeitar a data combinada e não cobrar antes. A régua só corre solta quando o combinado passou sem resposta ou quando não há combinado registrado.</p>
+        <p class="nota"><b>Se o lead disser aqui que não tem interesse:</b> argumente conforme a etapa — isole o que mudou desde a reunião, reconecte ao objetivo e ao desafio das anotações e siga a régua. Se a recusa se confirmar, mova para <b>Objeção</b> e deixe a régua de lá trabalhar. Encerrar de imediato só quando o lead pedir explicitamente para não ser mais procurado.</p>
         <p class="nota"><b>Ordem de oferta (no playbook):</b> cartão 12x de R$ 218 primeiro; pix/boleto até 6x de R$ 387,05 só se houver objeção real; recorrência como última alternativa. Foco sempre na parcela, nunca no total — e link de pagamento só depois de sinal de compra validado.</p>
       </div>
     </div>
@@ -933,7 +1043,7 @@ Se o momento mudar, é só me chamar, a porta fica aberta. Foi um prazer convers
     </div>
 
     <!-- FINAIS -->
-    <div class="finais">
+    <div class="finais" style="grid-template-columns: 1fr;">
       <div class="desvio-card ganho">
         <div class="estagio-head">
           <div class="nome">🏆 Ganho</div>
@@ -950,11 +1060,27 @@ Se o momento mudar, é só me chamar, a porta fica aberta. Foi um prazer convers
       <div class="desvio-card perda">
         <div class="estagio-head">
           <div class="nome">❌ Perda</div>
-          <div class="badges"><span class="badge b-manual">sem automação</span></div>
-          <div class="objetivo">Fim de linha do ciclo ativo — sem novas mensagens automáticas.</div>
+          <div class="badges">
+            <span class="badge b-robo">🤖 IA reativa</span>
+            <span class="badge b-cadencia">📨 Retorno · 3 toques</span>
+          </div>
+          <div class="objetivo">Fim do ciclo ativo — mas não fim da relação. Uma régua de retorno tenta reabrir a conversa quando o momento do lead pode ter mudado.</div>
         </div>
         <div class="estagio-body">
-          <p class="nota">Registrar o motivo da perda no lead ajuda a melhorar o funil. Um lead perdido pode ser reativado manualmente a qualquer momento.</p>
+          <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>Pré-requisito: registrar o motivo da perda no card.</b> É ele que define o ângulo do retorno — preço, tempo, "não é pra mim", não era o decisor, sumiu. Sem motivo registrado, a IA volta com uma mensagem genérica e a régua perde a força.</p>
+          <ul class="passos">
+            <li class="robo"><span class="quando">D+30 · 09h</span><span class="oque">🤖 O momento mudou?
+<span class="instr">Este lead foi dado como perdido há 30 dias. Volte leve, sem cobrança e sem culpa, com uma retomada humana. Releia as anotações do card (objetivo, desafio, objeção e motivo da perda) e o histórico. Referencie o que ele te contou na época e pergunte se mudou alguma coisa desde então. NÃO reapresente o produto, NÃO ofereça preço e NÃO tente fechar nesta mensagem. Uma pergunta só, aberta. Nada de escassez, prazo ou vaga. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Não invente preços, links ou datas. Máx. 3 linhas.</span></span></li>
+            <li class="robo"><span class="quando">D+60 · 09h</span><span class="oque">🤖 Caso real ligado ao motivo da perda
+<span class="instr">Segundo toque de retorno, o lead segue em silêncio. Traga UM caso real de aluna com perfil parecido e que estava na MESMA trava registrada no motivo da perda — nome real, número antes, número depois, tempo. Sem prova social genérica. Feche perguntando se o cenário dele ainda é o mesmo. Não repita o ângulo da mensagem anterior. Nada de escassez, prazo ou vaga. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Não invente preços, links ou datas. Máx. 4 linhas.</span></span></li>
+            <li class="manual"><span class="quando">D+90 · 09h</span><span class="oque">📝 Encerramento e passagem para Nutrição <small>Mesmo encerramento das demais etapas. É o passo que leva o lead para a Nutrição.</small>
+<span class="msg-fixa">Oi [<span class="var">PrimeiroNome</span>], tudo bom?
+
+Entendi que agora talvez não seja o melhor momento para conversarmos. Vou seguir mandando conteúdos e novidades úteis de vez em quando. Quando fizer sentido conversar é só me chamar 😃</span></span></li>
+          </ul>
+          <p class="nota"><b>✅ Se o lead responder, volta para Qualificação</b> — a IA relê o histórico inteiro e retoma o SPIN de onde parou, sem recomeçar do zero e sem repetir pergunta já respondida. A régua de retorno é cancelada.</p>
+          <p class="nota"><b>Quem não entra nesta régua:</b> lead que pediu explicitamente para não ser mais procurado, número inválido/inexistente e quem já comprou por outro caminho. Esses ficam parados na Perda.</p>
+          <p class="nota">Terminados os 3 toques sem resposta, o lead segue para a <b>Nutrição</b> e entra nos ciclos mensais de conteúdo. Reativação manual continua possível a qualquer momento.</p>
         </div>
       </div>
     </div>
@@ -968,13 +1094,25 @@ Se o momento mudar, é só me chamar, a porta fica aberta. Foi um prazer convers
             <span class="badge b-robo">🤖 IA reativa</span>
             <span class="badge b-cadencia">📨 Cadência · 6 ciclos</span>
           </div>
-          <div class="objetivo">Para onde vão os leads que silenciaram em Tentativa de Contato ou Qualificação. Mantém o relacionamento vivo por 6 meses, sem pressão.</div>
+          <div class="objetivo">Para onde vão os leads que silenciaram em Tentativa de Contato, Qualificação, Objeção ou na régua de retorno da Perda. Mantém o relacionamento vivo por 6 meses, sem pressão.</div>
         </div>
         <div class="estagio-body">
-          <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>Seis toques, um a cada 30 dias</b> (D+30, D+60, D+90, D+120, D+150 e D+180 contados da entrada na Nutrição). Todos com o mesmo briefing e a mesma missão — <b>conteúdo novo no YouTube + convite para retirar um material gratuito</b> —, mas a IA é instruída a reler o histórico e <b>não repetir o ângulo dos ciclos anteriores</b>.</p>
+          <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>Seis toques, um a cada 30 dias</b> (D+30, D+60, D+90, D+120, D+150 e D+180 contados da entrada na Nutrição).</p>
+          <p class="nota" style="margin-top:0; margin-bottom:9px;"><b>⚠️ Cada ciclo tem um ângulo diferente — mensagem repetida mata a nutrição.</b> Um lead que fica os 6 meses aqui recebe 6 mensagens; se todas disserem "saiu conteúdo novo no YouTube, quer que eu te mande?", ele para de ler na terceira e a régua vira ruído (além de risco de bloqueio). Antes de escrever, a IA relê as mensagens que já saíram nesta etapa e <b>troca o ângulo, a abertura e o conteúdo ofertado</b>.</p>
+          <div class="tab-wrap">
+            <table class="decisao">
+              <tr><th style="width:78px">Ciclo</th><th>Ângulo daquele mês</th></tr>
+              <tr><td><b>1 · D+30</b></td><td>Conteúdo novo no canal do YouTube da Escola + convite para retirar o material gratuito.</td></tr>
+              <tr><td><b>2 · D+60</b></td><td>Caso real de aluna com perfil parecido — nome, número antes, número depois, tempo. Sem prova social genérica.</td></tr>
+              <tr><td><b>3 · D+90</b></td><td>Dica prática aplicável ligada ao desafio que <b>ele</b> trouxe na conversa (usar anotações). Entrega de valor pura, sem convite.</td></tr>
+              <tr><td><b>4 · D+120</b></td><td>Bastidor da Escola: o que as alunas estão vivendo agora, aula aberta ou evento — sem inventar nome, data nem link.</td></tr>
+              <tr><td><b>5 · D+150</b></td><td>Pergunta leve sobre o momento dele: "mudou alguma coisa desde que a gente falou?". Reabre a conversa sem vender.</td></tr>
+              <tr><td><b>6 · D+180</b></td><td>Fecha o ciclo com porta aberta: segue no radar, continua acompanhando, é só chamar quando fizer sentido.</td></tr>
+            </table>
+          </div>
           <ul class="passos">
             <li class="robo"><span class="quando">D+30 · 09h<br><small style="font-weight:400">…até D+180</small></span><span class="oque">🤖 Ciclo de nutrição (1 a 6)
-<span class="instr">Ciclo de nutrição N (a cada 30 dias). Avise que saiu conteúdo novo no canal do YouTube da Escola e convide o lead a assistir — de forma leve, sem venda e sem cobrança. Em seguida, convide-o para retirar um presente/material gratuito. Ligue o convite ao interesse que ele demonstrou (use anotações e histórico); se não houver nada registrado, fale de forma genérica. NÃO invente título de vídeo, link nem data — se não souber, diga apenas que saiu conteúdo novo. Não repita o ângulo dos ciclos anteriores: releia o histórico antes de escrever. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Não invente preços, links ou datas. Máx. 4 linhas.</span></span></li>
+<span class="instr">Ciclo de nutrição N (a cada 30 dias). REGRA PRINCIPAL DESTA ETAPA: nunca repetir. Antes de escrever, releia TODAS as mensagens que você já enviou nesta etapa e mude o ângulo, a abertura e o conteúdo ofertado — se o lead pudesse colocar as 6 mensagens lado a lado, elas precisam parecer 6 conversas diferentes, não a mesma reenviada. Nunca reutilize a mesma saudação nem a mesma frase de convite de um ciclo anterior. O ângulo de cada ciclo: 1) saiu conteúdo novo no canal do YouTube da Escola + convite para retirar o material gratuito; 2) caso real de aluna com perfil parecido (nome, número antes, número depois, tempo); 3) dica prática ligada ao desafio que ELE trouxe, entrega de valor pura sem convite; 4) bastidor da Escola, o que as alunas estão vivendo agora ou uma aula aberta; 5) pergunta leve sobre o momento dele ("mudou alguma coisa desde que a gente falou?"); 6) fechamento do ciclo com porta aberta, sem cobrança. Ligue sempre ao interesse que ele demonstrou (use anotações e histórico); se não houver nada registrado, fale de forma genérica. NÃO invente título de vídeo, nome de evento, link nem data — se não souber, diga apenas que saiu conteúdo novo. Sem venda e sem cobrança. Tom humano e caloroso, nunca formal. Use [PrimeiroNome]. Não invente preços, links ou datas. Máx. 4 linhas.</span></span></li>
           </ul>
           <p class="nota"><b>✅ Se o lead responder aqui, volta automaticamente para Qualificação</b> — a conversa recomeça de onde parou, porque a IA lê todo o histórico. A cadência de nutrição é cancelada e a de Qualificação começa do zero.</p>
           <p class="nota">Terminados os 6 ciclos sem resposta, o lead <b>fica parado na Nutrição</b> — não há passo que o mova para Perda automaticamente.</p>
@@ -982,6 +1120,44 @@ Se o momento mudar, é só me chamar, a porta fica aberta. Foi um prazer convers
       </div>
     </div>
 
+  </div>
+
+  <!-- SEM INTERESSE -->
+  <h2 class="secao" id="sem-interesse">🚪 Quando o lead diz que não quer / não tem interesse</h2>
+  <p class="secao-sub">A resposta certa depende de <b>onde</b> ele está no funil. "Não tenho interesse" no primeiro contato é falta de contexto; depois do levantamento, é objeção — e objeção se trabalha, não se aceita de primeira.</p>
+  <div class="tab-wrap">
+    <table class="decisao">
+      <tr>
+        <th style="width:26%">Onde o lead está</th>
+        <th>O que fazer</th>
+        <th style="width:20%">Para onde vai</th>
+      </tr>
+      <tr>
+        <td><b>📲 Tentativa de Contato</b></td>
+        <td>Não insista e não contorne — não houve levantamento, então não existe objeção real para trabalhar. Agradeça e <b>ofereça mandar conteúdos</b>: <em>"tranquilo, [PrimeiroNome]! posso te mandar uns conteúdos de vez em quando, sem compromisso?"</em></td>
+        <td>→ <b>Nutrição</b></td>
+      </tr>
+      <tr>
+        <td><b>📞 Qualificação</b> — SPIN ainda não desenvolvido</td>
+        <td>Mesma coisa: ele ainda não contou objetivo nem desafio, então não há o que devolver. Ofereça conteúdo e libere o lead sem peso.</td>
+        <td>→ <b>Nutrição</b></td>
+      </tr>
+      <tr>
+        <td><b>📞 Qualificação</b> — SPIN desenvolvido, recusa a reunião</td>
+        <td><b>Isso é objeção, não desinteresse.</b> Trabalhe conforme o levantamento de necessidade: isole (<em>"se [motivo] não fosse problema, vc conversaria comigo?"</em>) e devolva com o <b>objetivo, a dor e o impacto que ele mesmo nomeou</b>. Objeção se vence com pergunta, não com argumento.</td>
+        <td>fica na <b>Qualificação</b> · vira <b>Objeção</b> se a trava persistir · <b>Nutrição</b> só se ele reafirmar depois disso</td>
+      </tr>
+      <tr>
+        <td><b>🛡️ Objeção</b> e <b>💰 Fechamento</b></td>
+        <td><b>Argumente conforme o fluxo da etapa</b> — é para isso que essas réguas existem: isolamento da objeção, caso real ligado à trava, "como está o momento" e reconexão com a dor/objetivo. Não encerre na primeira negativa: o encerramento é o <b>último</b> passo da cadência, não o primeiro.</td>
+        <td>segue a régua até o encerramento → <b>Nutrição</b></td>
+      </tr>
+      <tr>
+        <td><b>Qualquer etapa</b> — pediu para não ser mais procurado</td>
+        <td>Respeite na hora. Sem contra-argumento, sem oferta de conteúdo, sem última tentativa. Registre o motivo no card.</td>
+        <td>→ <b>Perda</b> (fora da régua de retorno)</td>
+      </tr>
+    </table>
   </div>
 
   <!-- REGRAS DE PROTEÇÃO -->
@@ -997,6 +1173,9 @@ Se o momento mudar, é só me chamar, a porta fica aberta. Foi um prazer convers
       <li><b>Anti-ban do WhatsApp:</b> envios automáticos saem espaçados de 45 a 90 segundos (intervalo aleatório por empresa) — no máximo um por ciclo — contando qualquer saída do número, não só follow-ups.</li>
       <li><b>Falha passageira não queima o passo:</b> IA sobrecarregada, timeout ou WhatsApp fora do ar (503/529/429) adiam o follow-up em 15 min em vez de virar falha definitiva.</li>
       <li><b>Sem saldo ou agente desligado pausa, não queima:</b> erro de crédito/credencial (401/403) ou agente desligado na empresa faz o follow-up ser adiado 60 min e os demais daquela empresa pularem o ciclo — a fila volta sozinha quando religarem.</li>
+      <li><b>Anotação manda mais que régua:</b> quando o card tem um combinado com data e hora, ele é a fonte da verdade — a IA respeita o prazo e não cobra antes. A cadência do estágio é o plano B para quando não há combinado ou ele passou sem resposta.</li>
+      <li><b>Encerramento é transição, não rompimento:</b> o último passo de Tentativa de Contato, Qualificação, Objeção e da régua de retorno da Perda usa o mesmo texto e o mesmo destino — oferece conteúdo e leva o lead para a Nutrição. Perda fica só para recusa explícita e para o fim da régua do Fechamento.</li>
+      <li><b>Nunca repetir mensagem:</b> antes de escrever, a IA relê o que já saiu naquele estágio e muda ângulo e abertura. Vale principalmente para a Nutrição, onde 6 mensagens iguais viram ruído e risco de bloqueio.</li>
       <li><b>Memória completa:</b> a IA lê a conversa inteira do contato (não só do lead), as últimas 60 mensagens e as anotações do CRM antes de escrever qualquer mensagem.</li>
       <li><b>Remetente certo:</b> as mensagens sempre saem pelo WhatsApp do responsável do lead — o dono da relação. A assinatura <span class="var">[PrimeiroNomeResponsavel]</span> segue o mesmo responsável.</li>
       <li><b>Mensagem da IA sai picada:</b> blocos separados por linha em branco viram mensagens distintas no WhatsApp (máx. 3 por turno), com pausa curta entre elas. Mensagem fixa, ao contrário, sai inteira num balão só.</li>
@@ -1004,8 +1183,9 @@ Se o momento mudar, é só me chamar, a porta fica aberta. Foi um prazer convers
   </div>
 
   <footer>
-    CRM DuoFuturo · Funil Escola Empreendedorismo (#24) · Atualizado em 06/08/2026 a partir da configuração real dos estágios no banco — instruções de IA, mensagens fixas e lembretes verbatim.<br>
-    Mudanças desta versão: boas-vindas automáticas na Entrada de Leads · Tentativa de Contato agora 100% de mensagem fixa (D+1/D+4/D+12) · encerramento da Qualificação virou mensagem fixa · 4º toque de no-show na Reunião agendada · Objeção reescrita em 6 passos com isolamento da objeção · Fechamento com regra anti-escassez e prioridade às anotações · Nutrição de 1 toque para 6 ciclos mensais.<br>
+    CRM DuoFuturo · Funil Escola Empreendedorismo (#24) · Base de 06/08/2026 tirada da configuração real dos estágios no banco (instruções de IA, mensagens fixas e lembretes verbatim), com a revisão de processo de 10/08/2026 aplicada por cima — ver o aviso azul no topo para o que ainda falta configurar.<br>
+    Mudanças de 10/08/2026: SPIN detalhado na Qualificação, com 4 perguntas de exemplo por fase · checklist do que registrar nas anotações após a Reunião Realizada (quem é o lead, objetivo, desafio, objeção, próximos passos) · Objeção com o encerramento padronizado das outras etapas e destino Nutrição · Fechamento guiado pelas anotações, com FUP 10 min após o horário combinado · nova régua de retorno na Perda (D+30/D+60/D+90 → Nutrição) · Nutrição com 6 ângulos distintos e regra anti-repetição · nova tabela "quando o lead diz que não tem interesse" e 3 novas regras de proteção.<br>
+    Mudanças de 06/08/2026: boas-vindas automáticas na Entrada de Leads · Tentativa de Contato 100% de mensagem fixa (D+1/D+4/D+12) · encerramento da Qualificação virou mensagem fixa · 4º toque de no-show na Reunião agendada · Objeção reescrita em 6 passos com isolamento da objeção · Fechamento com regra anti-escassez · Nutrição de 1 toque para 6 ciclos mensais.<br>
     Ícones no kanban: 🤖 = agente de IA reativo ativo no estágio · 🔔 = cadência de follow-up ativa.
   </footer>
 

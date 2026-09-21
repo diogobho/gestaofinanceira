@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware, empresaRequired } from '../../middlewares/auth.middleware';
+import { exigirCapacidade } from '../../middlewares/capacidade.middleware';
 import { query } from '../../config/database';
 
 import funisRoutes from './funis/funis.routes';
@@ -14,6 +15,7 @@ import importacaoRoutes from './importacao/importacao.routes';
 import disparosRoutes from './disparos/disparos.routes';
 import disparosEmailRoutes from './disparos-email/disparos-email.routes';
 import dashboardRoutes from './dashboard/dashboard.routes';
+import integracoesRoutes from './integracoes/integracoes.routes';
 import agenteIaRoutes from '../agente-ia/agente-ia.routes';
 import followupsRoutes from './followups/followups.routes';
 import { webhookController } from './webhook/webhook.controller';
@@ -23,6 +25,12 @@ const router = Router();
 // Todas as rotas do CRM requerem autenticação e empresa vinculada
 router.use(authMiddleware);
 router.use(empresaRequired);
+
+// ...e o plano tem que incluir CRM. O guard vem DEPOIS do authMiddleware de
+// propósito: `checkSubscription`, em server.ts, está montado antes de qualquer
+// autenticação e por isso nunca enxerga `req.user` — plano só se verifica com
+// usuário resolvido. O webhook de captação é registrado fora deste router.
+router.use(exigirCapacidade('crm'));
 
 // Montar rotas com prefixos
 router.use('/funis', funisRoutes);
@@ -37,6 +45,7 @@ router.use(importacaoRoutes); // /importacao/preview e /importacao/importar
 router.use(disparosRoutes);   // /disparos
 router.use(disparosEmailRoutes); // /disparos-email
 router.use(dashboardRoutes);  // /dashboard
+router.use(integracoesRoutes); // /integracoes/dashboard
 router.use(agenteIaRoutes);  // /agente-ia/*
 router.use(followupsRoutes); // /leads/:leadId/followups e /followups/:id
 
