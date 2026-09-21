@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { Check, Zap, Crown, Star, Loader2, CreditCard, Lock } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { assinaturasApi, Plano, Assinatura, calcularPreco } from '@/api/assinaturas'
+import { assinaturasApi, Plano, Assinatura, calcularPreco, cicloDe, calcularCobranca, economiaAnual, ROTULO_CICLO, COMPROMISSO_CICLO } from '@/api/assinaturas'
+import type { Ciclo } from '@/api/assinaturas'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/contexts/AuthContext'
@@ -61,6 +62,19 @@ export const Planos: React.FC = () => {
 
   const qtdDe = (plano: Plano) => usuariosPorPlano[plano.id] ?? plano.usuarios_base ?? 1
 
+  // Um compromisso só para a tela toda: ele muda o preço dos três cards ao mesmo
+  // tempo, e escolher dentro de cada card faria o cliente decidir três vezes.
+  const [ciclo, setCiclo] = useState<Ciclo>('mensal')
+  const CICLOS: Ciclo[] = ['mensal', 'trimestral', 'semestral', 'anual']
+
+  // Mesma referência da landing e do cadastro: o plano em destaque.
+  const planoReferencia = planos.find(p => p.destaque) || planos[0]
+  const descontoDoCiclo = (c: Ciclo) => {
+    if (!planoReferencia) return 0
+    const alvo = cicloDe(planoReferencia, c)
+    return Math.round((1 - Number(alvo.preco_mensal) / Number(planoReferencia.preco_mensal)) * 100)
+  }
+
   const handleAssinar = async (plano: Plano) => {
     if (!cpfCnpj) {
       toast.error('Informe seu CPF ou CNPJ para assinar')
@@ -110,6 +124,7 @@ export const Planos: React.FC = () => {
         credit_card: creditCard,
         credit_card_holder_info: creditCardHolderInfo,
         usuarios: qtdDe(plano),
+        ciclo,
       })
 
       if (billingType === 'PIX' && (resultado.pixQrCodeImage || resultado.pixQrCode)) {
@@ -310,6 +325,42 @@ export const Planos: React.FC = () => {
         </div>
       </Card>
 
+      {/* Compromisso de fidelidade — vale para os três cards abaixo. */}
+      <div className="mb-6">
+        <div className="mx-auto grid max-w-xl grid-cols-2 gap-1.5 rounded-xl bg-gray-100 p-1 dark:bg-gray-800 sm:grid-cols-4" role="tablist" aria-label="Compromisso de fidelidade">
+          {CICLOS.map(c => {
+            const ativo = ciclo === c
+            const desconto = descontoDoCiclo(c)
+            return (
+              <button
+                key={c}
+                type="button"
+                role="tab"
+                aria-selected={ativo}
+                onClick={() => setCiclo(c)}
+                className={`rounded-lg px-2 py-2 text-xs font-medium transition-all ${
+                  ativo
+                    ? 'bg-white text-primary-700 shadow-sm ring-1 ring-primary-200 dark:bg-gray-700 dark:text-primary-300 dark:ring-primary-700'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                }`}
+              >
+                {ROTULO_CICLO[c]}
+                {desconto > 0 && (
+                  <span className={`ml-1 rounded px-1 py-0.5 text-[10px] font-semibold ${
+                    ativo ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                  }`}>
+                    −{desconto}%
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <p className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+          {COMPROMISSO_CICLO[ciclo]}. Usuário adicional segue a R$ 100/mês em qualquer compromisso.
+        </p>
+      </div>
+
       {/* Cards de planos */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {planos.map((plano, idx) => {
@@ -344,10 +395,26 @@ export const Planos: React.FC = () => {
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">{plano.descricao}</p>
 
                 <div className="mb-4">
+                  {ciclo !== 'mensal' && (
+                    <div className="text-sm text-gray-400 line-through dark:text-gray-500">
+                      R$ {calcularPreco(plano, qtdDe(plano)).toFixed(2).replace('.', ',')}
+                    </div>
+                  )}
                   <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                    R$ {calcularPreco(plano, qtdDe(plano)).toFixed(2).replace('.', ',')}
+                    R$ {calcularCobranca(plano, cicloDe(plano, ciclo), qtdDe(plano)).mensal.toFixed(2).replace('.', ',')}
                   </span>
                   <span className="text-sm text-gray-500 dark:text-gray-400">/mês</span>
+                  {ciclo !== 'mensal' && (
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      R$ {calcularCobranca(plano, cicloDe(plano, ciclo), qtdDe(plano)).total.toFixed(2).replace('.', ',')}
+                      {' '}a cada {cicloDe(plano, ciclo).meses} meses
+                      {economiaAnual(plano, cicloDe(plano, ciclo)) > 0 && (
+                        <span className="ml-1 font-medium text-green-600 dark:text-green-400">
+                          · economia de R$ {economiaAnual(plano, cicloDe(plano, ciclo)).toFixed(2).replace('.', ',')}/ano
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {plano.customizavel && qtdDe(plano) > (plano.usuarios_base ?? 0) && (
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       R$ {Number(plano.preco_mensal).toFixed(2).replace('.', ',')} do plano
@@ -440,11 +507,11 @@ export const Planos: React.FC = () => {
       {/* Banner sob medida */}
       <div className="border border-gray-200 dark:border-gray-700 rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4 bg-gray-50 dark:bg-gray-800/50">
         <div>
-          <p className="font-semibold text-gray-900 dark:text-white">Precisa de mais de 8 usuários?</p>
+          <p className="font-semibold text-gray-900 dark:text-white">Precisa de mais de 30 usuários?</p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Criamos um plano sob medida para o seu negócio.</p>
         </div>
         <a
-          href="https://wa.me/5524981213371?text=Olá! Tenho interesse em um plano personalizado para mais de 8 usuários."
+          href="https://wa.me/5511940524435?text=Olá! Tenho interesse em um plano personalizado para mais de 30 usuários."
           target="_blank"
           rel="noopener noreferrer"
           className="shrink-0 px-5 py-2.5 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-medium hover:opacity-90 transition-opacity"

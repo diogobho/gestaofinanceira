@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
+import { capacidadesDaEmpresa } from '../../shared/capacidades';
 import { AuthRequest } from '../../middlewares/auth.middleware';
 import { assinaturasService } from './assinaturas.service';
+import { isAdminEmpresa } from '../../shared/roles';
 
 export const assinaturasController = {
   /** GET /planos — público */
@@ -26,7 +28,15 @@ export const assinaturasController = {
         assinatura = await assinaturasService.getAssinaturaByEmpresa(empresaId);
       }
 
-      res.json({ assinatura });
+      // As capacidades viajam JUNTO da assinatura, e não num endpoint próprio: a
+      // tela já busca isto para saber o plano, e um segundo GET só para perguntar
+      // "o que eu posso" viraria duas fontes que podem discordar entre si por um
+      // instante — o tempo de um upgrade acontecer entre as duas chamadas.
+      // super_admin não tem empresa própria neste sentido; ele nunca chega aqui
+      // (o `empresa_id` dele é da empresa 1 e o guard de rota já o libera antes).
+      const capacidades = [...(await capacidadesDaEmpresa(empresaId))];
+
+      res.json({ assinatura, capacidades });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -51,7 +61,7 @@ export const assinaturasController = {
       const empresaId = req.user?.empresa_id;
       if (!empresaId) return res.status(400).json({ message: 'Usuário sem empresa' });
 
-      const { plano_id, billing_type, cpf_cnpj, credit_card, credit_card_holder_info, usuarios } = req.body;
+      const { plano_id, billing_type, cpf_cnpj, credit_card, credit_card_holder_info, usuarios, ciclo } = req.body;
 
       if (!plano_id || !billing_type) {
         return res.status(400).json({ message: 'plano_id e billing_type são obrigatórios' });
@@ -80,6 +90,7 @@ export const assinaturasController = {
         creditCardHolderInfo: credit_card_holder_info,
         remoteIp,
         usuarios: usuarios != null ? Number(usuarios) : undefined,
+        ciclo: typeof ciclo === 'string' ? ciclo : undefined,
       });
 
       res.json(resultado);
@@ -98,7 +109,7 @@ export const assinaturasController = {
     try {
       const empresaId = req.user?.empresa_id;
       if (!empresaId) return res.status(400).json({ message: 'Usuário sem empresa' });
-      if (req.user?.tipo_usuario !== 'master' && req.user?.nivel !== 'super_admin') {
+      if (!isAdminEmpresa(req.user)) {
         return res.status(403).json({ message: 'Apenas o responsável pela conta pode alterar o plano' });
       }
 

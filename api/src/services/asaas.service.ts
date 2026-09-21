@@ -1,15 +1,28 @@
 import axios from 'axios';
 
 const ASAAS_BASE_URL = process.env.ASAAS_API_URL || 'https://api.asaas.com/v3';
-const ASAAS_API_KEY = process.env.ASAAS_API_KEY || '';
+
+/**
+ * Conta do Asaas que recebe as assinaturas do sistema: FUTURON INTELIGENCIA DE
+ * NEGOCIO LTDA. Existe uma chave por conta do grupo (Futuron, Totem, Club) e
+ * elas se parecem — o primeiro segmento é igual. Já houve troca por engano, com
+ * a chave de uma conta de CLIENTE no `.env`. O CNPJ é a única coisa que
+ * distingue de fato, então é por ele que a trava confere.
+ */
+const CNPJ_CONTA_ESPERADA = (process.env.ASAAS_CONTA_CNPJ || '53441843000190').replace(/\D/g, '');
 
 const asaasHttp = axios.create({
   baseURL: ASAAS_BASE_URL,
-  headers: {
-    'access_token': ASAAS_API_KEY,
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
+});
+
+// A chave é lida a CADA request, não na carga do módulo: quando o PM2 não injeta
+// ASAAS_API_KEY, quem a coloca em process.env é o dotenv de config/env.ts, e um
+// import que chegue antes dele congelaria o header vazio (401 em tudo).
+asaasHttp.interceptors.request.use(config => {
+  config.headers.set('access_token', process.env.ASAAS_API_KEY || '');
+  return config;
 });
 
 // Extrai mensagem legível dos erros da API Asaas
@@ -34,6 +47,9 @@ export interface AsaasCustomer {
   phone?: string;
 }
 
+/** Ciclos que usamos na fidelidade (a v3 aceita outros — WEEKLY, BIMONTHLY…). */
+export type AsaasCycle = 'MONTHLY' | 'QUARTERLY' | 'SEMIANNUALLY' | 'YEARLY';
+
 export interface AsaasSubscription {
   id: string;
   customer: string;
@@ -41,7 +57,7 @@ export interface AsaasSubscription {
   value: number;
   nextDueDate: string;
   status: string;
-  cycle: 'MONTHLY';
+  cycle: AsaasCycle;
   description?: string;
 }
 
@@ -58,7 +74,60 @@ export interface AsaasPayment {
   pixKey?: string;
 }
 
+let contaEmCache: { nome: string; cnpj: string; verificadaEm: number } | null = null;
+const CACHE_CONTA_MS = 10 * 60 * 1000;
+
 export const asaasService = {
+  /** Identidade da conta dona da chave em uso (empresa + CNPJ). */
+  async getConta(): Promise<{ nome: string; cnpj: string }> {
+    const res = await asaasHttp.get('/myAccount');
+    return {
+      nome: res.data?.company || res.data?.name || '',
+      cnpj: String(res.data?.cpfCnpj || '').replace(/\D/g, ''),
+    };
+  },
+
+  /**
+   * Trava: nada de cliente/assinatura sai daqui sem que a chave em uso seja
+   * comprovadamente da conta certa. Sem isso, uma chave trocada por engano
+   * mandaria o dinheiro das assinaturas para outra empresa do grupo em silêncio
+   * — e as cobranças antigas, que vivem na conta correta, sumiriam da API.
+   *
+   * Confere contra a API (10 min de cache, ~1 chamada por janela). Se a conta
+   * não bater, falha o fluxo: perder uma assinatura é reparável, cobrar na
+   * conta errada não.
+   */
+  async garantirContaCorreta(): Promise<void> {
+    if (!process.env.ASAAS_API_KEY) {
+      throw new Error('Asaas: ASAAS_API_KEY não configurada.');
+    }
+
+    const agora = Date.now();
+    if (contaEmCache && contaEmCache.cnpj === CNPJ_CONTA_ESPERADA &&
+        agora - contaEmCache.verificadaEm < CACHE_CONTA_MS) {
+      return;
+    }
+
+    let conta: { nome: string; cnpj: string };
+    try {
+      conta = await this.getConta();
+    } catch (err: any) {
+      console.error('[asaas] não foi possível confirmar a conta da chave:', err?.message || err);
+      throw new Error('Asaas: não foi possível confirmar a conta de cobrança. Tente novamente em instantes.');
+    }
+
+    contaEmCache = { ...conta, verificadaEm: agora };
+
+    if (conta.cnpj !== CNPJ_CONTA_ESPERADA) {
+      console.error(
+        `[asaas] CONTA ERRADA — a chave em uso é de "${conta.nome}" (CNPJ ${conta.cnpj}); ` +
+        `esperado o CNPJ ${CNPJ_CONTA_ESPERADA}. Corrija ASAAS_API_KEY no ecosystem.config.js ` +
+        '(ele vence o api/.env) antes de aceitar assinaturas.'
+      );
+      throw new Error('Asaas: a chave configurada não é da conta que recebe as assinaturas. Nada foi cobrado.');
+    }
+  },
+
   async createCustomer(data: {
     name: string;
     email: string;
@@ -87,7 +156,10 @@ export const asaasService = {
   async createSubscription(data: {
     customerId: string;
     billingType: 'BOLETO' | 'CREDIT_CARD' | 'PIX';
+    /** Valor cobrado A CADA ciclo — no anual é o ano inteiro, não o mês. */
     value: number;
+    /** Compromisso de fidelidade. Sem isso, tudo vira mensal. */
+    cycle?: AsaasCycle;
     nextDueDate: string; // YYYY-MM-DD
     description?: string;
     remoteIp?: string;
@@ -112,7 +184,7 @@ export const asaasService = {
       billingType: data.billingType,
       value: data.value,
       nextDueDate: data.nextDueDate,
-      cycle: 'MONTHLY',
+      cycle: data.cycle || 'MONTHLY',
       description: data.description || 'Gestão Financeira DuoFuturo',
     };
 

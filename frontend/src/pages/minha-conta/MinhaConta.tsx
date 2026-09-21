@@ -3,7 +3,7 @@ import { CreditCard, CheckCircle, AlertTriangle, XCircle, Loader2, ExternalLink,
 import { TourHelpButton } from '@/components/tour/TourHelpButton'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { assinaturasApi, Assinatura, calcularPreco } from '@/api/assinaturas'
+import { assinaturasApi, Assinatura, calcularPreco, ROTULO_CICLO } from '@/api/assinaturas'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
@@ -212,6 +212,15 @@ export const MinhaConta: React.FC = () => {
                     ? `R$ ${Number(assinatura.plano.preco_mensal).toFixed(2).replace('.', ',')}`
                     : '—'}
               </p>
+              {/* Quem tem fidelidade não é cobrado todo mês: sem esta linha, o
+                  cartão de R$ 2.028 do anual chega sem explicação. */}
+              {assinatura?.ciclo && assinatura.ciclo !== 'mensal' && assinatura.preco_por_ciclo != null && (
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {ROTULO_CICLO[assinatura.ciclo]} — R${' '}
+                  {Number(assinatura.preco_por_ciclo).toFixed(2).replace('.', ',')} a cada{' '}
+                  {assinatura.ciclo_meses} meses
+                </p>
+              )}
             </div>
             {assinatura?.plano_ativo_ate && (
               <div>

@@ -1,4 +1,5 @@
 import api from './client';
+import type { Capacidade } from '@/utils/capacidades';
 
 export interface Plano {
   id: number;
@@ -16,7 +17,34 @@ export interface Plano {
   preco_usuario_adicional: number;
   /** Se o cliente pode comprar usuários adicionais. */
   customizavel: boolean;
+  /** Compromissos de fidelidade (migration 067). */
+  ciclos?: PlanoCiclo[];
 }
+
+export type Ciclo = 'mensal' | 'trimestral' | 'semestral' | 'anual';
+
+export interface PlanoCiclo {
+  ciclo: Ciclo;
+  meses: number;
+  /** Equivalente MENSAL já com desconto — o total do ciclo é preco_mensal * meses. */
+  preco_mensal: number;
+  asaas_cycle: string;
+}
+
+export const ROTULO_CICLO: Record<Ciclo, string> = {
+  mensal: 'Mensal',
+  trimestral: 'Trimestral',
+  semestral: 'Semestral',
+  anual: 'Anual',
+};
+
+/** Como o compromisso aparece por extenso em resumo de pedido. */
+export const COMPROMISSO_CICLO: Record<Ciclo, string> = {
+  mensal: 'sem fidelidade, cancele quando quiser',
+  trimestral: 'compromisso de 3 meses',
+  semestral: 'compromisso de 6 meses',
+  anual: 'compromisso de 12 meses',
+};
 
 /** Mesma regra do backend (assinaturas.service.calcularPreco). */
 export function calcularPreco(plano: Plano, usuarios: number, cortesia = 0): number {
@@ -24,6 +52,37 @@ export function calcularPreco(plano: Plano, usuarios: number, cortesia = 0): num
   const cobraveis = Math.max(0, usuarios - base - cortesia);
   const total = Number(plano.preco_mensal) + cobraveis * Number(plano.preco_usuario_adicional || 0);
   return Math.round(total * 100) / 100;
+}
+
+/** O ciclo mensal serve de referência para calcular a economia dos demais. */
+export function cicloDe(plano: Plano, ciclo: Ciclo): PlanoCiclo {
+  const achado = plano.ciclos?.find(c => c.ciclo === ciclo);
+  if (achado) return achado;
+  return { ciclo: 'mensal', meses: 1, preco_mensal: Number(plano.preco_mensal), asaas_cycle: 'MONTHLY' };
+}
+
+/**
+ * Mesma regra do backend (assinaturas.service.calcularCobranca): o desconto é do
+ * plano, o usuário adicional continua a preço cheio por mês.
+ */
+export function calcularCobranca(
+  plano: Plano,
+  ciclo: PlanoCiclo,
+  usuarios: number,
+  cortesia = 0
+): { mensal: number; total: number; meses: number } {
+  const base = plano.usuarios_base ?? usuarios;
+  const cobraveis = Math.max(0, usuarios - base - cortesia);
+  const mensal = Math.round(
+    (Number(ciclo.preco_mensal) + cobraveis * Number(plano.preco_usuario_adicional || 0)) * 100
+  ) / 100;
+  return { mensal, total: Math.round(mensal * ciclo.meses * 100) / 100, meses: ciclo.meses };
+}
+
+/** Quanto se economiza no ano ao trocar o mensal por este compromisso. */
+export function economiaAnual(plano: Plano, ciclo: PlanoCiclo): number {
+  const mensal = Number(plano.preco_mensal);
+  return Math.round((mensal - Number(ciclo.preco_mensal)) * 12 * 100) / 100;
 }
 
 export interface Assinatura {
@@ -45,6 +104,12 @@ export interface Assinatura {
   usuarios_em_uso?: number;
   /** Valor mensal já com os adicionais. */
   preco_total?: number;
+  /** Compromisso contratado. */
+  ciclo?: Ciclo;
+  /** Valor cobrado a cada ciclo (mensal * meses). */
+  preco_por_ciclo?: number;
+  /** Meses de cada cobrança — 1, 3, 6 ou 12. */
+  ciclo_meses?: number;
 }
 
 export const assinaturasApi = {
@@ -56,6 +121,23 @@ export const assinaturasApi = {
   async getMinhaAssinatura(): Promise<Assinatura | null> {
     const res = await api.get('/assinaturas/minha');
     return res.data.assinatura;
+  },
+
+  /**
+   * Assinatura + o que o plano permite, na MESMA resposta. São duas perguntas que
+   * sempre andam juntas e que não podem discordar: o backend responde as duas de
+   * uma vez para não existir o instante em que a tela sabe o plano novo e ainda
+   * usa as capacidades do antigo.
+   */
+  async getMinhaAssinaturaComCapacidades(): Promise<{
+    assinatura: Assinatura | null
+    capacidades: Capacidade[]
+  }> {
+    const res = await api.get('/assinaturas/minha');
+    return {
+      assinatura: res.data.assinatura ?? null,
+      capacidades: Array.isArray(res.data.capacidades) ? res.data.capacidades : [],
+    };
   },
 
   async getStatus(): Promise<{ ativa: boolean; status: string; motivo?: string }> {
@@ -71,6 +153,8 @@ export const assinaturasApi = {
     credit_card_holder_info?: object;
     /** Total de usuários contratados; omitido usa a base do plano. */
     usuarios?: number;
+    /** Compromisso de fidelidade; omitido é mensal. */
+    ciclo?: Ciclo;
   }): Promise<{ assinatura: Assinatura; paymentUrl?: string; pixQrCode?: string; pixQrCodeImage?: string }> {
     const res = await api.post('/assinaturas/assinar', data);
     return res.data;

@@ -19,14 +19,31 @@ export interface Plano {
   preco_usuario_adicional: number;
   /** Se o cliente pode comprar usuários adicionais. */
   customizavel: boolean;
+  /** Compromissos de fidelidade disponíveis (migration 067). */
+  ciclos: PlanoCiclo[];
 }
+
+export type Ciclo = 'mensal' | 'trimestral' | 'semestral' | 'anual';
+
+export interface PlanoCiclo {
+  ciclo: Ciclo;
+  meses: number;
+  /** Equivalente MENSAL já com o desconto de fidelidade. */
+  preco_mensal: number;
+  /** Valor aceito em `cycle` na API v3 do Asaas. */
+  asaas_cycle: 'MONTHLY' | 'QUARTERLY' | 'SEMIANNUALLY' | 'YEARLY';
+}
+
+export const CICLO_PADRAO: PlanoCiclo = {
+  ciclo: 'mensal', meses: 1, preco_mensal: 0, asaas_cycle: 'MONTHLY',
+};
 
 /**
  * Preço mensal de uma assinatura para uma dada quantidade de usuários.
  *
  * Cada usuário acima da base custa `preco_usuario_adicional`. Usuários de
  * cortesia (concedidos a quem já era cliente antes do modelo customizável)
- * não entram na conta — ver migration 061.
+ * não entram na conta — ver migrations 061 e 067.
  */
 export function calcularPreco(
   plano: Pick<Plano, 'preco_mensal' | 'usuarios_base' | 'preco_usuario_adicional'>,
@@ -38,6 +55,28 @@ export function calcularPreco(
   const total = Number(plano.preco_mensal) + cobraveis * Number(plano.preco_usuario_adicional || 0);
   // Evita 219.00000000000003 em ponto flutuante.
   return Math.round(total * 100) / 100;
+}
+
+/**
+ * O que se cobra de fato, dado o compromisso de fidelidade.
+ *
+ * `mensal` é o que a tela mostra ("R$ 169/mês"); `total` é o que o Asaas cobra
+ * de uma vez a cada ciclo. O desconto de fidelidade é **do plano**: o usuário
+ * adicional segue a R$ 100/mês em qualquer compromisso, e por isso ele entra
+ * na conta depois do preço do ciclo, não antes.
+ */
+export function calcularCobranca(
+  plano: Pick<Plano, 'usuarios_base' | 'preco_usuario_adicional'>,
+  ciclo: PlanoCiclo,
+  usuariosContratados: number,
+  usuariosCortesia = 0
+): { mensal: number; total: number; meses: number } {
+  const base = plano.usuarios_base ?? usuariosContratados;
+  const cobraveis = Math.max(0, usuariosContratados - base - usuariosCortesia);
+  const mensal = Math.round(
+    (Number(ciclo.preco_mensal) + cobraveis * Number(plano.preco_usuario_adicional || 0)) * 100
+  ) / 100;
+  return { mensal, total: Math.round(mensal * ciclo.meses * 100) / 100, meses: ciclo.meses };
 }
 
 export interface Assinatura {
@@ -59,26 +98,83 @@ export interface Assinatura {
   usuarios_em_uso?: number;
   /** Valor mensal já com os adicionais. */
   preco_total?: number;
+  /** Compromisso contratado. */
+  ciclo: Ciclo;
+  /** Valor cobrado a cada ciclo (mensal * meses). */
+  preco_por_ciclo?: number;
+  /** Meses de cada cobrança — 1, 3, 6 ou 12. */
+  ciclo_meses?: number;
 }
+
+export const CICLOS_VALIDOS: Ciclo[] = ['mensal', 'trimestral', 'semestral', 'anual'];
+
+/** Descrição que o cliente vê na fatura do Asaas. */
+function descricaoAssinatura(planoNome: string, usuarios: number, ciclo: PlanoCiclo): string {
+  const compromisso = ciclo.ciclo === 'mensal' ? 'mensal' : `${ciclo.ciclo} (${ciclo.meses} meses)`;
+  return `${planoNome} — ${usuarios} usuários — ${compromisso} — Gestão Financeira DuoFuturo`;
+}
+
+/** Subselect dos ciclos, para o plano já sair da consulta pronto para a tela. */
+const SQL_CICLOS = `
+  COALESCE((
+    SELECT json_agg(json_build_object(
+             'ciclo', c.ciclo, 'meses', c.meses,
+             'preco_mensal', c.preco_mensal::float8, 'asaas_cycle', c.asaas_cycle
+           ) ORDER BY c.meses)
+      FROM planos_ciclos c
+     WHERE c.plano_id = p.id AND c.ativo = true
+  ), '[]'::json) AS ciclos`;
 
 export const assinaturasService = {
   async getPlanos(): Promise<Plano[]> {
-    const res = await query('SELECT * FROM planos WHERE ativo = true ORDER BY preco_mensal ASC');
+    const res = await query(`
+      SELECT p.*, ${SQL_CICLOS}
+        FROM planos p
+       WHERE p.ativo = true
+       ORDER BY p.preco_mensal ASC
+    `);
     return res.rows;
   },
 
   async getPlanoById(id: number): Promise<Plano | null> {
-    const res = await query('SELECT * FROM planos WHERE id = $1 AND ativo = true', [id]);
+    const res = await query(`
+      SELECT p.*, ${SQL_CICLOS}
+        FROM planos p
+       WHERE p.id = $1 AND p.ativo = true
+    `, [id]);
     return res.rows[0] || null;
+  },
+
+  /**
+   * Um compromisso específico de um plano. Ciclo desconhecido ou desativado cai
+   * no mensal — nunca em preço zero: um ciclo inválido vindo do body não pode
+   * virar assinatura de graça.
+   */
+  async getCiclo(planoId: number, ciclo?: string): Promise<PlanoCiclo> {
+    const alvo = CICLOS_VALIDOS.includes(ciclo as Ciclo) ? ciclo : 'mensal';
+    const res = await query(
+      `SELECT ciclo, meses, preco_mensal::float8 AS preco_mensal, asaas_cycle
+         FROM planos_ciclos
+        WHERE plano_id = $1 AND ciclo = $2 AND ativo = true`,
+      [planoId, alvo]
+    );
+    if (res.rows[0]) return res.rows[0];
+
+    // Plano sem linha em planos_ciclos (cadastrado à mão, por exemplo): usa o
+    // preço de tabela como mensal, para a cobrança nunca sair errada.
+    const plano = await query('SELECT preco_mensal::float8 AS preco_mensal FROM planos WHERE id = $1', [planoId]);
+    return { ...CICLO_PADRAO, preco_mensal: Number(plano.rows[0]?.preco_mensal || 0) };
   },
 
   async getAssinaturaByEmpresa(empresaId: number): Promise<Assinatura | null> {
     const res = await query(`
       SELECT a.*, p.nome as plano_nome, p.preco_mensal, p.max_usuarios, p.features, p.descricao, p.destaque,
              p.usuarios_base, p.usuarios_max, p.preco_usuario_adicional, p.customizavel,
+             c.meses AS ciclo_meses, c.preco_mensal::float8 AS ciclo_preco_mensal, c.asaas_cycle,
              (SELECT COUNT(*)::int FROM usuarios u WHERE u.empresa_id = a.empresa_id AND u.ativo) AS usuarios_em_uso
       FROM assinaturas a
       LEFT JOIN planos p ON a.plano_id = p.id
+      LEFT JOIN planos_ciclos c ON c.plano_id = p.id AND c.ciclo = a.ciclo AND c.ativo = true
       WHERE a.empresa_id = $1
     `, [empresaId]);
 
@@ -98,20 +194,36 @@ export const assinaturasService = {
       usuarios_max: row.usuarios_max,
       preco_usuario_adicional: Number(row.preco_usuario_adicional || 0),
       customizavel: !!row.customizavel,
+      ciclos: [],
     } : null;
 
     // Assinatura antiga sem quantidade definida cai na base do plano.
     const contratados = row.usuarios_contratados ?? plano?.usuarios_base ?? null;
 
+    // Assinatura anterior à 067 não tem linha em planos_ciclos para o ciclo
+    // dela? Não acontece (todas nascem 'mensal'), mas o LEFT JOIN pode vir
+    // vazio se alguém desativar um ciclo já contratado — aí vale o de tabela.
+    const cicloAtual: PlanoCiclo = {
+      ciclo: (row.ciclo || 'mensal') as Ciclo,
+      meses: row.ciclo_meses ?? 1,
+      preco_mensal: row.ciclo_preco_mensal ?? Number(row.preco_mensal || 0),
+      asaas_cycle: row.asaas_cycle || 'MONTHLY',
+    };
+
+    const cobranca = plano && contratados
+      ? calcularCobranca(plano, cicloAtual, contratados, row.usuarios_cortesia ?? 0)
+      : null;
+
     return {
       ...row,
       plano,
+      ciclo: cicloAtual.ciclo,
+      ciclo_meses: cicloAtual.meses,
       usuarios_contratados: contratados,
       usuarios_cortesia: row.usuarios_cortesia ?? 0,
       usuarios_em_uso: row.usuarios_em_uso ?? 0,
-      preco_total: plano && contratados
-        ? calcularPreco(plano, contratados, row.usuarios_cortesia ?? 0)
-        : plano ? Number(plano.preco_mensal) : undefined,
+      preco_total: cobranca ? cobranca.mensal : plano ? Number(plano.preco_mensal) : undefined,
+      preco_por_ciclo: cobranca ? cobranca.total : undefined,
     };
   },
 
@@ -165,13 +277,18 @@ export const assinaturasService = {
       throw new Error(`A empresa tem ${emUso} usuários ativos. Desative ${emUso - qtd} antes de reduzir para ${qtd}.`);
     }
 
-    const novoPreco = calcularPreco(plano, qtd, assinatura.usuarios_cortesia);
+    // O valor mandado ao Asaas é o do CICLO, não o mensal: numa assinatura anual
+    // o `value` da subscription é o que se cobra de uma vez por ano. Mandar o
+    // mensal aqui cortaria a cobrança a um doze avos sem ninguém notar.
+    const ciclo = await this.getCiclo(plano.id, assinatura.ciclo);
+    const cobranca = calcularCobranca(plano, ciclo, qtd, assinatura.usuarios_cortesia);
 
     // Reprecifica no Asaas antes de gravar: se a cobrança falhar, o limite não muda.
     if (assinatura.asaas_subscription_id) {
+      await asaasService.garantirContaCorreta();
       await asaasService.updateSubscription(assinatura.asaas_subscription_id, {
-        value: novoPreco,
-        description: `${plano.nome} — ${qtd} usuários — Gestão Financeira DuoFuturo`,
+        value: cobranca.total,
+        description: descricaoAssinatura(plano.nome, qtd, ciclo),
         updatePendingPayments: true,
       });
     }
@@ -240,9 +357,17 @@ export const assinaturasService = {
     remoteIp?: string;
     /** Total de usuários contratados (inclui o master). Default: base do plano. */
     usuarios?: number;
+    /** Compromisso de fidelidade. Default: mensal. */
+    ciclo?: string;
   }): Promise<{ assinatura: Assinatura; paymentUrl?: string; pixQrCode?: string; pixQrCodeImage?: string }> {
     const plano = await this.getPlanoById(params.planoId);
     if (!plano) throw new Error('Plano não encontrado');
+
+    // Antes de qualquer chamada: a chave em uso tem que ser da conta certa. O
+    // passo 2 abaixo cancela a assinatura anterior e engole o erro — com a chave
+    // errada, o cancelamento daria 404 e a cobrança antiga seguiria viva na
+    // outra conta enquanto uma nova nascia aqui.
+    await asaasService.garantirContaCorreta();
 
     const assinatura = await this.getAssinaturaByEmpresa(params.empresaId);
 
@@ -262,7 +387,8 @@ export const assinaturasService = {
     }
 
     // A cortesia é do plano anterior: ao contratar, o cliente passa a pagar o que escolheu.
-    const precoTotal = calcularPreco(plano, usuarios, 0);
+    const ciclo = await this.getCiclo(plano.id, params.ciclo);
+    const cobranca = calcularCobranca(plano, ciclo, usuarios, 0);
 
     // 1. Criar ou recuperar customer no Asaas
     let customerId = assinatura?.asaas_customer_id;
@@ -298,9 +424,10 @@ export const assinaturasService = {
     const subscription = await asaasService.createSubscription({
       customerId,
       billingType: params.billingType,
-      value: precoTotal,
+      value: cobranca.total,
+      cycle: ciclo.asaas_cycle,
       nextDueDate,
-      description: `${plano.nome} — ${usuarios} usuários — Gestão Financeira DuoFuturo`,
+      description: descricaoAssinatura(plano.nome, usuarios, ciclo),
       creditCard: params.creditCard,
       creditCardHolderInfo: params.creditCardHolderInfo,
       remoteIp: params.remoteIp,
@@ -310,18 +437,22 @@ export const assinaturasService = {
     // Cartão de crédito: ativa imediatamente (pagamento síncrono)
     // PIX / Boleto: aguarda confirmação via webhook
     const statusInicial = params.billingType === 'CREDIT_CARD' ? 'ativa' : 'aguardando_pagamento';
-    const planoAtivate = params.billingType === 'CREDIT_CARD' ? addMonthsClamped(new Date(), 1) : null;
+    // Pagou o ciclo inteiro adiantado: o acesso vale pelos meses do ciclo, não
+    // por um mês. Num anual, somar 1 mês bloquearia o cliente em 30 dias.
+    const planoAtivate = params.billingType === 'CREDIT_CARD'
+      ? addMonthsClamped(new Date(), ciclo.meses)
+      : null;
 
     // usuarios_cortesia zera: o cliente passa a pagar pela quantidade que contratou.
     await query(`
-      INSERT INTO assinaturas (empresa_id, plano_id, status, asaas_customer_id, asaas_subscription_id, asaas_next_due_date, plano_ativo_ate, usuarios_contratados, usuarios_cortesia, updated_at)
-      VALUES ($1, $2, $7, $3, $4, $5, $6, $8, 0, now())
+      INSERT INTO assinaturas (empresa_id, plano_id, status, asaas_customer_id, asaas_subscription_id, asaas_next_due_date, plano_ativo_ate, usuarios_contratados, usuarios_cortesia, ciclo, updated_at)
+      VALUES ($1, $2, $7, $3, $4, $5, $6, $8, 0, $9, now())
       ON CONFLICT (empresa_id) DO UPDATE SET
         plano_id = $2, status = $7, asaas_customer_id = $3,
         asaas_subscription_id = $4, asaas_next_due_date = $5,
         plano_ativo_ate = $6, usuarios_contratados = $8, usuarios_cortesia = 0,
-        updated_at = now()
-    `, [params.empresaId, params.planoId, customerId, subscription.id, nextDueDate, planoAtivate, statusInicial, usuarios]);
+        ciclo = $9, updated_at = now()
+    `, [params.empresaId, params.planoId, customerId, subscription.id, nextDueDate, planoAtivate, statusInicial, usuarios, ciclo.ciclo]);
 
     const novaAssinatura = await this.getAssinaturaByEmpresa(params.empresaId);
 
@@ -375,6 +506,10 @@ export const assinaturasService = {
     if (!assinatura) throw new Error('Assinatura não encontrada');
 
     if (assinatura.asaas_subscription_id) {
+      // Fora do try: se a conta estiver errada o cancelamento no Asaas seria um
+      // 404 engolido aqui, e a assinatura ficaria 'cancelada' no banco enquanto
+      // seguia cobrando o cliente na conta de verdade.
+      await asaasService.garantirContaCorreta();
       try {
         await asaasService.cancelSubscription(assinatura.asaas_subscription_id);
       } catch { /* ignore */ }
@@ -405,8 +540,12 @@ export const assinaturasService = {
     switch (event) {
       case 'PAYMENT_CONFIRMED':
       case 'PAYMENT_RECEIVED': {
-        // Pagamento confirmado → ativa por mais 1 mês
-        const novoVencimento = addMonthsClamped(new Date(), 1);
+        // Renova pelo tamanho do ciclo pago, não por um mês fixo: quem pagou o
+        // anual adiantado seria suspenso em 30 dias.
+        const cicloPago = assinatura.plano_id
+          ? await this.getCiclo(assinatura.plano_id, assinatura.ciclo)
+          : CICLO_PADRAO;
+        const novoVencimento = addMonthsClamped(new Date(), cicloPago.meses || 1);
         await query(`
           UPDATE assinaturas
           SET status = 'ativa', plano_ativo_ate = $2, asaas_next_due_date = $3, updated_at = now()
