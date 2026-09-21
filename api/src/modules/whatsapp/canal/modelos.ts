@@ -94,6 +94,16 @@ export async function listarModelos(conta: ContaCloud, forcar = false): Promise<
   return modelos;
 }
 
+/**
+ * Esquece o que está guardado da WABA desta conta.
+ *
+ * Chamado logo depois de criar um modelo: sem isso o recém-criado só apareceria
+ * na tela quando o TTL vencesse, e quem acabou de criá-lo concluiria que falhou.
+ */
+export function invalidarCacheModelos(conta: ContaCloud): void {
+  cache.delete(conta.waba_id);
+}
+
 export async function acharModelo(conta: ContaCloud, nome: string, idioma?: string): Promise<ModeloCRM> {
   const todos = await listarModelos(conta);
   const m =

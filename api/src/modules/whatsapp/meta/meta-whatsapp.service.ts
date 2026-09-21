@@ -443,7 +443,18 @@ export function contarVariaveis(corpo: string): number {
   return encontradas.size;
 }
 
-export async function criarTemplate(novo: NovoTemplate) {
+/**
+ * Cria o modelo na WABA de `cred` — a do CLIENTE quando ele está no Embedded
+ * Signup, a nossa quando `cred` não vem (o painel de homologação).
+ *
+ * **Modelo não é portátil entre contas.** Cada WABA aprova os seus, e o nome só
+ * existe dentro dela: mandar um modelo nosso com o token do cliente devolve
+ * "template name does not exist". Por isso a criação tinha que deixar de ser
+ * global — sem ela, um Enterprise recém-conectado não tem UM modelo aprovado e,
+ * fora da janela de 24h, não consegue falar primeiro com ninguém, que é
+ * exatamente o que o plano dele vende.
+ */
+export async function criarTemplate(novo: NovoTemplate, cred?: CredenciaisMeta) {
   const variaveis = contarVariaveis(novo.corpo);
   const exemplos = (novo.exemplos ?? []).filter((e) => e.trim().length > 0);
 
@@ -464,14 +475,14 @@ export async function criarTemplate(novo: NovoTemplate) {
 
   try {
     const { data } = await axios.post(
-      `${BASE_URL}/${getWabaId()}/message_templates`,
+      `${BASE_URL}/${wabaId(cred)}/message_templates`,
       {
         name: novo.nome,
         language: novo.idioma,
         category: novo.categoria,
         components: [body],
       },
-      { headers: getHeaders() }
+      { headers: { Authorization: `Bearer ${token(cred)}`, 'Content-Type': 'application/json' } }
     );
     return data;
   } catch (err) {

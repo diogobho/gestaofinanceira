@@ -31,6 +31,11 @@ router.use(exigirCapacidade('whatsapp_qr'));
 
 // Canal da empresa: número oficial (Cloud API) ou QR Code — janela de 24h e modelos
 router.get('/canal', (req, res) => canalController.getCanal(req, res).catch((e) => res.status(500).json({ error: e.message })));
+router.post(
+  '/canal/modelos',
+  exigirCapacidade('modelos_meta'),
+  (req, res) => canalController.criarModelo(req, res).catch((e) => res.status(500).json({ error: e.message }))
+);
 router.get('/canal/modelos', (req, res) => canalController.getModelos(req, res).catch((e) => res.status(500).json({ error: e.message })));
 router.get('/canal/janela', (req, res) => canalController.getJanela(req, res).catch((e) => res.status(500).json({ error: e.message })));
 

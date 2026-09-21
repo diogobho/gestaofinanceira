@@ -48,6 +48,23 @@ function assinaturaValida(req: Request): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/**
+ * A mensagem chegou ao número institucional da DuoFuturo?
+ *
+ * O webhook é um só para todas as WABAs inscritas no nosso app, e o material de
+ * boas-vindas sai SEMPRE do nosso número — responder a quem escreveu para o número
+ * de um cliente seria iniciar conversa com um desconhecido, pelo canal que existe
+ * justamente para não fazer isso.
+ *
+ * Sem `META_WA_PHONE_NUMBER_ID` configurado não há de onde enviar, então o certo é
+ * não tratar nada — e não é silêncio cego: quem precisa da variável já reprova no
+ * `verificar_canal_oficial.js`.
+ */
+function ehNossoNumeroInstitucional(phoneNumberId?: string): boolean {
+  const nosso = String(process.env.META_WA_PHONE_NUMBER_ID || '').trim();
+  return !!nosso && String(phoneNumberId || '').trim() === nosso;
+}
+
 export class MetaWhatsAppController {
   // GET — verificação do webhook pela Meta
   verifyWebhook(req: Request, res: Response) {
@@ -145,6 +162,14 @@ export class MetaWhatsAppController {
      * deixa responder com texto livre e anexo. Quem pediu o material no cadastro
      * recebe aqui o texto e o PDF do plano dele.
      *
+     * **Só para quem escreveu ao NOSSO número.** Desde o Embedded Signup este
+     * webhook é compartilhado: a WABA de cada cliente Enterprise entrega aqui, e
+     * `value.metadata.phone_number_id` é o único campo que diz a quem a mensagem
+     * foi endereçada. Sem esta guarda, o cliente de um cliente virava linha em
+     * `onboarding_mensagens` (o texto dele, na nossa tabela) e, se o telefone
+     * casasse com um cadastro à espera, recebia o nosso material de boas-vindas
+     * pelo nosso número — uma conversa que ele nunca abriu conosco.
+     *
      * O dedupe e o "uma vez só" vivem no serviço (a Meta reentrega o mesmo
      * evento, e são 3 instâncias no cluster). Mensagem de quem não é conta nova
      * não vira resposta automática: fica registrada para a equipe ler.
@@ -152,6 +177,8 @@ export class MetaWhatsAppController {
      * Falha aqui não pode derrubar o laço do webhook — as outras mensagens do
      * mesmo lote ainda precisam ser processadas.
      */
+    if (!ehNossoNumeroInstitucional(phoneNumberId)) return;
+
     try {
       const desfecho = await processarMensagemRecebida({ messageId: msg.id, de: from, tipo: type, texto: text });
       // O material saiu por fora do CRM (onboarding manda direto pela Meta): registra

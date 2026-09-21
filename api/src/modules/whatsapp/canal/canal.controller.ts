@@ -3,7 +3,9 @@ import { query } from '../../../config/database';
 import { contaAtivaDoUsuario } from './contas';
 import { instancia } from './instancia';
 import { estadoJanela } from './janela';
-import { listarModelos } from './modelos';
+import { listarModelos, invalidarCacheModelos } from './modelos';
+import { credenciaisDa } from './contas';
+import { criarTemplate, contarVariaveis } from '../meta/meta-whatsapp.service';
 
 /**
  * O que a tela precisa saber sobre o canal de WhatsApp de QUEM ESTÁ LOGADO: se é o
@@ -47,6 +49,54 @@ export const canalController = {
       return res.json({ modelos });
     } catch (err: any) {
       return res.status(502).json({ message: `A Meta não devolveu os modelos: ${err.message}` });
+    }
+  },
+
+  /**
+   * Cria um modelo na WABA DO CLIENTE e o manda para aprovação da Meta.
+   *
+   * Existe porque modelo não atravessa conta: os nossos não valem na WABA dele, e
+   * sem nenhum aprovado ele não fala primeiro com ninguém fora da janela de 24h.
+   * Antes disso o único caminho era o WhatsApp Manager da Meta, fora do produto.
+   *
+   * Quem não tem número oficial recebe 409 e não 403: não é plano, é canal — e a
+   * frase que resolve cada um dos dois é diferente.
+   */
+  async criarModelo(req: Request, res: Response) {
+    const empresaId = (req as any).user?.empresa_id;
+    const conta = await contaAtivaDoUsuario((req as any).user?.userId, empresaId);
+    if (!conta) {
+      return res.status(409).json({
+        message: 'Conecte o seu número oficial da Meta antes de criar modelos — eles são aprovados na sua conta, não na nossa.',
+      });
+    }
+
+    const nome = String(req.body?.nome || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const corpo = String(req.body?.corpo || '').trim();
+    const categoria = String(req.body?.categoria || 'MARKETING').toUpperCase();
+    if (!nome || !corpo) return res.status(400).json({ message: 'Nome e corpo são obrigatórios' });
+    if (!['MARKETING', 'UTILITY', 'AUTHENTICATION'].includes(categoria)) {
+      return res.status(400).json({ message: 'Categoria inválida' });
+    }
+
+    const exemplos = Array.isArray(req.body?.exemplos) ? req.body.exemplos.map((e: any) => String(e)) : [];
+    const variaveis = contarVariaveis(corpo);
+    if (variaveis > 0 && exemplos.filter((e: string) => e.trim()).length !== variaveis) {
+      return res.status(400).json({
+        message: `O corpo tem ${variaveis} variável(is) {{n}} e a Meta exige um exemplo para cada uma.`,
+      });
+    }
+
+    try {
+      const criado = await criarTemplate(
+        { nome, corpo, categoria: categoria as any, idioma: String(req.body?.idioma || 'pt_BR'), exemplos },
+        credenciaisDa(conta)
+      );
+      invalidarCacheModelos(conta);
+      // A Meta devolve PENDING quase sempre: aprovação é dela e pode levar horas.
+      return res.status(201).json({ modelo: criado, status: criado?.status ?? 'PENDING' });
+    } catch (err: any) {
+      return res.status(422).json({ message: err?.message || 'A Meta recusou o modelo' });
     }
   },
 
