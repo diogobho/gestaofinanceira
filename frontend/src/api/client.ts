@@ -29,11 +29,17 @@ api.interceptors.response.use(
       window.location.href = '/gestao/login'
     }
 
+    // Chamadas de sondagem (ex.: "esse usuário pode ver tal aba?") passam
+    // `silenciarErro` e tratam a falha sozinhas — um toast ali só assustaria.
+    const silencioso = Boolean((error.config as any)?.silenciarErro)
+
     // Mostrar mensagem de erro se houver
-    if (error.response?.data?.message) {
-      toast.error(error.response.data.message)
-    } else if (error.message) {
-      toast.error(error.message)
+    if (!silencioso) {
+      if (error.response?.data?.message) {
+        toast.error(error.response.data.message)
+      } else if (error.message) {
+        toast.error(error.message)
+      }
     }
 
     return Promise.reject(error)

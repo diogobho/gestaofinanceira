@@ -32,3 +32,30 @@ export const dividirEmParcelas = (total: number, n: number): number[] => {
   const resto = centavos - base * n;
   return Array.from({ length: n }, (_, i) => (base + (i < resto ? 1 : 0)) / 100);
 };
+
+/**
+ * Parcela única de um lançamento à vista.
+ *
+ * O dashboard, a tela de Parcelas e o chat financeiro leem TUDO de
+ * `parcelas_receitas`/`parcelas_despesas`, com INNER JOIN. Um lançamento à
+ * vista que não gera parcela simplesmente não existe para nenhum deles: foi o
+ * que aconteceu com a Loja Mageense (39 lançamentos, dashboard zerado) e com 19
+ * receitas da Panteras. Só a conta demo parecia certa, porque as parcelas dela
+ * foram inseridas pelo seed — por isso a falha atravessou os prints do guia.
+ *
+ * "À vista" aqui é uma parcela de 1 de 1, vencendo na data do lançamento.
+ * Manter o modelo uniforme é mais barato que ensinar cada consulta a somar duas
+ * origens diferentes.
+ *
+ * O status é MAIÚSCULO na parcela e minúsculo no lançamento — as duas tabelas
+ * nasceram assim; converter aqui evita espalhar a tradução.
+ */
+export const statusParcela = (statusLancamento?: string | null): 'PAGO' | 'PENDENTE' =>
+  String(statusLancamento || '').toLowerCase() === 'pago' ? 'PAGO' : 'PENDENTE';
+
+/** `data` do lançamento (Date ou 'YYYY-MM-DD') como 'YYYY-MM-DD', sem passar por fuso. */
+export const dataVencimentoDe = (data: unknown): string => {
+  if (data instanceof Date) return data.toISOString().slice(0, 10);
+  const texto = String(data ?? '');
+  return /^\d{4}-\d{2}-\d{2}/.test(texto) ? texto.slice(0, 10) : new Date(texto).toISOString().slice(0, 10);
+};
