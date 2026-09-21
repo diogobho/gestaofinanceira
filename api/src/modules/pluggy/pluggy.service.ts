@@ -145,6 +145,15 @@ export const pluggyService = {
         );
 
         if (inserted.rows.length > 0) {
+          // Parcela de 1 de 1: a transação importada é à vista e já paga. Sem
+          // ela a despesa não entra no dashboard nem na tela de Parcelas, que
+          // leem parcelas com INNER JOIN (mesma regra do cadastro manual).
+          await query(
+            `INSERT INTO parcelas_despesas
+               (despesa_id, numero_parcela, total_parcelas, valor, data_vencimento, data_pagamento, status)
+             VALUES ($1, 1, 1, $2, $3, $3, 'PAGO')`,
+            [inserted.rows[0].id, valor, data]
+          );
           importadas++;
           await this._checarDuplicataManual(conexao.usuario_id, valor, data, inserted.rows[0].id);
         }

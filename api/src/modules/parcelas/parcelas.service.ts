@@ -1,6 +1,7 @@
 import { query } from '../../config/database';
 import { enviarEmailCobrancaParcela } from '../../services/email.service';
 import { configuracoesSmtpService } from '../configuracoes-smtp/configuracoes-smtp.service';
+import { instancia } from '../whatsapp/canal/instancia';
 
 export const parcelasService = {
   async listReceitas(filters: any) {
@@ -272,21 +273,10 @@ export const parcelasService = {
       jaEnviados: [] as any[]
     };
 
-    // Buscar configurações SMTP da empresa (se existir)
-    let smtpCredentials: any = undefined;
-    if (empresaId) {
-      const smtpConfig = await configuracoesSmtpService.getDecrypted(empresaId);
-      if (smtpConfig && smtpConfig.ativo && smtpConfig.smtp_pass) {
-        smtpCredentials = {
-          smtp_host: smtpConfig.smtp_host,
-          smtp_port: smtpConfig.smtp_port,
-          smtp_user: smtpConfig.smtp_user,
-          smtp_pass: smtpConfig.smtp_pass,
-          email_from: smtpConfig.email_from,
-          email_from_name: smtpConfig.email_from_name,
-        };
-      }
-    }
+    // Só o e-mail da própria empresa. Sem ele, cada parcela volta com o aviso.
+    const smtpCredentials = empresaId
+      ? await configuracoesSmtpService.credenciaisDaEmpresa(empresaId)
+      : null;
 
     for (const parcelaId of parcelaIds) {
       try {
@@ -389,7 +379,7 @@ export const parcelasService = {
           descricao: parcela.descricao,
           mentorNome: parcela.mentor_nome,
           mentorEmail: parcela.mentor_email
-        }, smtpCredentials);
+        }, smtpCredentials ?? undefined);
 
         // Registrar envio no banco
         await query(`
@@ -567,8 +557,7 @@ Por favor, regularize sua situação o quanto antes.
 _Mensagem automática - Sistema DuoFuturo_`;
 
         // Enviar via WhatsApp
-        const response = await axios.post(
-          `http://localhost:${parcela.whatsapp_porta}/send`,
+        const response = await instancia(parcela.whatsapp_porta).post(`/send`,
           {
             number: parcela.cliente_telefone,
             message: mensagem

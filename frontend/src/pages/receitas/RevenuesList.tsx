@@ -280,7 +280,7 @@ export const RevenuesList: React.FC = () => {
                 ⚠️ {avistasSemPagamento.length} receita{avistasSemPagamento.length > 1 ? 's' : ''} "À Vista" sem confirmação de recebimento.
               </p>
               <p className="text-xs text-amber-700 mt-1">
-                Receitas à vista não criam parcelas automaticamente. Acesse a tela de Parcelas e marque o status como <strong>PAGO</strong> quando o pagamento for recebido.
+                Cada uma já tem a sua parcela (1 de 1). Quando o dinheiro entrar, marque como <strong>PAGO</strong> na tela de Parcelas — senão ela segue aparecendo como a receber.
               </p>
             </div>
           )

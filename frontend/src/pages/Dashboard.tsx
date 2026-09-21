@@ -1,13 +1,25 @@
 import React, { useState, useMemo } from 'react'
+import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
-import { Card, Spinner, DateRangePresets } from '@/components/ui'
-import { formatCurrency, toInputDate } from '@/utils'
+import { Card, Spinner, DateRangePresets, Button } from '@/components/ui'
+import { formatCurrency, formatDate, toInputDate } from '@/utils'
+import { useAuth } from '@/contexts/AuthContext'
+import { gerarAssinaturaPadrao } from '@/utils/assinaturaEmail'
+import {
+  capturarGrafico,
+  escaparHtml,
+  exportarRelatorioPdf,
+  listaValoresHtml,
+  tabelaHtml,
+  LARGURA_PAPEL_METADE,
+} from '@/utils/relatorioPdf'
 import {
   TrendingUp,
   TrendingDown,
   DollarSign,
   Wallet,
-  Users
+  Users,
+  FileDown
 } from 'lucide-react'
 import {
   AreaChart, Area,
@@ -16,10 +28,25 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LabelList
 } from 'recharts'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { dashboardApi, clientsApi, parcelasApi } from '@/api'
+import { DetalhamentoLancamentos } from './dashboard/detalhamento/DetalhamentoLancamentos'
+import {
+  agruparPorSituacao,
+  dataPura,
+  descricaoSemCliente,
+  diasEntre,
+  normalizarDespesas,
+  normalizarReceitas,
+  ordenarPorVencimento,
+  somarPorSituacao,
+  type Lancamento,
+  type SomaSituacao,
+} from './dashboard/detalhamento/agregacoes'
 
 export const Dashboard: React.FC = () => {
+  const { user } = useAuth()
+
   // Calcular data padrão: hoje e 3 meses atrás
   const hoje = new Date()
   // Dia limitado a 28 ao voltar meses: com dia 31 o setMonth "cru" cai no mês errado (31/05 − 3 meses = 03/03)
@@ -27,6 +54,12 @@ export const Dashboard: React.FC = () => {
 
   // Data LOCAL (não toISOString/UTC): à noite no Brasil (UTC-3) o ISO já é o dia seguinte
   const formatDateForInput = (date: Date) => toInputDate(date)
+
+  // Percentual em pt-BR. `toFixed` sempre devolve ponto decimal ("98.4%"), e o
+  // relatório inteiro em volta usa vírgula (R$ 64.243,23) — o fallback do
+  // cálculo de margem já era '0,0'.
+  const formatPercent = (value: number) =>
+    `${value.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
 
   // Formata valores compactos para labels de gráfico (evita overflow)
   const formatCompact = (value: number) => {
@@ -44,20 +77,28 @@ export const Dashboard: React.FC = () => {
   })
 
   // Buscar dados do dashboard com filtros
+  /*
+    `placeholderData: keepPreviousData` nas consultas que dependem do filtro:
+    sem isso, mudar o período troca a queryKey, `isLoading` volta a ser true, a
+    página vira um spinner, a altura colapsa e o scroll salta para o topo.
+  */
   const { data: dashboardData, isLoading } = useQuery({
     queryKey: ['dashboard', filtrosAtivos],
-    queryFn: () => dashboardApi.getData(filtrosAtivos)
+    queryFn: () => dashboardApi.getData(filtrosAtivos),
+    placeholderData: keepPreviousData,
   })
 
   // Buscar parcelas para gráficos
   const { data: parcelasReceitas } = useQuery({
     queryKey: ['parcelas-receitas-dash', filtrosAtivos],
-    queryFn: () => parcelasApi.getParcelasReceitas(filtrosAtivos)
+    queryFn: () => parcelasApi.getParcelasReceitas(filtrosAtivos),
+    placeholderData: keepPreviousData,
   })
 
   const { data: parcelasDespesas } = useQuery({
     queryKey: ['parcelas-despesas-dash', filtrosAtivos],
-    queryFn: () => parcelasApi.getParcelasDespesas(filtrosAtivos)
+    queryFn: () => parcelasApi.getParcelasDespesas(filtrosAtivos),
+    placeholderData: keepPreviousData,
   })
 
   const { data: clients } = useQuery({
@@ -74,6 +115,17 @@ export const Dashboard: React.FC = () => {
     setFiltrosAtivos({ data_ini: dataInicial, data_fim: dataFinal })
   }
 
+  /*
+    O mês sai da data LITERAL da parcela. `new Date('2026-09-01T00:00:00.000Z')`
+    no navegador em UTC-3 é 31/08 às 21h: toda parcela que vence no dia 1º
+    caía no mês anterior do gráfico (12 de 666 parcelas na base em 09/2026).
+  */
+  const chaveMes = (v: unknown) => dataPura(v).slice(0, 7)
+  const nomeMes = (mesAno: string) => {
+    const [a, m] = mesAno.split('-').map(Number)
+    return new Date(a, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
+  }
+
   // Dados para gráfico de evolução mensal
   const dadosMensais = useMemo(() => {
     if (!parcelasReceitas || !parcelasDespesas) return []
@@ -82,9 +134,8 @@ export const Dashboard: React.FC = () => {
 
     // Agrupar receitas por mês (inclui PENDENTE e ATRASADO para mostrar previsão)
     parcelasReceitas.forEach((parcela: any) => {
-      const data = new Date(parcela.data_vencimento)
-      const mesAno = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}`
-      const mesNome = data.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
+      const mesAno = chaveMes(parcela.data_vencimento)
+      const mesNome = nomeMes(mesAno)
 
       if (!meses[mesAno]) {
         meses[mesAno] = { mes: mesNome, receitas: 0, despesas: 0, lucro: 0 }
@@ -95,9 +146,8 @@ export const Dashboard: React.FC = () => {
 
     // Agrupar despesas por mês (inclui PENDENTE e ATRASADO para mostrar previsão)
     parcelasDespesas.forEach((parcela: any) => {
-      const data = new Date(parcela.data_vencimento)
-      const mesAno = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}`
-      const mesNome = data.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
+      const mesAno = chaveMes(parcela.data_vencimento)
+      const mesNome = nomeMes(mesAno)
 
       if (!meses[mesAno]) {
         meses[mesAno] = { mes: mesNome, receitas: 0, despesas: 0, lucro: 0 }
@@ -132,79 +182,9 @@ export const Dashboard: React.FC = () => {
     ].filter(item => item.value > 0)
   }, [parcelasReceitas, parcelasDespesas])
 
-  // Top 5 Clientes por Receita
-  const topClientes = useMemo(() => {
-    if (!parcelasReceitas) return []
-
-    const clientesMap: Record<string, { nome: string, valor: number }> = {}
-
-    parcelasReceitas.forEach((parcela: any) => {
-      if (parcela.cliente_nome && parcela.status === 'PAGO') {
-        if (!clientesMap[parcela.cliente_nome]) {
-          clientesMap[parcela.cliente_nome] = { nome: parcela.cliente_nome, valor: 0 }
-        }
-        clientesMap[parcela.cliente_nome].valor += parseFloat(parcela.valor)
-      }
-    })
-
-    return Object.values(clientesMap)
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 5)
-  }, [parcelasReceitas])
-
-  // Receitas por Produto
-  const receitasPorProduto = useMemo(() => {
-    if (!parcelasReceitas) return []
-
-    const produtosMap: Record<string, number> = {}
-
-    parcelasReceitas.forEach((parcela: any) => {
-      const produto = parcela.receita_descricao || 'Sem Descrição'
-      if (parcela.status === 'PAGO') {
-        if (!produtosMap[produto]) {
-          produtosMap[produto] = 0
-        }
-        produtosMap[produto] += parseFloat(parcela.valor)
-      }
-    })
-
-    const cores = ['#10B981', '#3B82F6', '#F59E0B', '#3a5483', '#EC4899', '#14B8A6']
-
-    return Object.entries(produtosMap)
-      .map(([produto, valor], index) => ({
-        name: produto,
-        value: valor,
-        color: cores[index % cores.length]
-      }))
-      .sort((a, b) => b.value - a.value)
-  }, [parcelasReceitas])
-
-  // Despesas por Produto
-  const despesasPorProduto = useMemo(() => {
-    if (!parcelasDespesas) return []
-
-    const produtosMap: Record<string, number> = {}
-
-    parcelasDespesas.forEach((parcela: any) => {
-      const produto = parcela.despesa_descricao || 'Sem Descrição'
-      if (parcela.status === 'PAGO') {
-        if (!produtosMap[produto]) {
-          produtosMap[produto] = 0
-        }
-        produtosMap[produto] += parseFloat(parcela.valor)
-      }
-    })
-
-    const cores = ['#EF4444', '#F97316', '#F59E0B', '#EAB308', '#84CC16', '#22C55E']
-
-    return Object.entries(produtosMap)
-      .map(([produto, valor], index) => ({
-        name: produto,
-        value: valor,
-        color: cores[index % cores.length]
-      }))
-      .sort((a, b) => b.value - a.value)
-  }, [parcelasDespesas])
+  // Detalhamento — quem pagou / com o que foi gasto. Mesmas parcelas, mesmo período.
+  const lancReceitas = useMemo(() => normalizarReceitas(parcelasReceitas), [parcelasReceitas])
+  const lancDespesas = useMemo(() => normalizarDespesas(parcelasDespesas), [parcelasDespesas])
 
   // Métricas adicionais
   const metricas = useMemo(() => {
@@ -236,6 +216,308 @@ export const Dashboard: React.FC = () => {
     }
   }, [parcelasReceitas, parcelasDespesas])
 
+  /* ------------------------------------------------------ relatório PDF --- */
+
+  // Cabeçalho do PDF é a assinatura salva em /gestao/perfil; sem ela, o padrão
+  // montado com os dados da empresa — o mesmo que o disparo de e-mail usa.
+  const assinaturaHtml = useMemo(
+    () =>
+      user?.assinatura_email ||
+      gerarAssinaturaPadrao({
+        nomeUsuario: user?.nome,
+        emailUsuario: user?.email,
+        empresa: user?.empresa,
+      }),
+    [user?.assinatura_email, user?.nome, user?.email, user?.empresa]
+  )
+
+  const [exportando, setExportando] = useState(false)
+
+  const periodoTexto = (() => {
+    const de = filtrosAtivos.data_ini
+    const ate = filtrosAtivos.data_fim
+    if (de && ate) return `${formatDate(de)} a ${formatDate(ate)}`
+    if (de) return `a partir de ${formatDate(de)}`
+    if (ate) return `até ${formatDate(ate)}`
+    return 'todo o histórico'
+  })()
+
+  const exportarPdf = async () => {
+    setExportando(true)
+    try {
+      const receitasReal = dashboardData?.receitas.realizadas || 0
+      const receitasPrev = dashboardData?.receitas.previstas || 0
+      const receitasTot = dashboardData?.receitas.total || 0
+      const despesasReal = dashboardData?.despesas.realizadas || 0
+      const despesasPrev = dashboardData?.despesas.previstas || 0
+      const despesasTot = dashboardData?.despesas.total || 0
+      const lucro = dashboardData?.lucro.total || 0
+      const margem = formatPercent(receitasTot > 0 ? (lucro / receitasTot) * 100 : 0)
+
+      const de = filtrosAtivos.data_ini
+      const ate = filtrosAtivos.data_fim
+
+      const totalStatus = dadosStatus.reduce((acc, s) => acc + s.value, 0)
+
+      // Detalhamento com TODAS as parcelas do período, abertas por situação —
+      // ver `agruparPorSituacao`: filtrar só as pagas deixava as tabelas vazias
+      // em conta que não dá baixa, logo abaixo de um faturamento de seis dígitos.
+      const tabelaGrupos = (tipo: 'receita' | 'despesa', rotulo: string, lancs: Lancamento[], chave: string) => {
+        const t = somarPorSituacao(lancs)
+        // Zero vira travessão no corpo: uma coluna de "R$ 0,00" esconde o valor
+        // que importa. No total fica o número, para não restar dúvida.
+        const valor = (v: number) => (Math.abs(v) < 0.005 ? '—' : formatCurrency(v))
+        const colunasSituacao = (s: SomaSituacao, fmt: (v: number) => string) =>
+          [s.pago, s.aVencer, s.atrasado, s.total].map(fmt)
+        return tabelaHtml(
+          [
+            { titulo: rotulo },
+            { titulo: 'Parc.', alinhar: 'direita' },
+            { titulo: tipo === 'receita' ? 'Recebido' : 'Pago', alinhar: 'direita' },
+            { titulo: 'A vencer', alinhar: 'direita' },
+            { titulo: 'Em atraso', alinhar: 'direita' },
+            { titulo: 'Total', alinhar: 'direita' },
+          ],
+          agruparPorSituacao(lancs, chave).map((g) => [g.nome, g.quantidade, ...colunasSituacao(g, valor)]),
+          ['Total', t.quantidade, ...colunasSituacao(t, formatCurrency)]
+        )
+      }
+      const qtd = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`
+      const nGrupos = (lancs: Lancamento[], chave: string) => new Set(lancs.map((l) => l.grupos[chave])).size
+
+      // Situação escrita por extenso: no papel não há cor que ajude.
+      const hojeISO = toInputDate(new Date())
+      const situacaoPdf = (l: Lancamento, tipo: 'receita' | 'despesa') => {
+        if (l.status === 'PAGO') {
+          return `${tipo === 'receita' ? 'Recebido' : 'Pago'} em ${formatDate(l.pagamento ?? l.vencimento)}`
+        }
+        if (l.status === 'ATRASADO') {
+          const dias = diasEntre(l.vencimento, hojeISO)
+          return dias > 0 ? `Em atraso há ${qtd(dias, 'dia', 'dias')}` : 'Em atraso'
+        }
+        return 'A vencer'
+      }
+
+      // Mesmo corte do Conta Azul: milhares de linhas viram dezenas de páginas.
+      const LIMITE_LANCAMENTOS_PDF = 150
+      const notaCorte = (n: number) =>
+        n > LIMITE_LANCAMENTOS_PDF
+          ? `As ${LIMITE_LANCAMENTOS_PDF} de vencimento mais recente, de ${n} parcelas — a lista inteira está no dashboard e na tela de Parcelas.`
+          : `${qtd(n, 'parcela', 'parcelas')}, pagas e em aberto · vencimento mais recente primeiro`
+
+      await exportarRelatorioPdf({
+        titulo: 'Relatório Financeiro',
+        subtitulo: user?.empresa?.nome || undefined,
+        periodo: `<strong>Período:</strong> ${escaparHtml(periodoTexto)}`,
+        assinaturaHtml,
+        nomeArquivo: `relatorio-financeiro-${de || 'inicio'}-a-${ate || 'hoje'}`,
+        resumo: [
+          {
+            rotulo: 'Faturamento do período',
+            valor: formatCurrency(receitasTot),
+            detalhe: `${formatCurrency(receitasReal)} recebido · ${formatCurrency(receitasPrev)} a receber`,
+            cor: '#047857',
+          },
+          {
+            rotulo: 'Despesas do período',
+            valor: formatCurrency(despesasTot),
+            detalhe: `${formatCurrency(despesasReal)} pago · ${formatCurrency(despesasPrev)} a pagar`,
+            cor: '#b91c1c',
+          },
+          {
+            rotulo: 'Lucro',
+            valor: formatCurrency(lucro),
+            detalhe: `Margem: ${margem}`,
+            cor: lucro >= 0 ? '#1d4ed8' : '#b91c1c',
+          },
+          {
+            rotulo: 'Clientes ativos',
+            valor: String(clients?.length || 0),
+            detalhe: 'Total cadastrados',
+          },
+          {
+            rotulo: 'Ticket médio',
+            valor: formatCurrency(
+              metricas.ticketMedio > 0 ? metricas.ticketMedio : metricas.ticketMedioProjetado
+            ),
+            detalhe:
+              metricas.ticketMedio > 0
+                ? 'Baseado em parcelas pagas'
+                : 'Projetado (sem pagamentos ainda)',
+          },
+          {
+            rotulo: 'Taxa de inadimplência',
+            valor: formatPercent(metricas.taxaInadimplencia),
+            detalhe: `${metricas.parcelasAtrasadas} de ${metricas.totalParcelas} parcelas`,
+            cor: metricas.taxaInadimplencia < 10 ? '#047857' : metricas.taxaInadimplencia < 20 ? '#b45309' : '#b91c1c',
+          },
+          {
+            rotulo: 'Receitas previstas',
+            valor: formatCurrency(receitasPrev),
+            detalhe: 'A receber',
+          },
+          {
+            rotulo: 'Despesas previstas',
+            valor: formatCurrency(despesasPrev),
+            detalhe: 'A pagar',
+          },
+        ],
+        blocos: [
+          {
+            titulo: 'Receitas e despesas no período',
+            metade: true,
+            html: tabelaHtml(
+              [
+                { titulo: 'Movimento' },
+                { titulo: 'Realizado', alinhar: 'direita' },
+                { titulo: 'Previsto', alinhar: 'direita' },
+                { titulo: 'Total', alinhar: 'direita' },
+              ],
+              [
+                ['Receitas', formatCurrency(receitasReal), formatCurrency(receitasPrev), formatCurrency(receitasReal + receitasPrev)],
+                ['Despesas', formatCurrency(despesasReal), formatCurrency(despesasPrev), formatCurrency(despesasReal + despesasPrev)],
+                ['Resultado', formatCurrency(receitasReal - despesasReal), formatCurrency(receitasPrev - despesasPrev), formatCurrency(lucro)],
+              ]
+            ),
+          },
+          {
+            titulo: 'Status das parcelas',
+            descricao: `${totalStatus} parcelas no período`,
+            metade: true,
+            html: listaValoresHtml(
+              dadosStatus.map((s) => ({
+                rotulo: s.name,
+                valor: `${s.value} (${totalStatus > 0 ? ((s.value / totalStatus) * 100).toFixed(0) : 0}%)`,
+                cor: s.color,
+              }))
+            ),
+          },
+          {
+            // Os dois gráficos dividem uma linha, e as duas tabelas a
+            // seguinte. Meia largura só passou a ser possível quando
+            // `capturarGrafico` deixou de amarrar o tamanho do texto à largura
+            // do bloco: antes, espremido em meia coluna, o eixo encolhia junto
+            // com o SVG e ficava ilegível — e em largura cheia um gráfico só
+            // comia 431px de página e empurrava o resto para a folha seguinte.
+            titulo: 'Evolução mensal',
+            descricao: 'Inclui parcelas pagas e a receber no período',
+            metade: true,
+            html: capturarGrafico('[data-grafico="evolucao-mensal"]', {
+              larguraAlvo: LARGURA_PAPEL_METADE,
+              alturaMax: 230,
+            }),
+          },
+          {
+            titulo: 'Receitas vs Despesas',
+            metade: true,
+            html: capturarGrafico('[data-grafico="comparacao"]', {
+              larguraAlvo: LARGURA_PAPEL_METADE,
+              alturaMax: 230,
+            }),
+          },
+          {
+            titulo: 'Evolução mensal (valores)',
+            html: tabelaHtml(
+              [
+                { titulo: 'Mês' },
+                { titulo: 'Receitas', alinhar: 'direita' },
+                { titulo: 'Despesas', alinhar: 'direita' },
+                { titulo: 'Lucro', alinhar: 'direita' },
+              ],
+              dadosMensais.map((m) => [
+                m.mes,
+                formatCurrency(m.receitas),
+                formatCurrency(m.despesas),
+                formatCurrency(m.lucro),
+              ])
+            ),
+          },
+          // Detalhamento: quem pagou, quem deve e com o que se gastou. Largura
+          // cheia — seis colunas não cabem em meia A4 — e tabelas inteiras, não
+          // o top 5: é o que o relatório existe para responder.
+          {
+            titulo: 'Receitas por cliente',
+            descricao: `Quem pagou e quem ainda deve · ${qtd(lancReceitas.length, 'parcela', 'parcelas')} de ${qtd(nGrupos(lancReceitas, 'cliente'), 'cliente', 'clientes')}`,
+            html: tabelaGrupos('receita', 'Cliente', lancReceitas, 'cliente'),
+          },
+          {
+            titulo: 'Receitas por produto',
+            descricao: qtd(nGrupos(lancReceitas, 'produto'), 'produto', 'produtos'),
+            html: tabelaGrupos('receita', 'Produto', lancReceitas, 'produto'),
+          },
+          {
+            titulo: 'Despesas por categoria',
+            descricao: `Com o que foi gasto e o que falta pagar · ${qtd(lancDespesas.length, 'parcela', 'parcelas')} em ${qtd(nGrupos(lancDespesas, 'categoria'), 'categoria', 'categorias')}`,
+            html: tabelaGrupos('despesa', 'Categoria', lancDespesas, 'categoria'),
+          },
+          {
+            titulo: 'Despesas por descrição',
+            descricao: qtd(nGrupos(lancDespesas, 'descricao'), 'descrição', 'descrições'),
+            html: tabelaGrupos('despesa', 'Descrição', lancDespesas, 'descricao'),
+          },
+          {
+            titulo: 'Receitas do período — parcela a parcela',
+            descricao: notaCorte(lancReceitas.length),
+            html: tabelaHtml(
+              [
+                { titulo: 'Vencimento', semQuebra: true },
+                { titulo: 'Cliente' },
+                { titulo: 'Produto', largura: '20%' },
+                { titulo: 'Descrição', largura: '14%' },
+                { titulo: 'Parcela', semQuebra: true },
+                { titulo: 'Situação', semQuebra: true },
+                { titulo: 'Valor', alinhar: 'direita' },
+              ],
+              ordenarPorVencimento(lancReceitas)
+                .slice(0, LIMITE_LANCAMENTOS_PDF)
+                .map((l) => [
+                  formatDate(l.vencimento),
+                  l.grupos.cliente,
+                  l.grupos.produto,
+                  descricaoSemCliente(l),
+                  l.parcela ?? 'à vista',
+                  situacaoPdf(l, 'receita'),
+                  formatCurrency(l.valor),
+                ])
+            ),
+          },
+          {
+            titulo: 'Despesas do período — parcela a parcela',
+            descricao: notaCorte(lancDespesas.length),
+            html: tabelaHtml(
+              [
+                { titulo: 'Vencimento', semQuebra: true },
+                { titulo: 'Categoria' },
+                { titulo: 'Descrição' },
+                { titulo: 'Parcela', semQuebra: true },
+                { titulo: 'Situação', semQuebra: true },
+                { titulo: 'Valor', alinhar: 'direita' },
+              ],
+              ordenarPorVencimento(lancDespesas)
+                .slice(0, LIMITE_LANCAMENTOS_PDF)
+                .map((l) => [
+                  formatDate(l.vencimento),
+                  l.grupos.categoria,
+                  l.descricao,
+                  l.parcela ?? 'à vista',
+                  situacaoPdf(l, 'despesa'),
+                  formatCurrency(l.valor),
+                ])
+            ),
+          },
+        ],
+        notaRodape:
+          'Valores por data de vencimento das parcelas. "Realizado", "recebido" e "pago" são parcelas com status PAGO; ' +
+          '"a vencer" são as pendentes dentro do prazo e "em atraso" as que venceram sem baixa — ' +
+          'juntas, formam o "previsto" do mesmo período.',
+      })
+    } catch (erro: any) {
+      toast.error(erro?.message || 'Não foi possível gerar o relatório.')
+    } finally {
+      setExportando(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full min-h-[60vh]">
@@ -258,6 +540,19 @@ export const Dashboard: React.FC = () => {
       <Header
         title="Dashboard Financeiro"
         subtitle="Visão geral completa do seu negócio"
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportarPdf}
+            isLoading={exportando}
+            title="Gera um PDF com os números do período filtrado"
+            data-tour="dash-exportar"
+          >
+            <FileDown className="w-4 h-4 mr-2" />
+            Exportar PDF
+          </Button>
+        }
       />
 
       <div className="p-4 sm:p-6 space-y-6">
@@ -319,7 +614,7 @@ export const Dashboard: React.FC = () => {
                   {formatCurrency(lucroTotal)}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  {`Margem: ${receitaTotal > 0 ? ((lucroTotal / receitaTotal) * 100).toFixed(1) : 0}%`}
+                  {`Margem: ${formatPercent(receitaTotal > 0 ? (lucroTotal / receitaTotal) * 100 : 0)}`}
                 </p>
               </div>
               <div className="p-3 bg-blue-100 rounded-full">
@@ -368,7 +663,7 @@ export const Dashboard: React.FC = () => {
               <div>
                 <p className="text-sm text-gray-600">Taxa de Inadimplência</p>
                 <p className={`text-2xl font-bold mt-1 ${metricas.taxaInadimplencia < 10 ? 'text-green-600' : metricas.taxaInadimplencia < 20 ? 'text-yellow-600' : 'text-red-600'}`}>
-                  {metricas.taxaInadimplencia.toFixed(1)}%
+                  {formatPercent(metricas.taxaInadimplencia)}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">{metricas.parcelasAtrasadas} de {metricas.totalParcelas} parcelas</p>
               </div>
@@ -530,7 +825,7 @@ export const Dashboard: React.FC = () => {
           <Card>
             <h3 className="text-lg font-semibold text-gray-900 mb-1">Evolução Mensal</h3>
             <p className="text-xs text-gray-400 mb-4">Inclui parcelas pagas e a receber no período</p>
-            <div style={{ width: '100%', height: '300px' }}>
+            <div data-grafico="evolucao-mensal" style={{ width: '100%', height: '300px' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={dadosMensais}>
                   <defs>
@@ -544,7 +839,10 @@ export const Dashboard: React.FC = () => {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="mes" stroke="#6B7280" style={{ fontSize: '12px' }} />
+                  {/* Sem `padding` o primeiro e o último ponto encostam nas bordas:
+                      o rótulo do primeiro cobre o eixo Y e o do último vaza para
+                      fora da área desenhada (no PDF saía cortado no meio). */}
+                  <XAxis dataKey="mes" stroke="#6B7280" style={{ fontSize: '12px' }} padding={{ left: 28, right: 28 }} />
                   <YAxis stroke="#6B7280" style={{ fontSize: '12px' }} />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
@@ -574,9 +872,7 @@ export const Dashboard: React.FC = () => {
                     name="Despesas"
                     dot={{ r: 4, fill: '#EF4444', strokeWidth: 0 }}
                     activeDot={{ r: 6 }}
-                  >
-                    <LabelList dataKey="despesas" position="bottom" style={{ fontSize: '10px', fill: '#EF4444', fontWeight: 600 }} formatter={(v: any) => formatCompact(v as number)} />
-                  </Area>
+                  />
                   <Area
                     type="monotone"
                     dataKey="lucro"
@@ -595,7 +891,7 @@ export const Dashboard: React.FC = () => {
           {/* Gráfico de Status */}
           <Card>
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Status das Parcelas</h3>
-            <div style={{ width: '100%', height: '300px' }}>
+            <div data-grafico="status-parcelas" style={{ width: '100%', height: '300px' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -626,9 +922,9 @@ export const Dashboard: React.FC = () => {
         {/* Mais Gráficos */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Gráfico de Barras - Comparação Mensal */}
-          <Card>
+          <Card className="lg:col-span-2">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Comparação Receitas vs Despesas</h3>
-            <div style={{ width: '100%', height: '300px' }}>
+            <div data-grafico="comparacao" style={{ width: '100%', height: '300px' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dadosMensais}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -650,106 +946,12 @@ export const Dashboard: React.FC = () => {
             </div>
           </Card>
 
-          {/* Top 5 Clientes */}
-          <Card>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Top 5 Clientes
-            </h3>
-            <div style={{ width: '100%', height: '300px' }}>
-              {topClientes.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topClientes} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis type="number" stroke="#6B7280" style={{ fontSize: '12px' }} />
-                    <YAxis type="category" dataKey="nome" stroke="#6B7280" style={{ fontSize: '12px' }} width={100} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
-                      formatter={(value: any) => formatCurrency(value)}
-                    />
-                    <Bar dataKey="valor" fill="#3a5483" name="Receita Total" radius={[0, 6, 6, 0]}>
-                      <LabelList dataKey="valor" position="right" style={{ fontSize: '10px', fill: '#374151', fontWeight: 600 }} formatter={(v: any) => formatCompact(v as number)} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-full text-gray-500">
-                  Nenhum cliente com receitas pagas no período
-                </div>
-              )}
-            </div>
-          </Card>
+        </div>
 
-          {/* Receitas por Produto/Fonte */}
-          <Card>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Receitas por Produto</h3>
-            <div style={{ width: '100%', height: '300px' }}>
-              {receitasPorProduto.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={receitasPorProduto}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={90}
-                      paddingAngle={3}
-                      labelLine={false}
-                      label={({ name, percent }: any) =>
-                        (percent as number) > 0.08 ? `${(name as string).length > 12 ? (name as string).slice(0, 12) + '…' : name} ${((percent as number) * 100).toFixed(0)}%` : ''
-                      }
-                      dataKey="value"
-                    >
-                      {receitasPorProduto.map((entry, index) => (
-                        <Cell key={`cell-receita-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value: any) => formatCurrency(value)} />
-                    <Legend formatter={(value, entry: any) => `${value}: ${formatCompact(entry.payload.value)}`} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-full text-gray-500">
-                  Nenhuma receita paga no período
-                </div>
-              )}
-            </div>
-          </Card>
-
-          {/* Despesas por Produto/Categoria */}
-          <Card>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Despesas por Produto</h3>
-            <div style={{ width: '100%', height: '300px' }}>
-              {despesasPorProduto.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={despesasPorProduto}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={90}
-                      paddingAngle={3}
-                      labelLine={false}
-                      label={({ name, percent }: any) =>
-                        (percent as number) > 0.08 ? `${(name as string).length > 12 ? (name as string).slice(0, 12) + '…' : name} ${((percent as number) * 100).toFixed(0)}%` : ''
-                      }
-                      dataKey="value"
-                    >
-                      {despesasPorProduto.map((entry, index) => (
-                        <Cell key={`cell-despesa-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value: any) => formatCurrency(value)} />
-                    <Legend formatter={(value, entry: any) => `${value}: ${formatCompact(entry.payload.value)}`} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-full text-gray-500">
-                  Nenhuma despesa paga no período
-                </div>
-              )}
-            </div>
-          </Card>
+        {/* Detalhamento — quem pagou e com o que foi gasto, lançamento a lançamento */}
+        <div className="space-y-6" data-tour="dash-detalhamento">
+          <DetalhamentoLancamentos tipo="receita" lancamentos={lancReceitas} periodo={periodoTexto} />
+          <DetalhamentoLancamentos tipo="despesa" lancamentos={lancDespesas} periodo={periodoTexto} />
         </div>
 
         {/* Card de Informação */}
@@ -764,6 +966,7 @@ export const Dashboard: React.FC = () => {
               <li>• <strong>Evolução Mensal:</strong> agrupa todas as parcelas por mês de vencimento (pagas + previstas)</li>
               <li>• <strong>Filtro padrão:</strong> Últimos 3 meses — parcelas fora deste intervalo não aparecem aqui (veja o módulo Parcelas para totais globais)</li>
               <li>• <strong>Ticket Médio:</strong> calculado sobre parcelas pagas; exibe projeção quando não há pagamentos ainda</li>
+              <li>• <strong>Quem pagou / Com o que foi gasto:</strong> cada parcela do período, agrupada por cliente, produto, categoria ou descrição — clique num nome para ver os lançamentos dele</li>
             </ul>
           </div>
         </Card>

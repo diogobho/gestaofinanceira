@@ -53,6 +53,25 @@ export const DateRangePresets: React.FC<DateRangePresetsProps> = ({
     onChange(inicio, fim)
   }
 
+  /*
+    Ordem das datas: corrigimos em vez de bloquear.
+    Antes, o campo "De" tinha `max={dataFim}` e o "Até" `min={dataInicio}`. Com um
+    intervalo de jun→ago, o calendário do "De" simplesmente não deixava escolher
+    nada depois de agosto: para andar com o período para a frente era preciso
+    adivinhar que se mexe primeiro no "Até". Na prática o filtro parecia travado.
+    Agora, escolher um início depois do fim empurra o fim junto (e vice-versa) —
+    o intervalo nunca fica invertido e nenhuma data fica fora de alcance.
+  */
+  const mudarInicio = (novoInicio: string) => {
+    const fimAjustado = novoInicio && dataFim && novoInicio > dataFim ? novoInicio : dataFim
+    onChange(novoInicio, fimAjustado)
+  }
+
+  const mudarFim = (novoFim: string) => {
+    const inicioAjustado = novoFim && dataInicio && novoFim < dataInicio ? novoFim : dataInicio
+    onChange(inicioAjustado, novoFim)
+  }
+
   const presets: { key: DateRangePreset; label: string }[] = [
     { key: 'hoje', label: 'Hoje' },
     { key: '7dias', label: '7 dias' },
@@ -76,8 +95,7 @@ export const DateRangePresets: React.FC<DateRangePresetsProps> = ({
           <input
             type="date"
             value={dataInicio}
-            max={dataFim || undefined}
-            onChange={(e) => onChange(e.target.value, dataFim)}
+            onChange={(e) => mudarInicio(e.target.value)}
             className="px-3 py-2 border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
           />
         </div>
@@ -87,8 +105,7 @@ export const DateRangePresets: React.FC<DateRangePresetsProps> = ({
           <input
             type="date"
             value={dataFim}
-            min={dataInicio || undefined}
-            onChange={(e) => onChange(dataInicio, e.target.value)}
+            onChange={(e) => mudarFim(e.target.value)}
             className="px-3 py-2 border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
           />
         </div>

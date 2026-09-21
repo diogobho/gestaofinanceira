@@ -76,16 +76,21 @@ export const SessionsList: React.FC = () => {
     e.preventDefault()
     if (createMutation.isPending || updateMutation.isPending) return
     const formData = new FormData(e.currentTarget)
+    // Só Cliente, Data e Horário são realmente obrigatórios: cliente_id é NOT NULL no
+    // banco e sem data/hora não existe agenda. Todo o resto ganha um padrão sensato,
+    // para marcar uma sessão preenchendo três campos.
+    const tipoSessao = (formData.get('tipo_sessao') as string) || 'MENTORIA'
+    const tituloInformado = ((formData.get('titulo') as string) || '').trim()
     const data: any = {
       cliente_id: formData.get('cliente_id') as string,
       mentor_id: user?.id || '',
-      tipo_sessao: formData.get('tipo_sessao') as string,
+      tipo_sessao: tipoSessao,
       data: formData.get('data') as string,
       horario: formData.get('horario') as string,
-      duracao_minutos: parseInt(formData.get('duracao_minutos') as string),
-      modalidade: formData.get('modalidade') as string,
-      titulo: formData.get('titulo') as string,
-      descricao: formData.get('descricao') as string,
+      duracao_minutos: parseInt(formData.get('duracao_minutos') as string) || 60,
+      modalidade: (formData.get('modalidade') as string) || 'ONLINE',
+      titulo: tituloInformado || (tipoSessao.charAt(0) + tipoSessao.slice(1).toLowerCase()),
+      descricao: (formData.get('descricao') as string) || undefined,
       plataforma: formData.get('plataforma') as string || undefined,
       link_sessao: formData.get('link_sessao') as string || undefined,
       notas_internas: formData.get('notas_internas') as string || undefined,
@@ -381,10 +386,9 @@ export const SessionsList: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tipo de Sessão *
+                  Tipo de Sessão
                 </label>
-                <Select name="tipo_sessao" defaultValue={editingItem?.tipo_sessao} required>
-                  <option value="">Selecione...</option>
+                <Select name="tipo_sessao" defaultValue={editingItem?.tipo_sessao || 'MENTORIA'}>
                   <option value="MENTORIA">MENTORIA</option>
                   <option value="COACHING">COACHING</option>
                 </Select>
@@ -392,10 +396,9 @@ export const SessionsList: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Modalidade *
+                  Modalidade
                 </label>
-                <Select name="modalidade" defaultValue={editingItem?.modalidade} required>
-                  <option value="">Selecione...</option>
+                <Select name="modalidade" defaultValue={editingItem?.modalidade || 'ONLINE'}>
                   <option value="ONLINE">ONLINE</option>
                   <option value="PRESENCIAL">PRESENCIAL</option>
                 </Select>
@@ -430,7 +433,7 @@ export const SessionsList: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Duração (minutos) *
+                Duração (minutos)
               </label>
               <Input
                 type="number"
@@ -438,32 +441,30 @@ export const SessionsList: React.FC = () => {
                 defaultValue={editingItem?.duracao_minutos || 60}
                 min="15"
                 step="15"
-                required
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Título *
+                Título
               </label>
               <Input
                 type="text"
                 name="titulo"
                 defaultValue={editingItem?.titulo}
-                placeholder="Ex: Sessão de Planejamento Estratégico"
-                required
+                placeholder="Em branco, usa o tipo da sessão"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Descrição *
+                Descrição
               </label>
               <Textarea
                 name="descricao"
                 defaultValue={editingItem?.descricao}
                 rows={3}
-                required
+                placeholder="Opcional — pauta ou observação da sessão"
               />
             </div>
 

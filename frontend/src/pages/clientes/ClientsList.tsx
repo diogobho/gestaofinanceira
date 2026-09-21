@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
-import { Button, MetricCard, Card, Spinner, Modal, ModalFooter, Input, Badge, MobileCard, MobileCardHeader, MobileCardRow, MobileCardActions } from '@/components/ui'
+import { Button, MetricCard, Card, Spinner, Modal, ModalFooter, Input, Badge, MobileCard, MobileCardHeader, MobileCardRow, MobileCardActions, EstadoVazio } from '@/components/ui'
 import { Plus, Edit, Trash2, Mail, X, Send, Users, Cake } from 'lucide-react'
 import { clientsApi } from '@/api'
 import api from '@/api/client'
@@ -345,6 +345,24 @@ export const ClientsList: React.FC = () => {
                     </td>
                   </tr>
                 ))}
+                {!clients?.length && (
+                  <tr>
+                    {/* A tabela vazia mostrava so o cabecalho — nenhuma pista do
+                        que fazer. colSpan cobre as 8 colunas do thead acima. */}
+                    <td colSpan={8}>
+                      <EstadoVazio
+                        avatar="dupla"
+                        titulo="Nenhum cliente cadastrado ainda"
+                        descricao="O cliente é a base de receitas, despesas e parcelas. Cadastre o primeiro para começar a acompanhar o dinheiro dele."
+                        acao={
+                          <Button variant="primary" onClick={handleOpenModal}>
+                            <Plus className="w-4 h-4 mr-2" /> Cadastrar primeiro cliente
+                          </Button>
+                        }
+                      />
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -405,8 +423,17 @@ export const ClientsList: React.FC = () => {
           ))}
 
           {!clients?.length && (
-            <Card className="p-8 text-center">
-              <p className="text-gray-500">Nenhum cliente cadastrado</p>
+            <Card>
+              <EstadoVazio
+                avatar="dupla"
+                titulo="Nenhum cliente cadastrado ainda"
+                descricao="O cliente é a base de receitas, despesas e parcelas. Cadastre o primeiro para começar."
+                acao={
+                  <Button variant="primary" onClick={handleOpenModal}>
+                    <Plus className="w-4 h-4 mr-2" /> Cadastrar primeiro cliente
+                  </Button>
+                }
+              />
             </Card>
           )}
         </div>

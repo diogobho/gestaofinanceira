@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { clientesService } from './clientes.service';
 import { AuthRequest } from '../../middlewares/auth.middleware';
-import { enviarEmail } from '../../services/email.service';
+import { enviarEmail, ERRO_SEM_SMTP } from '../../services/email.service';
 import { configuracoesSmtpService } from '../configuracoes-smtp/configuracoes-smtp.service';
 import { query } from '../../config/database';
 
@@ -100,6 +100,9 @@ export const clientesController = {
         return res.status(400).json({ message: 'assunto e template são obrigatórios' });
       }
 
+      const smtp = await configuracoesSmtpService.credenciaisDaEmpresa(empresaId);
+      if (!smtp) return res.status(400).json({ message: ERRO_SEM_SMTP });
+
       // Buscar clientes com email
       const clientesResult = await query(
         `SELECT id, nome, email, telefone FROM clientes
@@ -113,8 +116,6 @@ export const clientesController = {
       if (clientes.length === 0) {
         return res.json({ enviados: 0, falhas: 0, semEmail: cliente_ids.length });
       }
-
-      const smtp = await configuracoesSmtpService.getDecrypted(empresaId);
 
       function aplicarVariaveis(tpl: string, c: any) {
         const primeiroNome = c.nome?.split(' ')[0] || '';
@@ -132,14 +133,7 @@ export const clientesController = {
             cliente.email,
             aplicarVariaveis(assunto, cliente),
             aplicarVariaveis(template, cliente),
-            smtp ? {
-              smtp_host: smtp.smtp_host,
-              smtp_port: smtp.smtp_port,
-              smtp_user: smtp.smtp_user,
-              smtp_pass: smtp.smtp_pass!,
-              email_from: smtp.email_from,
-              email_from_name: smtp.email_from_name,
-            } : undefined
+            smtp
           );
           resultados.push({ email: cliente.email, ok: true });
         } catch (err: any) {

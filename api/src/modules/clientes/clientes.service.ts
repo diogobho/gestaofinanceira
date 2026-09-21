@@ -1,5 +1,6 @@
 import { query } from '../../config/database';
 import { leadsService } from '../crm/leads/leads.service';
+import { instancia } from '../whatsapp/canal/instancia';
 
 export const clientesService = {
   async list(filters?: any) {
@@ -251,7 +252,7 @@ export const clientesService = {
     // Enviar via WhatsApp API
     const axios = require('axios');
     try {
-      const response = await axios.post(`http://localhost:${whatsappPorta}/send`, {
+      const response = await instancia(whatsappPorta).post(`/send`, {
         number: cliente.telefone,
         message: mensagem
       }, { timeout: 10000 });

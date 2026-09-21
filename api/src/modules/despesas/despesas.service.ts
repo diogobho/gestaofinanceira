@@ -1,5 +1,5 @@
 import { query } from '../../config/database';
-import { buildPaginationQuery, buildPaginatedResponse, addMonthsClamped, dividirEmParcelas } from '../../shared/utils';
+import { buildPaginationQuery, buildPaginatedResponse, addMonthsClamped, dividirEmParcelas, statusParcela, dataVencimentoDe } from '../../shared/utils';
 
 export const despesasService = {
   async list(filters: any, page: number, pageSize: number) {
@@ -101,7 +101,24 @@ export const despesasService = {
       ]
     );
 
-    return result.rows[0];
+    const despesa = result.rows[0];
+
+    // Lançamento à vista também tem parcela: 1 de 1, vencendo na data dele.
+    // Sem isso ele não aparece no dashboard, na tela de Parcelas nem no chat
+    // financeiro — os três leem parcelas com INNER JOIN.
+    await query(
+      `INSERT INTO parcelas_despesas (despesa_id, numero_parcela, total_parcelas, valor, data_vencimento, status, data_pagamento)
+       VALUES ($1, 1, 1, $2, $3, $4, $5)`,
+      [
+        despesa.id,
+        despesa.valor,
+        dataVencimentoDe(despesa.data),
+        statusParcela(status),
+        status === 'pago' ? dataVencimentoDe(despesa.data) : null,
+      ]
+    );
+
+    return despesa;
   },
 
   async createComParcelas(data: any) {
@@ -204,7 +221,23 @@ export const despesasService = {
     );
 
     if (result.rows.length === 0) throw new Error('Despesa não encontrada ou sem permissão');
-    return result.rows[0];
+    const despesa = result.rows[0];
+
+    // A parcela do lançamento à vista acompanha a edição. Sem isso o dashboard
+    // passaria a mostrar o valor e a data ANTIGOS — errado é pior que ausente.
+    // Lançamento parcelado não entra aqui: lá as parcelas têm vida própria.
+    if (tipoPagamento !== 'parcelado') {
+      await query(
+        `UPDATE parcelas_despesas
+            SET valor = $1, data_vencimento = $2::date, status = $3::varchar,
+                data_pagamento = CASE WHEN $3::varchar = 'PAGO'
+                                      THEN COALESCE(data_pagamento, $2::date) ELSE NULL END,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE despesa_id = $4 AND total_parcelas = 1`,
+        [despesa.valor, dataVencimentoDe(despesa.data), statusParcela(status), id]
+      );
+    }
+    return despesa;
   },
 
   async delete(id: string, filters?: any) {

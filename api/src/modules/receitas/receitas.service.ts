@@ -1,5 +1,5 @@
 import { query } from '../../config/database';
-import { buildPaginationQuery, buildPaginatedResponse, addMonthsClamped, dividirEmParcelas } from '../../shared/utils';
+import { buildPaginationQuery, buildPaginatedResponse, addMonthsClamped, dividirEmParcelas, statusParcela, dataVencimentoDe } from '../../shared/utils';
 
 export const receitasService = {
   async list(filters: any, page: number, pageSize: number) {
@@ -127,6 +127,21 @@ export const receitasService = {
 
     const receita = result.rows[0];
 
+    // Lançamento à vista também tem parcela: 1 de 1, vencendo na data dele.
+    // Sem isso ele não aparece no dashboard, na tela de Parcelas nem no chat
+    // financeiro — os três leem parcelas com INNER JOIN.
+    await query(
+      `INSERT INTO parcelas_receitas (receita_id, numero_parcela, total_parcelas, valor, data_vencimento, status, data_pagamento)
+       VALUES ($1, 1, 1, $2, $3, $4, $5)`,
+      [
+        receita.id,
+        receita.valor,
+        dataVencimentoDe(receita.data),
+        statusParcela(status),
+        status === 'pago' ? dataVencimentoDe(receita.data) : null,
+      ]
+    );
+
     // Se há taxa de serviço, criar despesa automática
     if (data.taxa_servico_percentual && data.taxa_servico_percentual > 0) {
       await this.criarDespesaTaxaServico(receita, data.usuario_id);
@@ -252,7 +267,24 @@ export const receitasService = {
     );
 
     if (result.rows.length === 0) throw new Error('Receita não encontrada ou sem permissão');
-    return result.rows[0];
+    const receita = result.rows[0];
+
+    // A parcela do lançamento à vista acompanha a edição. Sem isso o dashboard
+    // passaria a mostrar o valor e a data ANTIGOS — errado é pior que ausente.
+    // Lançamento parcelado não entra aqui: lá as parcelas têm vida própria
+    // (valor, vencimento e baixa por parcela).
+    if (tipoPagamento !== 'parcelado') {
+      await query(
+        `UPDATE parcelas_receitas
+            SET valor = $1, data_vencimento = $2::date, status = $3::varchar,
+                data_pagamento = CASE WHEN $3::varchar = 'PAGO'
+                                      THEN COALESCE(data_pagamento, $2::date) ELSE NULL END,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE receita_id = $4 AND total_parcelas = 1`,
+        [receita.valor, dataVencimentoDe(receita.data), statusParcela(status), id]
+      );
+    }
+    return receita;
   },
 
   async delete(id: string, filters?: any) {
@@ -404,6 +436,14 @@ export const receitasService = {
           ]
         );
       }
+    } else {
+      // À vista: mesma regra do cadastro normal — sem a parcela de 1 de 1 a
+      // despesa da taxa não entra em nenhuma consulta do dashboard.
+      await query(
+        `INSERT INTO parcelas_despesas (despesa_id, numero_parcela, total_parcelas, valor, data_vencimento, status)
+         VALUES ($1, 1, 1, $2, $3, 'PENDENTE')`,
+        [despesa.id, despesa.valor, dataVencimentoDe(despesa.data)]
+      );
     }
 
     return despesa;
