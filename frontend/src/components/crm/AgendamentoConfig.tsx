@@ -43,6 +43,8 @@ export interface AgendamentoValue {
   data_fixa?: string | null         // 'YYYY-MM-DD'
   hora_envio?: string | null        // 'HH:MM'
   dias_semana?: number[] | null     // 0=Dom..6=Sáb
+  // Cadência no número oficial: modelo aprovado de reserva para a janela de 24h fechada.
+  modelo_whatsapp?: { nome: string; idioma?: string; variaveis: string[]; cabecalho?: string | null } | null
 }
 
 // Variáveis de personalização disponíveis: os atributos do lead e, no fim, quem

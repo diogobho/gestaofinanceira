@@ -56,3 +56,34 @@ export async function leadFalouRecentemente(
   );
   return r.rows.length > 0;
 }
+
+/**
+ * O contato já escreveu para nós ALGUMA vez?
+ *
+ * É a pergunta que separa um follow-up morno de um primeiro contato frio — e é
+ * o primeiro contato frio que faz número comum ser bloqueado pela Meta. Medido
+ * na base em 19/09/2026: 75% dos follow-ups saíram para quem nunca tinha escrito,
+ * proporção maior que a do próprio disparo em massa (69%).
+ *
+ * Por contato, nunca por lead: o mesmo número costuma ter card em mais de um
+ * funil e a entrada é gravada em apenas um deles. E `grupo_whatsapp_id IS NULL`
+ * pelo mesmo motivo de sempre — falar num grupo não é escrever para nós.
+ *
+ * `copia_indevida` fica de fora: aquelas linhas são o vazamento de agosto, e uma
+ * cópia que nunca deveria existir não pode servir de prova de que o contato falou.
+ */
+export async function contatoJaEscreveuAlgumaVez(
+  leadId: number,
+  contatoWhatsappId?: number | null
+): Promise<boolean> {
+  const r = await query(
+    `SELECT 1 FROM historico_mensagens
+      WHERE (lead_id = $1 OR ($2::int IS NOT NULL AND contato_whatsapp_id = $2))
+        AND direcao = 'entrada'
+        AND grupo_whatsapp_id IS NULL
+        AND NOT copia_indevida
+      LIMIT 1`,
+    [leadId, contatoWhatsappId ?? null]
+  );
+  return r.rows.length > 0;
+}

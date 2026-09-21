@@ -4,6 +4,8 @@ import {
   MessageCircle, Bot, Paperclip, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import AgendamentoConfig, { AgendamentoValue, agendamentoPadrao } from './AgendamentoConfig'
+import SeletorModeloWhatsApp from '@/components/whatsapp/SeletorModeloWhatsApp'
+import { useCanalWhatsApp, useModelosWhatsApp } from '@/hooks/useCanalWhatsApp'
 import type { EstagioFollowupConfig, PassoFollowupConfig } from '@/types/crm'
 
 /**
@@ -113,6 +115,7 @@ export function followupConfigParaCadencia(fc?: EstagioFollowupConfig | null): C
     data_fixa: p.data_fixa ?? null,
     hora_envio: p.hora_envio || '09:00',
     dias_semana: p.dias_semana ?? [1, 2, 3, 4, 5],
+    modelo_whatsapp: p.modelo_whatsapp ?? null,
   }))
   return { ativo: fc.ativo || false, passos: ordenarPassos(passos.length ? passos : cadenciaPadrao().passos) }
 }
@@ -139,6 +142,7 @@ export function cadenciaParaFollowupConfig(c: CadenciaValue): EstagioFollowupCon
     data_fixa: p.modo === 'data' ? (p.data_fixa || undefined) : undefined,
     hora_envio: p.hora_envio || undefined,
     dias_semana: (p.dias_semana?.length ?? 0) > 0 ? p.dias_semana : undefined,
+    modelo_whatsapp: p.modelo_whatsapp?.nome ? p.modelo_whatsapp : undefined,
   }))
   return { ativo: c.ativo, passos }
 }
@@ -160,6 +164,11 @@ interface Props {
 }
 
 export default function CadenciaConfig({ value, onChange, titulo = 'Follow-up automático' }: Props) {
+  // Número oficial: cada passo pode ter um modelo aprovado de reserva para quando a
+  // janela de 24h do lead estiver fechada (texto livre não é entregue nesse caso).
+  const { data: canal } = useCanalWhatsApp()
+  const oficial = canal?.provedor === 'cloud_api'
+  const { data: modelos = [], isLoading: carregandoModelos, refetch: refetchModelos } = useModelosWhatsApp(oficial)
   // Passos sempre exibidos ordenados pelo horário de disparo.
   const passos = useMemo(() => ordenarPassos(value.passos), [value.passos])
   // Passo aberto identificado por _key (estável mesmo quando a ordem muda).
@@ -294,6 +303,28 @@ export default function CadenciaConfig({ value, onChange, titulo = 'Follow-up au
                       nivel="estagio"
                       showToggle={false}
                     />
+
+                    {oficial && (
+                      <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+                        <p className="text-xs font-semibold text-emerald-800">Modelo de reserva — janela de 24h fechada</p>
+                        <p className="text-[11px] text-gray-600">
+                          No WhatsApp oficial, se o lead não escreveu nas últimas 24h esta mensagem
+                          {ehIA ? ' (e a do agente de IA)' : ''} não é entregue. Com um modelo aqui, ele sai no lugar;
+                          sem modelo, o follow-up fica como falha com o motivo.
+                        </p>
+                        <SeletorModeloWhatsApp
+                          modelos={modelos}
+                          carregando={carregandoModelos}
+                          valor={passo.modelo_whatsapp ?? null}
+                          onChange={(m) => setPasso(key, { ...passo, modelo_whatsapp: m })}
+                          modo="variaveis"
+                          sugestaoPrimeira="[PrimeiroNome]"
+                          onRecarregar={() => refetchModelos()}
+                          permitirNenhum
+                          rotuloNenhum="Sem modelo de reserva"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -91,6 +91,13 @@ const MAPA: Record<FollowupErroCategoria, DescricaoErroFollowup> = {
     tom: CINZA,
     reagendarResolve: false,
   },
+  cancelado_usuario: {
+    rotulo: 'Cancelado por um usuário',
+    explicacao: 'Alguém cancelou este envio na tela de Agendamentos.',
+    acaoDoUsuario: '',
+    tom: CINZA,
+    reagendarResolve: true,
+  },
   desconhecido: {
     rotulo: 'Falha não classificada',
     explicacao: 'O erro não casou com nenhuma categoria conhecida — provavelmente um problema interno.',

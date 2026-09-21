@@ -337,6 +337,33 @@ describe('Cenário 7 — credencial/saldo do provedor de IA', () => {
     assert.equal(p.despachos.length, 1, 'o resto da empresa não é tentado no mesmo ciclo');
   });
 
+  test('teto de gasto da conta (400) pausa — não queima como erro desconhecido', async () => {
+    // Regressão de 25–26/08/2026: a conta da Panteras bateu o teto de uso configurado
+    // no console da Anthropic e o provedor passou a responder 400 com este texto. Ele
+    // não casava com nenhuma frase de credencial/saldo e o status não era 401/403, então
+    // caía em 'desconhecido' — categoria terminal. Resultado: 97 follow-ups de 97 leads
+    // distintos viraram 'falhou' em dois dias, sem chance de retry.
+    const repo = new RepoFalso([
+      followupFalso({ id: 1, tipo: 'agente_ia', lead_id: 101 }),
+      followupFalso({ id: 2, tipo: 'agente_ia', lead_id: 102 }),
+    ]);
+    const p = portasDeTeste({
+      repo, agora: TERCA_13H, janela: JANELA_COMERCIAL,
+      despachar: async () => {
+        throw erroIA(400, 'You have reached your specified API usage limits. '
+          + 'You will regain access on 2026-09-01 at 00:00 UTC.');
+      },
+    });
+
+    const r = await executarCiclo(p);
+
+    assert.equal(repo.registros[0].status, 'pendente', 'não pode virar falhou');
+    assert.equal(repo.registros[0].erro_categoria, 'ia_credencial');
+    assert.deepEqual(r.empresasPausadas, [5]);
+    assert.equal(r.falhados, 0, 'teto de gasto não é falha do follow-up');
+    assert.equal(p.despachos.length, 1, 'o resto da fila da empresa é preservado');
+  });
+
   test('403 da IA pausa; 403 do WhatsApp não — mesmo código, destinos opostos', async () => {
     const repoIA = new RepoFalso([followupFalso({ id: 1, tipo: 'agente_ia' })]);
     const pIA = portasDeTeste({

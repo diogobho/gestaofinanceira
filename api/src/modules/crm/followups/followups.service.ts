@@ -210,35 +210,100 @@ export const followupsService = {
     if (funilTipo) params.push(funilTipo);
 
     const result = await query(
+      // `usuario_nome` é quem CRIOU o follow-up. Quem ENVIA é o responsável do lead
+      // (fallback para o criador) — é o dono do chip, a informação que o operador
+      // precisa para saber por qual número a mensagem sai. Os dois viajam juntos
+      // porque não são a mesma pessoa: lead da Jéssica agendado pela Débora sai
+      // pelo número da Jéssica.
+      //
+      // `cadencia_desatualizada`: o passo guardado aqui ainda corresponde à cadência
+      // do estágio em que o lead está HOJE? Um follow-up de estágio é cancelado quando
+      // o lead muda de etapa, mas só enquanto está 'pendente' — um que falhou e foi
+      // reagendado depois volta carregando a cadência da etapa antiga. A tela precisa
+      // marcar esse caso em vez de deixá-lo parecer ativo na etapa atual.
       `SELECT f.*,
               l.nome  AS lead_nome,
               l.telefone AS lead_telefone,
+              l.arquivado AS lead_arquivado,
+              l.funil_id,
               u.nome  AS usuario_nome,
+              resp.id   AS responsavel_id,
+              resp.nome AS responsavel_nome,
+              resp.whatsapp_porta AS responsavel_porta,
+              ef.id   AS estagio_id,
               ef.nome AS estagio_nome,
               ef.cor  AS estagio_cor,
-              fn.tipo AS funil_tipo
+              fn.tipo AS funil_tipo,
+              CASE
+                WHEN f.origem <> 'estagio' OR f.passo_ordem IS NULL THEN false
+                WHEN f.tipo = 'agente_ia' THEN
+                  f.instrucao_ia IS DISTINCT FROM
+                    (ef.followup_config->'passos'->f.passo_ordem->>'instrucao_ia')
+                ELSE
+                  f.mensagem IS DISTINCT FROM
+                    (ef.followup_config->'passos'->f.passo_ordem->>'mensagem')
+              END AS cadencia_desatualizada
        FROM followups_agendados f
        JOIN leads l      ON l.id  = f.lead_id
        JOIN usuarios u   ON u.id  = f.usuario_id
+       LEFT JOIN usuarios resp ON resp.id = COALESCE(l.responsavel_id, f.usuario_id)
        LEFT JOIN estagios_funil ef ON ef.id = l.estagio_id
        LEFT JOIN funis fn ON fn.id = l.funil_id
        WHERE f.empresa_id = $1
          AND ($2::text = 'todos' OR f.status = $2::text)
          ${dateFiltro}
          ${funilFiltro}
-       ORDER BY f.agendado_para ASC
+       -- O que ainda vai acontecer vem primeiro, do mais próximo ao mais distante;
+       -- o que já terminou vem depois, do mais recente ao mais antigo. Ordenar tudo
+       -- por agendado_para ASC enterrava as falhas de hoje sob meses de enviados.
+       ORDER BY CASE WHEN f.status IN ('pendente', 'processando') THEN 0 ELSE 1 END,
+                CASE WHEN f.status IN ('pendente', 'processando') THEN f.agendado_para END ASC,
+                COALESCE(f.enviado_at, f.updated_at) DESC
        LIMIT 200`,
       params
     );
     return result.rows;
   },
 
-  async cancelar(id: number, empresaId: number) {
+  /**
+   * Cancela um follow-up pendente. O registro NÃO é apagado — vira 'cancelado' e
+   * continua no histórico do lead.
+   *
+   * `motivo` é opcional e vem da tela. Quando informado, fica em `erro` com a
+   * categoria `cancelado_usuario`: sem ela, um cancelamento feito por uma pessoa é
+   * indistinguível dos cancelamentos automáticos (mudança de estágio, lead
+   * arquivado), e a tela não tinha como dizer "por que isso não foi enviado".
+   *
+   * O terceiro parâmetro é opcional de propósito: o motor chama `cancelar(id,
+   * empresaId)` quando o agente está desativado para o lead, e esse caminho segue
+   * exatamente como era.
+   */
+  /**
+   * Cancela um follow-up. Aceita `pendente` E `processando`, e o segundo não é
+   * detalhe: o motor só descobre que o agente está desligado DEPOIS de reclamar o
+   * registro (`reclamar` já o deixou em 'processando'), então um guard só de
+   * 'pendente' fazia o UPDATE casar zero linhas — sem erro, sem log, sem efeito.
+   *
+   * O registro ficava 'processando' para sempre: o reaper devolvia à fila por falta
+   * de evidência de envio, o ciclo seguinte reclamava de novo, o motor cancelava de
+   * novo, e assim a cada ~11 minutos, indefinidamente. Medido em 31/08/2026: 14
+   * follow-ups da empresa 5 em loop desde as 11h, cada um gastando uma vaga de
+   * ciclo e uma linha de log por passagem, sem nada aparecendo na tela.
+   *
+   * Continua terminal para quem já resolveu: `enviado`, `falhou` e `cancelado` não
+   * voltam atrás — cancelar o que já saiu seria reescrever história.
+   */
+  async cancelar(id: number, empresaId: number, motivo?: string | null) {
+    const texto = (motivo || '').trim();
     const result = await query(
-      `UPDATE followups_agendados SET status = 'cancelado', updated_at = NOW()
-       WHERE id = $1 AND empresa_id = $2 AND status = 'pendente'
-       RETURNING *`,
-      [id, empresaId]
+      `UPDATE followups_agendados
+          SET status = 'cancelado',
+              erro_categoria = COALESCE($3, erro_categoria),
+              erro = COALESCE($4, erro),
+              updated_at = NOW()
+        WHERE id = $1 AND empresa_id = $2 AND status IN ('pendente', 'processando')
+        RETURNING *`,
+      [id, empresaId, texto ? 'cancelado_usuario' : null, texto ? texto.slice(0, 2000) : null]
     );
     return result.rows[0];
   },

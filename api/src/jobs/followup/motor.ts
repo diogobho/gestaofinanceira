@@ -66,7 +66,8 @@ export type ResultadoDespacho =
   | 'pausado'          // agente DESLIGADO ou sem API key: alguém pode religar hoje
   | 'config_ausente'   // empresa sem linha em agente_ia_config: não se resolve esperando
   | 'sem_destino'      // lead sem telefone/contato utilizável
-  | 'sem_conteudo';    // follow-up sem texto e sem mídia
+  | 'sem_conteudo'     // follow-up sem texto e sem mídia
+  | 'sem_capacidade';  // o plano não inclui falar primeiro com quem nunca escreveu
 
 export interface PortaFollowups {
   buscarPendentes(limite?: number): Promise<any[]>;
@@ -391,6 +392,17 @@ async function processarFilaDoChip(
           'config_ausente');
         resumo.falhados++;
         p.logger.error(`#${followup.id} (lead #${followup.lead_id}): empresa ${ctx.empresaId} sem agente_ia_config — falha explícita em vez de adiamento perpétuo`);
+      } else if (r === 'sem_capacidade') {
+        // Falha EXPLÍCITA, como o conflito de janela: some da fila, aparece na
+        // lista de falhados com o motivo e volta com um reagendamento se o plano
+        // mudar ou se o contato responder. Adiar seria prometer um envio que o
+        // plano não permite, para sempre.
+        await p.followups.marcarFalhou(followup.id,
+          'Este contato nunca escreveu para você, e o primeiro contato em massa é do plano '
+          + 'Enterprise (API Oficial da Meta). A cadência volta a valer para ele assim que ele responder.',
+          'conflito_config');
+        resumo.falhados++;
+        p.logger.warn(`#${followup.id} (lead #${followup.lead_id}): contato frio e empresa ${ctx.empresaId} sem a capacidade conversa_fria`);
       } else if (r === 'sem_destino' || r === 'sem_conteudo') {
         const motivo = r === 'sem_destino'
           ? 'Lead sem telefone válido para envio no WhatsApp'

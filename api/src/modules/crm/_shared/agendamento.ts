@@ -286,3 +286,189 @@ export const VARIAVEIS_DISPONIVEIS = [
   'Cargo', 'Titulo', 'ValorPotencial', 'Origem', 'CpfCnpj', 'Temperatura',
   'Responsavel', 'PrimeiroNomeResponsavel',
 ];
+
+// ─── Janela operacional de envio ──────────────────────────────────────────────
+//
+// Regra única de "quando é permitido enviar" para TODA automação de saída
+// (follow-up agendado e agente reativo). Antes o agente reativo tinha uma janela
+// fixa de 08h–20h escrita na fila e o follow-up não tinha janela nenhuma: um
+// follow-up adiado várias vezes (conversa viva, chip fora do ar) escorregava para
+// as 22h ou para o domingo, porque `adiar` só somava minutos a NOW().
+//
+// A janela é por empresa (empresas.config) e tem três partes: horário de início,
+// horário de fim e dias da semana. Os `dias_semana` do PASSO continuam valendo e
+// são interseccionados com os dias da janela — o passo pode restringir mais, nunca
+// ampliar. Interseção vazia (passo só sábado, janela só dias úteis) cairia num
+// bloqueio permanente, então nesse caso vale a janela da empresa e o passo é
+// ignorado: melhor enviar em dia útil do que nunca enviar.
+
+export interface JanelaOperacional {
+  inicio: string;            // 'HH:MM' — primeiro minuto permitido
+  fim: string;               // 'HH:MM' — primeiro minuto NÃO permitido (exclusivo)
+  dias?: number[] | null;    // 0=Dom..6=Sáb; vazio/null = todos os dias
+}
+
+export const JANELA_PADRAO: JanelaOperacional = { inicio: '08:00', fim: '20:00', dias: null };
+
+/** 'HH:MM' → minutos desde a meia-noite. Entrada inválida devolve `fallback`. */
+export function minutosDoDia(hhmm: string | null | undefined, fallback: number): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '').trim());
+  if (!m) return fallback;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(mi) || h > 24 || mi > 59) return fallback;
+  return Math.min(24 * 60, h * 60 + mi);
+}
+
+/** minutos desde a meia-noite → 'HH:MM' */
+function paraHHMM(min: number): string {
+  const m = Math.max(0, Math.min(24 * 60 - 1, Math.round(min)));
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Normaliza a janela vinda da configuração: horários fora de formato, fim <= início
+ * ou lista de dias inválida voltam ao padrão. Uma janela quebrada no banco não pode
+ * travar a fila inteira — sem isso, `fim = 00:00` significaria "nunca enviar".
+ */
+export function normalizarJanela(bruta?: Partial<JanelaOperacional> | null): JanelaOperacional {
+  const inicioMin = minutosDoDia(bruta?.inicio, minutosDoDia(JANELA_PADRAO.inicio, 480));
+  let fimMin = minutosDoDia(bruta?.fim, minutosDoDia(JANELA_PADRAO.fim, 1200));
+  if (fimMin <= inicioMin) {
+    return { ...JANELA_PADRAO, dias: normalizarDias(bruta?.dias) };
+  }
+  return { inicio: paraHHMM(inicioMin), fim: paraHHMM(fimMin), dias: normalizarDias(bruta?.dias) };
+}
+
+/** Lista de dias válida (0..6, sem repetição) ou null para "todos os dias". */
+export function normalizarDias(dias?: number[] | null): number[] | null {
+  if (!Array.isArray(dias)) return null;
+  const limpos = [...new Set(dias.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))];
+  return limpos.length > 0 && limpos.length < 7 ? limpos.sort((a, b) => a - b) : null;
+}
+
+/** Data-calendário + hora de um instante, na parede de São Paulo. */
+function partesSP(d: Date): { y: number; m: number; day: number; minutos: number; dow: number } {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const parte = (t: string) => Number(fmt.find((p) => p.type === t)?.value);
+  const y = parte('year');
+  const m = parte('month');
+  const day = parte('day');
+  // hour12:false pode devolver "24" para a meia-noite em alguns runtimes.
+  const hora = parte('hour') % 24;
+  const minutos = hora * 60 + parte('minute');
+  // getUTCDay de uma data-calendário montada em UTC dá o dia da semana daquela data.
+  const dow = new Date(Date.UTC(y, m - 1, day)).getUTCDay();
+  return { y, m, day, minutos, dow };
+}
+
+const NOME_DIA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+
+/** Lista de dias em português, para mensagem de erro legível. */
+export function nomearDias(dias?: number[] | null): string {
+  const d = normalizarDias(dias);
+  if (!d) return 'todos os dias';
+  return d.map((x) => NOME_DIA[x]).join(', ');
+}
+
+/**
+ * Dias permitidos = interseção (janela da empresa ∩ dias do passo).
+ *
+ * A janela da empresa é o LIMITE EXTERNO (política de quando se pode falar com o
+ * lead); os dias do passo restringem dentro dele. Interseção vazia — passo só no
+ * sábado com janela de segunda a sexta — é **conflito de configuração**, não um
+ * caso a ser resolvido por padrão: devolve `null` e quem chama decide.
+ *
+ * Até 25/08/2026 a interseção vazia caía silenciosamente na janela da empresa. Ou
+ * seja: um passo configurado para sábado era enviado numa segunda-feira, sem que
+ * nada na tela ou no log dissesse que a configuração tinha sido ignorada. Silêncio
+ * é o pior desfecho aqui — o administrador não descobre que a regra dele não vale.
+ */
+export function diasEfetivos(
+  janela: JanelaOperacional,
+  diasPasso?: number[] | null
+): number[] | null | 'conflito' {
+  const daJanela = normalizarDias(janela.dias);
+  const doPasso = normalizarDias(diasPasso);
+  if (!daJanela) return doPasso;
+  if (!doPasso) return daJanela;
+  const inter = daJanela.filter((d) => doPasso.includes(d));
+  return inter.length > 0 ? inter : 'conflito';
+}
+
+/** Há conflito irreconciliável entre os dias da janela e os dias do passo? */
+export function conflitoDeDias(janela: JanelaOperacional, diasPasso?: number[] | null): boolean {
+  return diasEfetivos(normalizarJanela(janela), diasPasso) === 'conflito';
+}
+
+/** Texto do conflito, para o erro que o administrador vai ler. */
+export function descreverConflitoDias(
+  janela: JanelaOperacional,
+  diasPasso?: number[] | null
+): string {
+  return `Conflito de configuração: o passo está limitado a ${nomearDias(diasPasso)}, ` +
+    `mas a janela de envio da empresa só permite ${nomearDias(normalizarJanela(janela).dias)}. ` +
+    `Não há dia em comum — ajuste os dias do passo ou a janela da empresa.`;
+}
+
+/** O instante cai dentro da janela operacional (hora e dia da semana)? */
+export function dentroDaJanela(
+  instante: Date,
+  janela: JanelaOperacional,
+  diasPasso?: number[] | null
+): boolean {
+  const j = normalizarJanela(janela);
+  const { minutos, dow } = partesSP(instante);
+  const dias = diasEfetivos(j, diasPasso);
+  // Conflito de configuração nunca é "dentro da janela": quem chama tem de tratá-lo
+  // como conflito (ver conflitoDeDias), não deixar o envio escapar por um default.
+  if (dias === 'conflito') return false;
+  if (dias && !dias.includes(dow)) return false;
+  return minutos >= minutosDoDia(j.inicio, 0) && minutos < minutosDoDia(j.fim, 1440);
+}
+
+/**
+ * Próximo instante >= `instante` que cai dentro da janela.
+ * Já dentro da janela → devolve o próprio instante (o horário desenhado é respeitado
+ * ao minuto; a janela só empurra o que está fora dela).
+ * Fora da janela → abertura do próximo dia permitido, com `jitterMax` minutos de
+ * folga aleatória para a fila não sair em rajada exata na abertura.
+ */
+export function proximaJanelaValida(
+  instante: Date,
+  janela: JanelaOperacional,
+  diasPasso?: number[] | null,
+  jitterMax = 0
+): Date {
+  const j = normalizarJanela(janela);
+  if (dentroDaJanela(instante, j, diasPasso)) return new Date(instante);
+
+  const diasOuConflito = diasEfetivos(j, diasPasso);
+  // Em conflito não existe "próxima janela válida" — devolver uma data seria escolher
+  // um dia que o administrador não autorizou. Quem chama checa conflitoDeDias antes.
+  if (diasOuConflito === 'conflito') {
+    throw new Error(descreverConflitoDias(j, diasPasso));
+  }
+  const dias = diasOuConflito;
+  const inicioMin = minutosDoDia(j.inicio, 0);
+  const { y, m, day, minutos } = partesSP(instante);
+
+  // Antes da abertura no MESMO dia (se o dia for permitido) → abre hoje; senão, amanhã.
+  const alvo = new Date(Date.UTC(y, m - 1, day));
+  if (minutos >= inicioMin) alvo.setUTCDate(alvo.getUTCDate() + 1);
+  for (let i = 0; i < 14; i++) {
+    if (!dias || dias.includes(alvo.getUTCDay())) break;
+    alvo.setUTCDate(alvo.getUTCDate() + 1);
+  }
+
+  const yyyy = alvo.getUTCFullYear();
+  const mm = String(alvo.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(alvo.getUTCDate()).padStart(2, '0');
+  const abertura = new Date(`${yyyy}-${mm}-${dd}T${j.inicio.padStart(5, '0')}:00${TZ_OFFSET}`);
+  const jitter = jitterMax > 0 ? Math.floor(Math.random() * jitterMax) * 60_000 : 0;
+  return new Date(abertura.getTime() + jitter);
+}

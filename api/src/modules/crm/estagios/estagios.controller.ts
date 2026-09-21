@@ -64,7 +64,8 @@ export const estagiosController = {
       const empresaId = (req as any).user.empresa_id;
       const { id } = req.params;
       const { nome, descricao, cor, icone, is_entrada, is_ganho, is_perdido, estagio_apos_resposta_id, estagio_apos_envio_id, followup_config,
-              auto_criar_lead, auto_criar_lead_usuarios, agente_ia_ativo, reuniao_lembretes } = req.body;
+              auto_criar_lead, auto_criar_lead_usuarios, agente_ia_ativo, instrucoes_agente_ia,
+              reuniao_lembretes } = req.body;
 
       const estagio = await estagiosService.update(parseInt(id), empresaId, {
         nome,
@@ -82,6 +83,7 @@ export const estagiosController = {
           ? (Array.isArray(auto_criar_lead_usuarios) ? auto_criar_lead_usuarios.map(Number) : null)
           : undefined,
         agente_ia_ativo,
+        instrucoes_agente_ia,
         reuniao_lembretes,
       });
 
@@ -90,7 +92,12 @@ export const estagiosController = {
       }
 
       res.json(estagio);
-    } catch (error) {
+    } catch (error: any) {
+      // Conflito entre os dias do passo e a janela da empresa: é erro do usuário,
+      // não falha do servidor. 400 com a lista para a tela poder apontar o passo.
+      if (error?.codigo === 'conflito_janela') {
+        return res.status(400).json({ message: error.message, conflitos: error.conflitos });
+      }
       next(error);
     }
   },

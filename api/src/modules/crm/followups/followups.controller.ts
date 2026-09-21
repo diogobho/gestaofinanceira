@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
 import { followupsService } from './followups.service';
+import { getJanelaEmpresa, setJanelaEmpresa, conflitosDaEmpresa } from '../_shared/janela';
 
 export const followupsController = {
   async criar(req: Request, res: Response) {
@@ -94,7 +95,10 @@ export const followupsController = {
     try {
       const empresaId = (req as any).user?.empresa_id;
       const id = parseInt(req.params.id);
-      const followup = await followupsService.cancelar(id, empresaId);
+      // Motivo é opcional e vem no corpo do DELETE (a tela pede confirmação e oferece
+      // o campo). Texto livre do usuário: entra só como texto, nunca como categoria.
+      const motivo = typeof req.body?.motivo === 'string' ? req.body.motivo : undefined;
+      const followup = await followupsService.cancelar(id, empresaId, motivo);
       if (!followup) return res.status(404).json({ error: 'Follow-up não encontrado ou já processado' });
       return res.json(followup);
     } catch (err: any) {
@@ -123,7 +127,15 @@ export const followupsController = {
   async metricas(req: Request, res: Response) {
     try {
       const empresaId = (req as any).user?.empresa_id;
-      const dados = await followupsService.metricas(empresaId);
+      // Mesmos filtros da tela do dashboard. Datas só entram no formato
+      // YYYY-MM-DD; qualquer outra coisa é ignorada em vez de virar SQL.
+      const dataOk = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
+      const dados = await followupsService.metricas(empresaId, {
+        funilId: req.query.funil_id ? parseInt(req.query.funil_id as string) : undefined,
+        responsavelId: req.query.responsavel_id ? parseInt(req.query.responsavel_id as string) : undefined,
+        dataInicio: dataOk(req.query.data_inicio),
+        dataFim: dataOk(req.query.data_fim),
+      });
       return res.json(dados);
     } catch (err: any) {
       console.error('Erro ao buscar métricas de follow-ups:', err);
@@ -131,30 +143,79 @@ export const followupsController = {
     }
   },
 
-  /** Retorna o intervalo anti-ban (mín/máx em segundos) da empresa. */
+  /**
+   * Config de envio da empresa: intervalo anti-ban + JANELA OPERACIONAL (horário de
+   * início/fim e dias da semana). A janela vale tanto para o follow-up agendado quanto
+   * para o agente reativo — é uma só regra de "quando podemos falar com o lead".
+   */
   async getConfig(req: Request, res: Response) {
     try {
       const empresaId = (req as any).user?.empresa_id;
-      const cfg = await followupsService.getConfigIntervalo(empresaId);
-      return res.json({ intervalo_min_seg: cfg.min, intervalo_max_seg: cfg.max });
+      const [cfg, janela] = await Promise.all([
+        followupsService.getConfigIntervalo(empresaId),
+        getJanelaEmpresa(empresaId),
+      ]);
+      return res.json({
+        intervalo_min_seg: cfg.min,
+        intervalo_max_seg: cfg.max,
+        janela_inicio: janela.inicio,
+        janela_fim: janela.fim,
+        janela_dias: janela.dias,
+      });
     } catch (err: any) {
       console.error('Erro ao buscar config de follow-ups:', err);
       return res.status(500).json({ error: 'Erro ao buscar configuração' });
     }
   },
 
-  /** Atualiza o intervalo anti-ban (mín/máx em segundos) da empresa. */
+  /** Atualiza intervalo anti-ban e/ou janela operacional da empresa. */
   async setConfig(req: Request, res: Response) {
     try {
       const empresaId = (req as any).user?.empresa_id;
-      const { intervalo_min_seg, intervalo_max_seg } = req.body;
-      if (intervalo_min_seg == null || intervalo_max_seg == null) {
-        return res.status(400).json({ error: 'intervalo_min_seg e intervalo_max_seg são obrigatórios' });
+      const { intervalo_min_seg, intervalo_max_seg, janela_inicio, janela_fim, janela_dias } = req.body;
+      const mexeuNoIntervalo = intervalo_min_seg != null || intervalo_max_seg != null;
+      const mexeuNaJanela = janela_inicio != null || janela_fim != null || janela_dias !== undefined;
+      if (!mexeuNoIntervalo && !mexeuNaJanela) {
+        return res.status(400).json({ error: 'Nada para atualizar' });
       }
-      const cfg = await followupsService.setConfigIntervalo(
-        empresaId, Number(intervalo_min_seg), Number(intervalo_max_seg)
-      );
-      return res.json({ intervalo_min_seg: cfg.min, intervalo_max_seg: cfg.max });
+      if (mexeuNoIntervalo && (intervalo_min_seg == null || intervalo_max_seg == null)) {
+        return res.status(400).json({ error: 'intervalo_min_seg e intervalo_max_seg vão juntos' });
+      }
+
+      // Valores fora de formato voltam ao padrão dentro de normalizarJanela — uma janela
+      // quebrada no banco significaria "nunca enviar" para a empresa inteira.
+      const [cfg, janela] = await Promise.all([
+        mexeuNoIntervalo
+          ? followupsService.setConfigIntervalo(empresaId, Number(intervalo_min_seg), Number(intervalo_max_seg))
+          : followupsService.getConfigIntervalo(empresaId),
+        mexeuNaJanela
+          ? setJanelaEmpresa(empresaId, {
+              inicio: janela_inicio,
+              fim: janela_fim,
+              dias: Array.isArray(janela_dias) ? janela_dias : null,
+            })
+          : getJanelaEmpresa(empresaId),
+      ]);
+
+      // Estreitar a janela pode inviabilizar passos já configurados. Não recusamos a
+      // mudança — o administrador pode estar corrigindo justamente uma política errada —
+      // mas ele não pode descobrir depois, por follow-up que não sai: a lista dos
+      // estágios afetados volta na resposta para a tela avisar na hora.
+      const conflitos = mexeuNaJanela ? await conflitosDaEmpresa(empresaId, janela) : [];
+      if (conflitos.length > 0) {
+        console.warn(`[Followups] Empresa ${empresaId}: janela ${janela.inicio}-${janela.fim} ` +
+          `conflita com ${conflitos.length} passo(s) de cadência: ` +
+          conflitos.map((c) => `${c.estagio_nome}#${c.passo}`).join(', '));
+      }
+
+      return res.json({
+        intervalo_min_seg: cfg.min,
+        intervalo_max_seg: cfg.max,
+        janela_inicio: janela.inicio,
+        janela_fim: janela.fim,
+        janela_dias: janela.dias,
+        conflitos,
+      });
     } catch (err: any) {
       console.error('Erro ao salvar config de follow-ups:', err);
       return res.status(500).json({ error: 'Erro ao salvar configuração' });

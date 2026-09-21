@@ -48,9 +48,18 @@ async function processar(): Promise<void> {
   }
 
   // Candidatos: 1 linha por lead (a reunião mais recente), já com a distância em minutos
-  // entre agora e a reunião calculada pelo Postgres. data_vencimento guarda o horário de
-  // PAREDE de São Paulo (naive) — por isso é interpretado AT TIME ZONE 'America/Sao_Paulo'
-  // para virar o instante correto; a hora exibida (to_char) já é a parede SP.
+  // entre agora e a reunião calculada pelo Postgres.
+  //
+  // `tarefas_lead.data_vencimento` é naive gravado em UTC — é o que o front manda
+  // (`toISOString()`), o que o agente grava (agendar_reuniao) e o que o CRM lê de volta.
+  // Este job interpretava a coluna como parede de São Paulo: com isso a reunião das 14h
+  // (gravada 17:00 UTC) virava "17h" na mensagem para o lead e o lembrete de "1h antes"
+  // saía 2h DEPOIS da reunião. Agora converte UTC → SP, igual ao resto do sistema.
+  //
+  // `hora_definida`: no formulário de tarefa a hora vem preenchida com "agora" quando o
+  // vendedor escolhe só a data — nesse caso o horário gravado não quer dizer nada (a hora
+  // real costuma estar no título) e mandar lembrete com ele significaria informar ao lead
+  // um horário inventado. Mesma heurística que o agente usa em getAgendaLead.
   const { rows: candidatos } = await query(
     `SELECT DISTINCT ON (l.id)
         l.id  AS lead_id, l.nome, l.telefone, l.email, l.empresa, l.cargo, l.origem,
@@ -58,9 +67,13 @@ async function processar(): Promise<void> {
         l.contato_whatsapp_id, l.responsavel_id, l.empresa_id,
         ur.nome AS responsavel_nome,
         t.id AS tarefa_id, t.responsavel_id AS tarefa_responsavel_id,
-        to_char(t.data_vencimento, 'HH24:MI') AS reuniao_hora,
-        to_char(t.data_vencimento, 'DD/MM')   AS reuniao_data,
-        EXTRACT(EPOCH FROM (NOW() - (t.data_vencimento AT TIME ZONE 'America/Sao_Paulo'))) / 60.0 AS min_desde,
+        to_char(t.data_vencimento AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo',
+                'HH24:MI') AS reuniao_hora,
+        to_char(t.data_vencimento AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo',
+                'DD/MM')   AS reuniao_data,
+        (ABS(EXTRACT(EPOCH FROM (t.data_vencimento::time - t.created_at::time))) > 120)
+          AS hora_definida,
+        EXTRACT(EPOCH FROM (NOW() - (t.data_vencimento AT TIME ZONE 'UTC'))) / 60.0 AS min_desde,
         ef.reuniao_lembretes AS cfg
      FROM estagios_funil ef
      JOIN leads l        ON l.estagio_id = ef.id AND l.arquivado = false
@@ -75,9 +88,16 @@ async function processar(): Promise<void> {
   if (candidatos.length === 0) return;
 
   for (const c of candidatos) {
-    // Guarda de horário: reunião sem hora real (meia-noite / madrugada) é quase sempre
-    // "hora não preenchida". Não dispara lembrete — evita "conversa é amanhã às 00:00" e o
-    // lembrete de 24h escapar para as 21h do dia anterior.
+    // Guarda de horário: sem hora real não há lembrete. Dois casos:
+    // 1. a hora veio do preenchimento automático do formulário (hora_definida = false) —
+    //    mandar "sua conversa é às 10h37" com um horário que ninguém combinou é pior do
+    //    que não mandar nada;
+    // 2. meia-noite / madrugada, que é quase sempre "hora não preenchida" — evita também
+    //    o lembrete de 24h escapar para as 21h do dia anterior.
+    if (c.hora_definida === false) {
+      console.log(`[ReuniaoLembretes] Lead #${c.lead_id}: hora da reunião não foi preenchida no sistema (${c.reuniao_hora}) — lembrete ignorado`);
+      continue;
+    }
     const hReuniao = parseInt(String(c.reuniao_hora || '').slice(0, 2), 10);
     if (!Number.isFinite(hReuniao) || hReuniao < 6 || hReuniao >= 22) {
       console.log(`[ReuniaoLembretes] Lead #${c.lead_id}: reunião sem horário confiável (${c.reuniao_hora}) — lembrete ignorado`);
@@ -119,7 +139,7 @@ async function processar(): Promise<void> {
 
       try {
         // Lança em falha de envio → cai no catch e o marco é liberado para retry.
-        await contatosService.enviarMensagemOuFalhar(remetenteId, c.empresa_id, c.contato_whatsapp_id, texto, c.lead_id);
+        await contatosService.enviarMensagemOuFalhar(remetenteId, c.empresa_id, c.contato_whatsapp_id, texto, c.lead_id, 'lembrete');
         console.log(`[ReuniaoLembretes] Enviado ${m.marco} → lead #${c.lead_id} (remetente user #${remetenteId})`);
       } catch (err: any) {
         // Falhou o envio: libera o marco para nova tentativa no próximo ciclo.

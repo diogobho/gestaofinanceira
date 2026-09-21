@@ -1,5 +1,6 @@
 import { query } from '../../../config/database';
-import { extrairPassosFollowup, calcularCadencia } from '../_shared/agendamento';
+import { extrairPassosFollowup, calcularCadencia, nomearDias } from '../_shared/agendamento';
+import { getJanelaEmpresa, conflitosDoConfig } from '../_shared/janela';
 
 /** Um toque da cadência (mensagem agendada) dentro de um estágio. */
 export interface PassoFollowupConfig {
@@ -18,6 +19,9 @@ export interface PassoFollowupConfig {
   data_fixa?: string | null;     // 'YYYY-MM-DD'
   hora_envio?: string | null;    // 'HH:MM'
   dias_semana?: number[] | null; // 0=Dom..6=Sáb
+  // Número oficial (Cloud API): modelo aprovado que sai NO LUGAR deste passo quando a
+  // janela de 24h do lead está fechada — ver jobs/followup/despacho.ts.
+  modelo_whatsapp?: { nome: string; idioma?: string; variaveis: string[]; cabecalho?: string | null } | null;
 }
 
 export interface EstagioFollowupConfig {
@@ -70,6 +74,7 @@ export interface EstagioFunil {
   auto_criar_lead?: boolean;
   auto_criar_lead_usuarios?: number[] | null;
   agente_ia_ativo?: boolean;
+  instrucoes_agente_ia?: string | null;
   reuniao_lembretes?: EstagioReuniaoLembretes | null;
   created_at: Date;
   updated_at: Date;
@@ -99,6 +104,7 @@ export interface UpdateEstagioDto {
   auto_criar_lead?: boolean;
   auto_criar_lead_usuarios?: number[] | null;
   agente_ia_ativo?: boolean;
+  instrucoes_agente_ia?: string | null;
   reuniao_lembretes?: EstagioReuniaoLembretes | null;
 }
 
@@ -234,6 +240,26 @@ export const estagiosService = {
       values.push(data.estagio_apos_envio_id || null);
     }
     if (data.followup_config !== undefined) {
+      // Conflito de dias é recusado AQUI, no momento em que o usuário salva a cadência.
+      // Um passo restrito a um dia que a janela da empresa não permite nunca poderia
+      // ser enviado; antes o sistema trocava silenciosamente pelos dias da janela e
+      // mandava a mensagem num dia que ninguém autorizou.
+      if (data.followup_config && (data.followup_config as any).ativo) {
+        const janela = await getJanelaEmpresa(empresaId);
+        const conflitos = conflitosDoConfig(data.followup_config, janela);
+        if (conflitos.length > 0) {
+          const lista = conflitos.map((c) => `passo ${c.passo} (${c.dias_passo})`).join('; ');
+          const err: any = new Error(
+            `Conflito de configuração: ${lista} não tem nenhum dia em comum com a janela de ` +
+            `envio da empresa (${nomearDias(janela.dias)}). Ajuste os dias do passo ou a ` +
+            `janela de envio em Agendamentos → Horário de envio.`
+          );
+          err.status = 400;
+          err.codigo = 'conflito_janela';
+          err.conflitos = conflitos;
+          throw err;
+        }
+      }
       fields.push(`followup_config = $${paramCount++}`);
       values.push(data.followup_config ? JSON.stringify(data.followup_config) : null);
     }
@@ -250,6 +276,12 @@ export const estagiosService = {
     if (data.agente_ia_ativo !== undefined) {
       fields.push(`agente_ia_ativo = $${paramCount++}`);
       values.push(!!data.agente_ia_ativo);
+    }
+    if (data.instrucoes_agente_ia !== undefined) {
+      // Texto vazio → NULL: o prompt trata ausência de instrução como "sem orientação".
+      fields.push(`instrucoes_agente_ia = $${paramCount++}`);
+      const txt = String(data.instrucoes_agente_ia ?? '').trim();
+      values.push(txt || null);
     }
     if (data.reuniao_lembretes !== undefined) {
       fields.push(`reuniao_lembretes = $${paramCount++}`);
