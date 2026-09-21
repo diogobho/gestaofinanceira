@@ -54,7 +54,7 @@ const router = Router();
  */
 async function empresaDonaDoArquivo(relativo: string): Promise<number | null> {
   const r = await query(
-    `SELECT empresa_id FROM historico_mensagens WHERE media_url = $1 LIMIT 1`,
+    `SELECT empresa_id FROM historico_mensagens WHERE media_url = $1 AND NOT copia_indevida LIMIT 1`,
     [relativo]
   );
   if (r.rows[0]) return Number(r.rows[0].empresa_id);
