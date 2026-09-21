@@ -1,6 +1,12 @@
 export interface EmpresaInfo {
   id: number
   nome: string
+  // dados de contato da empresa — alimentam a assinatura de e-mail padrão
+  email?: string | null
+  telefone?: string | null
+  endereco?: string | null
+  logo_url?: string | null
+  cor_primaria?: string | null
 }
 
 export interface UserPermissoes {
@@ -24,8 +30,10 @@ export interface User {
   empresa_id?: number
   funcao?: 'ADMIN' | 'MENTOR'
   nivel?: 'super_admin' | 'admin_empresa' | 'admin' | 'usuario'
-  tipo_usuario?: 'master' | 'comum'
+  tipo_usuario?: 'master' | 'comum' | 'creator'
   permissoes?: UserPermissoes
+  /** HTML da assinatura anexada aos e-mails do CRM; null = usa o padrão da empresa */
+  assinatura_email?: string | null
   /** Painel da Cloud API da DuoFuturo: super_admin ou revisor liberado no .env */
   acesso_cloud_api?: boolean
   taxa_horaria?: number
@@ -56,6 +64,8 @@ export interface CreateUserRequest {
   empresa_id?: number
   funcao?: 'ADMIN' | 'MENTOR'
   nivel?: 'super_admin' | 'admin_empresa' | 'admin' | 'usuario'
+  tipo_usuario?: 'master' | 'comum'
+  permissoes?: UserPermissoes
   taxa_horaria?: number
   comissao_percentual?: number
   especialidades?: string
@@ -72,6 +82,8 @@ export interface UpdateUserRequest {
   empresa_id?: number
   funcao?: 'ADMIN' | 'MENTOR'
   nivel?: 'super_admin' | 'admin_empresa' | 'admin' | 'usuario'
+  tipo_usuario?: 'master' | 'comum'
+  permissoes?: UserPermissoes
   taxa_horaria?: number
   comissao_percentual?: number
   especialidades?: string

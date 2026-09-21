@@ -2,7 +2,9 @@ import bcrypt from 'bcryptjs';
 import { query } from '../../config/database';
 import { JwtPayload } from '../../config/jwt';
 import { whatsappProvisionService } from '../../services/whatsapp-provision.service';
+import { portaParaUsuarioNovo } from '../whatsapp/canal/contas';
 import { assinaturasService } from '../assinaturas/assinaturas.service';
+import { isAdminEmpresa, isSuperAdmin, rankTipo, TIPOS_VALIDOS } from '../../shared/roles';
 
 // Permissões padrão — alinhadas às seções atuais do sistema (o módulo
 // 'relatorios' foi removido; 'agente' = Agente IA). Deve espelhar o
@@ -31,6 +33,23 @@ function validarSenha(senha: string) {
   }
 }
 
+/**
+ * Barra a ação que deixaria a empresa sem NENHUM administrador ativo (master ou
+ * creator) — seja rebaixando o último, seja desativando-o. Sem isso a conta ficaria
+ * inadministrável: ninguém para gerir usuários nem para configurar o agente, e só o
+ * super_admin poderia destravar.
+ * Não se aplica a quem já é comum: tirar um comum nunca afeta a administração.
+ */
+async function garantirAdminRemanescente(target: any, mensagem: string) {
+  if (target.tipo_usuario === 'comum') return;
+  const outros = await query(
+    `SELECT COUNT(*)::int AS total FROM usuarios
+     WHERE empresa_id = $1 AND tipo_usuario <> 'comum' AND ativo = true AND id != $2`,
+    [target.empresa_id, target.id]
+  );
+  if (outros.rows[0].total === 0) throw new Error(mensagem);
+}
+
 export const usuariosService = {
   // Lista usuários de acordo com o nível do caller
   async list(caller: JwtPayload) {
@@ -46,8 +65,8 @@ export const usuariosService = {
       return result.rows;
     }
 
-    if (caller.tipo_usuario === 'master') {
-      // Master vê apenas usuários da sua empresa
+    if (isAdminEmpresa(caller)) {
+      // Master e creator veem apenas usuários da sua empresa
       const result = await query(
         `SELECT u.id, u.nome, u.email, u.empresa_id, u.nivel, u.tipo_usuario, u.permissoes, u.ativo, u.created_at,
                 e.nome as empresa_nome
@@ -88,8 +107,8 @@ export const usuariosService = {
 
     const user = result.rows[0];
 
-    // Master só pode ver usuários da sua empresa
-    if (caller && caller.nivel !== 'super_admin' && caller.tipo_usuario === 'master') {
+    // Master/creator só podem ver usuários da sua empresa
+    if (caller && !isSuperAdmin(caller) && isAdminEmpresa(caller)) {
       if (user.empresa_id !== caller.empresa_id) {
         throw new Error('Sem permissão para ver este usuário');
       }
@@ -108,8 +127,9 @@ export const usuariosService = {
       // Admin pode definir tipo_usuario livremente
       data.tipo_usuario = data.tipo_usuario || 'master';
       data.nivel = 'usuario'; // Sempre usuario no DB (super_admin é só para o admin do sistema)
-    } else if (caller.tipo_usuario === 'master') {
-      // Master cria Comum apenas na sua empresa
+    } else if (isAdminEmpresa(caller)) {
+      // Master e creator criam Comum apenas na sua empresa; promover para master ou
+      // creator é feito depois, pela edição (que valida a hierarquia).
       data.empresa_id = caller.empresa_id;
       data.tipo_usuario = 'comum';
       data.nivel = 'usuario';
@@ -138,10 +158,10 @@ export const usuariosService = {
     validarSenha(data.senha);
     const senhaHash = await bcrypt.hash(data.senha, 10);
 
-    // Permissões: master tem todas, comum recebe as definidas (ou default)
-    const permissoes = data.tipo_usuario === 'master'
-      ? DEFAULT_PERMISSOES
-      : (data.permissoes || DEFAULT_PERMISSOES);
+    // Permissões: master/creator têm todas, comum recebe as definidas (ou default)
+    const permissoes = data.tipo_usuario === 'comum'
+      ? (data.permissoes || DEFAULT_PERMISSOES)
+      : DEFAULT_PERMISSOES;
 
     const result = await query(
       `INSERT INTO usuarios (
@@ -167,6 +187,15 @@ export const usuariosService = {
       await query('SELECT seed_categorias_pj($1)', [novoUsuario.id]);
     }
 
+    // Empresa no número oficial: o usuário novo entra direto nele (porta virtual),
+    // sem instância nem QR Code — ver whatsapp/canal/contas.ts.
+    const portaOficial = await portaParaUsuarioNovo(novoUsuario.empresa_id);
+    if (portaOficial) {
+      await query('UPDATE usuarios SET whatsapp_porta = $1 WHERE id = $2', [portaOficial, novoUsuario.id]);
+      novoUsuario.whatsapp_porta = portaOficial;
+      return novoUsuario;
+    }
+
     // Provisionar instância WhatsApp automaticamente
     try {
       const porta = await whatsappProvisionService.criarInstancia(novoUsuario.id);
@@ -186,14 +215,20 @@ export const usuariosService = {
 
     if (caller.nivel === 'super_admin') {
       // Admin pode editar qualquer usuário
-    } else if (caller.tipo_usuario === 'master') {
-      // Master só pode editar usuários da sua empresa
+    } else if (isAdminEmpresa(caller)) {
+      // Master/creator só podem editar usuários da sua empresa
       if (target.empresa_id !== caller.empresa_id) {
         throw new Error('Sem permissão para editar este usuário');
       }
-      // Master não pode mudar tipo_usuario para master
-      if (data.tipo_usuario === 'master' && target.tipo_usuario !== 'master') {
-        throw new Error('Apenas o administrador do sistema pode criar usuários master');
+      // O administrador do SISTEMA nunca é editável daqui: ele tem empresa_id (hoje a 1)
+      // e aparece na lista daquela empresa — sem esta trava, o master de lá poderia
+      // rebaixá-lo ou desativá-lo.
+      if (isSuperAdmin(target)) {
+        throw new Error('Sem permissão para editar este usuário');
+      }
+      // Ninguém mexe em quem está acima: um master não edita o creator (o dono).
+      if (rankTipo(target.tipo_usuario) > rankTipo(caller.tipo_usuario)) {
+        throw new Error('Sem permissão para editar o usuário creator (dono da empresa)');
       }
     } else {
       throw new Error('Sem permissão para editar usuários');
@@ -226,12 +261,51 @@ export const usuariosService = {
       values.push(data.empresa_id);
       paramCount++;
     }
-    if (data.tipo_usuario && caller.nivel === 'super_admin') {
+    // Tipo de usuário: o super_admin troca em qualquer conta; master e creator trocam
+    // dentro da própria empresa (já validado acima), com três travas — ninguém promove
+    // acima do próprio papel (um master não cria um creator), ninguém mexe no próprio
+    // tipo (se rebaixasse a si mesmo perderia o acesso a /admin e ninguém desfaria) e a
+    // empresa nunca fica sem administrador ativo.
+    // O tipo viaja no JWT (8h, sem refresh): para o usuário alterado a mudança só vale
+    // no próximo login.
+    if (data.tipo_usuario && data.tipo_usuario !== target.tipo_usuario) {
+      if (!TIPOS_VALIDOS.includes(data.tipo_usuario)) {
+        throw new Error('Tipo de usuário inválido');
+      }
+      if (!isSuperAdmin(caller)) {
+        if (rankTipo(data.tipo_usuario) > rankTipo(caller.tipo_usuario)) {
+          throw new Error('Apenas o creator (dono da empresa) pode definir outro usuário como creator');
+        }
+        if (Number(target.id) === Number(caller.userId)) {
+          throw new Error('Você não pode alterar o seu próprio tipo de usuário');
+        }
+        await garantirAdminRemanescente(target, 'A empresa precisa de pelo menos um usuário master ou creator ativo');
+      }
+
       fields.push(`tipo_usuario = $${paramCount}`);
       values.push(data.tipo_usuario);
       paramCount++;
+
+      // Master/creator têm acesso a tudo (é o que o create já faz). Promover sem abrir
+      // as permissões deixaria um administrador com módulos bloqueados no menu.
+      // Só quando o payload não traz permissões próprias — senão a UPDATE teria duas
+      // atribuições para a mesma coluna.
+      if (data.tipo_usuario !== 'comum' && data.permissoes === undefined) {
+        fields.push(`permissoes = $${paramCount}`);
+        values.push(JSON.stringify(DEFAULT_PERMISSOES));
+        paramCount++;
+      }
     }
     if (data.ativo !== undefined) {
+      // Desativar tem o mesmo efeito prático de rebaixar: aplica as mesmas travas de
+      // auto-bloqueio e de "último master" (a lista da tela agora mostra o botão nas
+      // linhas de master, e a rota é acessível a qualquer master).
+      if (data.ativo === false && !isSuperAdmin(caller)) {
+        if (Number(target.id) === Number(caller.userId)) {
+          throw new Error('Você não pode desativar a sua própria conta');
+        }
+        await garantirAdminRemanescente(target, 'A empresa precisa de pelo menos um usuário master ou creator ativo');
+      }
       fields.push(`ativo = $${paramCount}`);
       values.push(data.ativo);
       paramCount++;
@@ -269,19 +343,20 @@ export const usuariosService = {
   async updatePermissoes(id: string, permissoes: Record<string, boolean>, caller: JwtPayload) {
     const target = await this.getById(id);
 
-    // Apenas master/admin pode editar permissões
-    if (caller.nivel !== 'super_admin' && caller.tipo_usuario !== 'master') {
+    // Apenas quem administra a empresa pode editar permissões
+    if (!isAdminEmpresa(caller)) {
       throw new Error('Sem permissão para editar permissões');
     }
 
-    // Master só pode editar permissões de usuários da sua empresa
-    if (caller.nivel !== 'super_admin' && target.empresa_id !== caller.empresa_id) {
+    // Master/creator só editam permissões de usuários da sua empresa
+    if (!isSuperAdmin(caller) && target.empresa_id !== caller.empresa_id) {
       throw new Error('Sem permissão para editar permissões deste usuário');
     }
 
-    // Não pode editar permissões de outro master (apenas admin pode)
-    if (target.tipo_usuario === 'master' && caller.nivel !== 'super_admin') {
-      throw new Error('Apenas o administrador pode editar permissões de usuários master');
+    // Master e creator têm todos os módulos por definição — restringir um deles pela
+    // tela de permissões só criaria um administrador com o menu quebrado.
+    if (target.tipo_usuario !== 'comum' && !isSuperAdmin(caller)) {
+      throw new Error('Usuários master e creator têm acesso a todos os módulos');
     }
 
     const result = await query(
@@ -303,13 +378,15 @@ export const usuariosService = {
       if (target.id === caller.userId) {
         throw new Error('Não é possível deletar seu próprio usuário');
       }
-    } else if (caller.tipo_usuario === 'master') {
-      // Master só pode deletar Comum da sua empresa
+    } else if (isAdminEmpresa(caller)) {
+      // Só dá para deletar quem está ABAIXO na hierarquia: master apaga comum, creator
+      // apaga comum e master. Ninguém apaga um par nem quem está acima — para isso,
+      // rebaixe primeiro (o que já obedece às travas de tipo).
       if (target.empresa_id !== caller.empresa_id) {
         throw new Error('Sem permissão para deletar este usuário');
       }
-      if (target.tipo_usuario === 'master') {
-        throw new Error('Apenas o administrador pode deletar usuários master');
+      if (rankTipo(target.tipo_usuario) >= rankTipo(caller.tipo_usuario)) {
+        throw new Error(`Sem permissão para deletar um usuário ${target.tipo_usuario}`);
       }
     } else {
       throw new Error('Sem permissão para deletar usuários');

@@ -34,6 +34,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (storedUser && token) {
       try {
         setUser(JSON.parse(storedUser))
+
+        // Revalida em background: o user do localStorage pode ter sido gravado por
+        // uma versão antiga do app e não ter campos novos (ex.: assinatura_email,
+        // dados de contato da empresa). Falha aqui não desloga — o interceptor do
+        // client já cuida de 401.
+        authApi.me()
+          .then(fresco => {
+            setUser(prev => {
+              const merged = { ...(prev || {}), ...fresco } as User
+              localStorage.setItem('user', JSON.stringify(merged))
+              return merged
+            })
+          })
+          .catch(() => { /* offline ou sessão expirada: segue com o que está em cache */ })
       } catch {
         // localStorage corrompido → limpar sessão em vez de quebrar o app no load
         localStorage.removeItem('user')

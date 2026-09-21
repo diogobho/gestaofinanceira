@@ -16,7 +16,7 @@ export const authApi = {
     return data
   },
 
-  updatePerfil: async (payload: { nome?: string; email?: string; foto_perfil?: string | null }): Promise<User> => {
+  updatePerfil: async (payload: { nome?: string; email?: string; foto_perfil?: string | null; assinatura_email?: string | null }): Promise<User> => {
     const { data } = await api.put<User>('/auth/perfil', payload)
     return data
   },
@@ -33,8 +33,21 @@ export const authApi = {
     plano_id: number;
     billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO' | 'TRIAL';
     cpf_cnpj?: string;
+    /** WhatsApp de contato da conta; o material só sai por ele com opt-in. */
+    telefone?: string;
+    /** Compromisso de fidelidade escolhido. */
+    ciclo?: string;
     aceite_termos: boolean;
-  }): Promise<{ token: string; user: any; paymentUrl?: string; pixQrCode?: string }> => {
+    /** Opt-in (LGPD) para receber o material de boas-vindas pelo WhatsApp. */
+    whatsapp_optin?: boolean;
+  }): Promise<{
+    token: string;
+    user: any;
+    paymentUrl?: string;
+    pixQrCode?: string;
+    /** Link `wa.me` pronto — só vem quando houve opt-in. */
+    whatsappUrl?: string;
+  }> => {
     const { data } = await api.post('/auth/registrar', payload)
     return data
   },

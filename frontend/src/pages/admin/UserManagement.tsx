@@ -12,6 +12,7 @@ import { agenteApi } from '@/api/agente'
 import { assinaturasApi } from '@/api/assinaturas'
 import { useAuth } from '@/contexts/AuthContext'
 import type { User, CreateUserRequest, UpdateUserRequest, UserPermissoes } from '@/types'
+import { isAdminEmpresa, rankTipo, type TipoUsuario } from '@/utils/roles'
 
 // ─── Tipos de permissão ──────────────────────────────────────────────────────
 
@@ -269,6 +270,7 @@ const TabEmpresas: React.FC = () => {
 
 const TabUsuarios: React.FC<{ isAdmin: boolean; isMaster: boolean }> = ({ isAdmin, isMaster }) => {
   const queryClient = useQueryClient()
+  const { user: currentUser } = useAuth()
 
   const [isModalOpen,         setIsModalOpen]         = useState(false)
   const [isPermissoesModalOpen,setIsPermissoesModalOpen]= useState(false)
@@ -346,8 +348,30 @@ const TabUsuarios: React.FC<{ isAdmin: boolean; isMaster: boolean }> = ({ isAdmi
 
   const permissoesDisponíveis   = PERMISSOES_PJ
 
-  const canManageUser   = (user: User) => isAdmin || (isMaster && user.tipo_usuario === 'comum')
+  const isSelf = (user: User) => String(user.id) === String(currentUser?.id)
+  const meuRank = rankTipo(currentUser?.tipo_usuario)
+
+  // Hierarquia na empresa: comum < master < creator. O administrador do SISTEMA
+  // (super_admin) tem empresa_id e por isso aparece na lista de uma das empresas —
+  // ele nunca é gerenciável daqui. Mesmas regras do backend (usuarios.service.ts):
+  // atua-se sobre iguais e abaixo, exclui-se só quem está abaixo.
+  const canManageUser     = (user: User) =>
+    isAdmin || (isMaster && user.nivel !== 'super_admin' && rankTipo(user.tipo_usuario) <= meuRank)
+  // Master e creator têm todos os módulos: só faz sentido editar permissões de comum.
   const canEditPermissoes = (user: User) => user.tipo_usuario === 'comum' && canManageUser(user)
+  const canDeleteUser     = (user: User) => canManageUser(user) && !isSelf(user)
+    && (isAdmin || rankTipo(user.tipo_usuario) < meuRank)
+  // Trocar o próprio tipo travaria o acesso a esta tela sem quem desfizesse.
+  const canChangeTipo     = (user: User | null) =>
+    user ? (isAdmin || (isMaster && !isSelf(user) && user.nivel !== 'super_admin'
+                        && rankTipo(user.tipo_usuario) <= meuRank))
+         : isAdmin
+  // Só se promove alguém até o próprio papel: um master não cria um creator.
+  const tiposDisponiveis: Array<{ valor: TipoUsuario; label: string }> = [
+    { valor: 'creator', label: 'Creator (dono — configura o agente de IA)' },
+    { valor: 'master',  label: 'Master (administra a empresa)' },
+    { valor: 'comum',   label: 'Comum (acesso operacional)' },
+  ].filter(t => isAdmin || rankTipo(t.valor) <= meuRank) as Array<{ valor: TipoUsuario; label: string }>
 
   const handleOpenModal = () => {
     setEditingItem(null)
@@ -385,8 +409,11 @@ const TabUsuarios: React.FC<{ isAdmin: boolean; isMaster: boolean }> = ({ isAdmi
         if (!empresaId) { toast.error('Selecione uma empresa'); return }
         data.empresa_id = parseInt(empresaId)
       }
-      data.tipo_usuario = formData.get('tipo_usuario') as string
     }
+
+    // O select de tipo só é renderizado para quem pode trocá-lo (canChangeTipo).
+    const tipoUsuario = formData.get('tipo_usuario') as string | null
+    if (tipoUsuario) data.tipo_usuario = tipoUsuario
 
     if (senha && senha.trim() !== '') data.senha = senha
     if (isMaster && !editingItem) data.permissoes = editingPermissoes
@@ -399,8 +426,11 @@ const TabUsuarios: React.FC<{ isAdmin: boolean; isMaster: boolean }> = ({ isAdmi
   }
 
   const getTipoBadge = (user: User) => {
-    if (user.nivel === 'super_admin')   return <Badge variant="danger">Admin</Badge>
-    if (user.tipo_usuario === 'master') return <Badge variant="warning">Master</Badge>
+    if (user.nivel === 'super_admin')    return <Badge variant="danger">Admin</Badge>
+    // Creator no Navy da marca: fica acima do Master (dourado) e não colide com o
+    // verde de "Ativo" nem com o azul de "Comum", que estão na mesma linha.
+    if (user.tipo_usuario === 'creator') return <Badge className="bg-primary-100 text-primary-800 dark:bg-primary-900/40 dark:text-primary-200">Creator</Badge>
+    if (user.tipo_usuario === 'master')  return <Badge variant="warning">Master</Badge>
     return <Badge variant="info">Comum</Badge>
   }
 
@@ -411,7 +441,7 @@ const TabUsuarios: React.FC<{ isAdmin: boolean; isMaster: boolean }> = ({ isAdmi
 
   const totalUsers  = users?.length || 0
   const activeUsers = users?.filter((u: any) => u.ativo !== false).length || 0
-  const masterUsers = users?.filter((u: any) => u.tipo_usuario === 'master' || u.nivel === 'super_admin').length || 0
+  const masterUsers = users?.filter((u: any) => u.tipo_usuario !== 'comum' || u.nivel === 'super_admin').length || 0
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner size="lg" /></div>
 
@@ -480,9 +510,11 @@ const TabUsuarios: React.FC<{ isAdmin: boolean; isMaster: boolean }> = ({ isAdmi
                   <td className="px-6 py-4 text-sm">
                     {canManageUser(user) && (
                       <div className="flex gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => updateMutation.mutate({ id: user.id, data: { ativo: !user.ativo } })} title={user.ativo !== false ? 'Desativar' : 'Ativar'}>
-                          {user.ativo !== false ? <UserX className="w-4 h-4 text-red-600" /> : <UserCheck className="w-4 h-4 text-green-600" />}
-                        </Button>
+                        {!isSelf(user) && (
+                          <Button variant="ghost" size="sm" onClick={() => updateMutation.mutate({ id: user.id, data: { ativo: !user.ativo } })} title={user.ativo !== false ? 'Desativar' : 'Ativar'}>
+                            {user.ativo !== false ? <UserX className="w-4 h-4 text-red-600" /> : <UserCheck className="w-4 h-4 text-green-600" />}
+                          </Button>
+                        )}
                         {canEditPermissoes(user) && (
                           <Button variant="ghost" size="sm" onClick={() => { setPermissoesUserId(user.id); setEditingPermissoes(user.permissoes || DEFAULT_PERMISSOES_PJ); setIsPermissoesModalOpen(true) }} title="Editar permissões">
                             <Shield className="w-4 h-4 text-blue-600" />
@@ -491,9 +523,11 @@ const TabUsuarios: React.FC<{ isAdmin: boolean; isMaster: boolean }> = ({ isAdmi
                         <Button variant="ghost" size="sm" onClick={() => { setEditingItem(user); setIsModalOpen(true) }}>
                           <Edit className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => { setItemToDelete(user.id); setIsDeleteModalOpen(true) }}>
-                          <Trash2 className="w-4 h-4 text-red-600" />
-                        </Button>
+                        {canDeleteUser(user) && (
+                          <Button variant="ghost" size="sm" onClick={() => { setItemToDelete(user.id); setIsDeleteModalOpen(true) }}>
+                            <Trash2 className="w-4 h-4 text-red-600" />
+                          </Button>
+                        )}
                       </div>
                     )}
                   </td>
@@ -557,15 +591,26 @@ const TabUsuarios: React.FC<{ isAdmin: boolean; isMaster: boolean }> = ({ isAdmi
                   )}
                   <p className="mt-1.5 text-xs text-gray-400">🏢 Gestão empresarial e comercial</p>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Usuário *</label>
-                  <Select name="tipo_usuario" defaultValue="master" required>
-                    <option value="master">Master (administra a empresa)</option>
-                    <option value="comum">Comum (acesso operacional)</option>
-                  </Select>
-                </div>
               </>
+            )}
+
+            {canChangeTipo(editingItem) && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Usuário *</label>
+                <Select name="tipo_usuario" defaultValue={editingItem?.tipo_usuario || (isAdmin ? 'master' : 'comum')} required>
+                  {tiposDisponiveis.map(t => (
+                    <option key={t.valor} value={t.valor}>{t.label}</option>
+                  ))}
+                </Select>
+                {editingItem && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    O <strong>Creator</strong> é o dono da conta: faz tudo que o Master faz e é o único
+                    que pode configurar o agente de IA (prompt, tom, chave de API). O <strong>Master</strong>{' '}
+                    administra usuários e a operação. Ao promover, todos os módulos são liberados.
+                    A troca passa a valer no próximo login do usuário.
+                  </p>
+                )}
+              </div>
             )}
 
             {isMaster && !editingItem && (
@@ -652,7 +697,7 @@ export const UserManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('usuarios')
 
   const isAdmin  = currentUser?.nivel === 'super_admin'
-  const isMaster = currentUser?.tipo_usuario === 'master'
+  const isMaster = isAdminEmpresa(currentUser)
 
   const visibleTabs = TABS.filter(t => !t.adminOnly || isAdmin)
 

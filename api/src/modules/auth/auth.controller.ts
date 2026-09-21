@@ -24,8 +24,8 @@ export const authController = {
 
   async updatePerfil(req: AuthRequest, res: Response) {
     try {
-      const { nome, email, foto_perfil } = req.body;
-      const user = await authService.updatePerfil(req.user!.userId, { nome, email, foto_perfil });
+      const { nome, email, foto_perfil, assinatura_email } = req.body;
+      const user = await authService.updatePerfil(req.user!.userId, { nome, email, foto_perfil, assinatura_email });
       return res.json(user);
     } catch (error: any) {
       return res.status(400).json({ code: 'UPDATE_PERFIL_ERROR', message: error.message });
@@ -51,7 +51,7 @@ export const authController = {
 
   async registrar(req: Request, res: Response) {
     try {
-      const { nome_empresa, nome_usuario, email, senha, plano_id, billing_type, cpf_cnpj, aceite_termos } = req.body;
+      const { nome_empresa, nome_usuario, email, senha, plano_id, billing_type, cpf_cnpj, telefone, ciclo, aceite_termos, whatsapp_optin } = req.body;
       if (!nome_empresa || !nome_usuario || !email || !senha || !plano_id || !billing_type) {
         return res.status(400).json({ code: 'MISSING_FIELDS', message: 'Todos os campos são obrigatórios' });
       }
@@ -69,6 +69,11 @@ export const authController = {
         planoId: Number(plano_id),
         billingType: billing_type,
         cpfCnpj: cpf_cnpj,
+        telefone,
+        ciclo: typeof ciclo === 'string' ? ciclo : undefined,
+        // Opt-in do material por WhatsApp: só `true` explícito conta como
+        // consentimento (LGPD) — qualquer outra coisa é "não pediu".
+        optinWhatsapp: whatsapp_optin === true || whatsapp_optin === 'true',
         aceiteIp: ip,
       });
       return res.status(201).json(result);
