@@ -1,36 +1,34 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import Anthropic from '@anthropic-ai/sdk';
 import { pool, query } from '../../config/database';
 import { enviarEmail, remetenteDuoFuturo } from '../../services/email.service';
 
 /**
- * Suporte por ticket, com atendimento HUMANO na primeira linha.
- *
- * REGRA DE OURO: abrir chamado e avisar a equipe NÃO dependem da IA.
+ * Suporte por ticket, com atendimento HUMANO — o único que existe.
  *
  *   cliente abre → ticket gravado (transação) → entra na fila humana
- *   → equipe avisada → só então, e só se ligado de propósito, a IA entra
+ *   → equipe avisada → uma pessoa responde
  *
- * Até 25/08/2026 era o contrário: `criar` chamava `responderComIA`, e o aviso à
- * equipe era efeito colateral de a IA decidir escalar (`[ESCALAR]`). Como a IA
- * nunca rodou em produção (sem `SUPORTE_IA_API_KEY` e sem credencial da empresa
- * interna), TODO chamado caía em `aguardando_suporte` **em silêncio**: o cliente
- * recebia "o Duo já está olhando" e ninguém da equipe ficava sabendo.
+ * **Não há IA neste módulo, e isso é deliberado (31/08/2026).** Foram removidos o
+ * copiloto de sugestão para o atendente, a resposta automática ao cliente e as
+ * credenciais que os alimentavam (`SUPORTE_IA_*`) — nada aqui depende de chave,
+ * de saldo ou de configuração. Quem responde chamado é gente, e o roteiro de
+ * diagnóstico que a equipe usa mora em `docs/SUPORTE.md`, não num prompt.
  *
- * Por isso a notificação mudou de dono. Quem avisa a equipe é quem coloca o
- * ticket na fila — `criar`, `responderComoCliente` e `marcarParaEquipe` —,
- * nunca a IA. Falha de IA (sem chave, sem saldo, timeout, resposta vazia,
- * exceção) não muda nada disso: o ticket já está na fila e a equipe já sabe.
+ * Histórico que justifica a regra: até 25/08/2026 `criar` chamava a IA, e o aviso
+ * à equipe era efeito colateral de ela decidir escalar. Como a IA nunca rodou em
+ * produção (nunca houve chave configurada), TODO chamado caía em
+ * `aguardando_suporte` **em silêncio** — o cliente recebia "já estamos olhando" e
+ * ninguém da equipe ficava sabendo. Por isso quem avisa a equipe é quem coloca o
+ * ticket na fila: `criar`, `responderComoCliente` e `marcarParaEquipe`.
  *
- * A chave de IA usada aqui é a da **DuoFuturo**, nunca a do cliente: quem paga
- * pelo atendimento somos nós. Ela sai de `SUPORTE_IA_API_KEY` ou, faltando isso,
- * das credenciais da empresa interna (`SUPORTE_IA_EMPRESA_ID`, a 32).
+ * `AutorMensagem` não tem mais `agente_ia`: zero linhas com esse autor existiam
+ * no banco quando a IA saiu, porque ela nunca respondeu a ninguém.
  */
 
 export type StatusTicket = 'aberto' | 'aguardando_cliente' | 'aguardando_suporte' | 'resolvido' | 'fechado';
-export type AutorMensagem = 'cliente' | 'agente_ia' | 'suporte';
+export type AutorMensagem = 'cliente' | 'suporte';
 export type TipoMensagem = 'mensagem' | 'nota_interna' | 'evento';
 
 export interface Ticket {
@@ -108,17 +106,6 @@ function tipoPelaAssinatura(b: Buffer): string | null {
   return null;
 }
 
-/** Frase que a IA usa quando decide que o caso é de gente. */
-const MARCA_ESCALAR = '[ESCALAR]';
-
-/**
- * A IA só fala com o cliente se alguém ligar isso de propósito — padrão:
- * DESLIGADA. Sem esta trava, configurar `SUPORTE_IA_API_KEY` amanhã (que é
- * necessário para a IA copiloto da equipe) religaria sozinho o atendimento
- * automático ao cliente, que é justamente o que não queremos hoje.
- */
-const RESPOSTA_AUTOMATICA_IA = process.env.SUPORTE_IA_RESPOSTA_AUTOMATICA === 'true';
-
 /** Status em que o chamado está na fila da equipe. */
 const FILA_HUMANA = 'aguardando_suporte';
 
@@ -155,81 +142,6 @@ export const SQL_STATUS_POR_MENSAGEM = `
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function credenciaisIA(): Promise<{ apiKey: string; modelo: string } | null> {
-  const doEnv = process.env.SUPORTE_IA_API_KEY;
-  if (doEnv) {
-    return { apiKey: doEnv, modelo: process.env.SUPORTE_IA_MODELO || 'claude-sonnet-4-6' };
-  }
-
-  const empresaInterna = Number(process.env.SUPORTE_IA_EMPRESA_ID || 32);
-  const res = await query(
-    'SELECT api_key, modelo FROM empresa_ia_credenciais WHERE empresa_id = $1 LIMIT 1',
-    [empresaInterna]
-  );
-  const row = res.rows[0];
-  if (!row?.api_key) return null;
-  return { apiKey: row.api_key, modelo: row.modelo || 'claude-sonnet-4-6' };
-}
-
-function promptSuporte(ticket: Ticket, empresaNome: string, usuarioNome: string): string {
-  return `Você é o Duo, o assistente de suporte da DuoFuturo — mascote peça de quebra-cabeça, tratado no masculino.
-Está atendendo ${usuarioNome}, da empresa ${empresaNome}, num chamado de suporte do Gestão Financeira CRM.
-
-Assunto do chamado: "${ticket.assunto}" (categoria: ${ticket.categoria}).
-
-O QUE VOCÊ CONHECE DO PRODUTO
-- CRM com funil Kanban, leads, estágios, automações e cadências de follow-up.
-- WhatsApp conectado por QR Code, uma instância por usuário; disparos em massa
-  com intervalo anti-ban; histórico de conversa dentro do card do lead.
-- Agente de IA que responde leads no WhatsApp, configurável por estágio e por lead.
-- Financeiro: receitas, despesas, parcelas, clientes, dashboard.
-- E-mail: SMTP por empresa, disparos e assinatura por usuário (em /gestao/perfil).
-- Planos Starter, Profissional e Enterprise, com fidelidade mensal, trimestral,
-  semestral ou anual. Usuário adicional custa R$ 100/mês.
-
-COMO RESPONDER
-- Em português do Brasil, direto, no máximo uns 3 parágrafos curtos.
-- Passo a passo numerado quando for "como faço X".
-- Se faltar informação para responder, PERGUNTE o que falta em vez de chutar.
-- Nunca invente prazo, valor, política de reembolso ou combinado comercial.
-
-QUANDO PASSAR PARA A EQUIPE
-Responda começando a mensagem exatamente com ${MARCA_ESCALAR} quando o caso
-envolver: dinheiro (cobrança, reembolso, cancelamento, fatura), suspeita de bug
-ou perda de dados, pedido explícito de falar com uma pessoa, ou qualquer coisa
-que você não saiba responder com segurança. Depois da marca, escreva ao cliente
-o que você entendeu e diga que a equipe assume daqui. A marca é removida antes
-de o cliente ver — ela não faz parte do texto.`;
-}
-
-/** Conversa até aqui, no formato que o SDK espera. */
-async function historicoParaIA(ticketId: number): Promise<Anthropic.MessageParam[]> {
-  const res = await query(
-    `SELECT autor, conteudo FROM ticket_mensagens WHERE ticket_id = $1 ORDER BY created_at ASC, id ASC`,
-    [ticketId]
-  );
-
-  const mensagens: Anthropic.MessageParam[] = [];
-  for (const m of res.rows) {
-    const role = m.autor === 'cliente' ? 'user' : 'assistant';
-    // A API recusa dois turnos seguidos do mesmo papel; juntar é mais fiel do
-    // que descartar, e sem isso um cliente que escreve duas vezes trava a resposta.
-    const ultima = mensagens[mensagens.length - 1];
-    if (ultima && ultima.role === role) {
-      ultima.content = `${ultima.content}\n\n${m.conteudo}`;
-    } else {
-      mensagens.push({ role, content: m.conteudo });
-    }
-  }
-
-  // Prefill: terminar em assistant faz a API completar a própria fala em vez de
-  // responder. Foi exatamente o que quebrou o follow-up com IA em 07/2026.
-  if (mensagens.length && mensagens[mensagens.length - 1].role === 'assistant') {
-    mensagens.push({ role: 'user', content: '(o cliente aguarda uma resposta)' });
-  }
-  return mensagens;
-}
-
 /**
  * Erro que o CLIENTE pode ler: "descreva o assunto", "chamado fechado". Tudo
  * que não é desta classe é problema nosso e vira mensagem genérica lá fora —
@@ -258,76 +170,6 @@ function escaparHtml(texto: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const suporteService = {
-  /**
-   * Resposta automática da IA ao cliente. **Desligada por padrão** — só roda com
-   * `SUPORTE_IA_RESPOSTA_AUTOMATICA=true`.
-   *
-   * Nunca lança e nunca é caminho crítico: quando ela falha (sem chave, sem
-   * saldo, timeout, resposta vazia), o ticket continua na fila humana, onde já
-   * estava desde o INSERT, e a equipe já foi avisada por `criar`. O
-   * `marcarParaEquipe` daqui é rede de segurança para o caso de a IA ter movido
-   * o ticket para `aguardando_cliente` antes de quebrar.
-   */
-  async responderComIA(ticketId: number): Promise<void> {
-    if (!RESPOSTA_AUTOMATICA_IA) return;
-    try {
-      const ticket = await this.getById(ticketId);
-      if (!ticket) return;
-
-      const creds = await credenciaisIA();
-      if (!creds) {
-        console.warn('[suporte] sem chave de IA — ticket', ticketId, 'segue com a equipe');
-        await this.marcarParaEquipe(ticketId, 'a IA não pôde responder (sem chave)');
-        return;
-      }
-
-      const ctx = await query(
-        `SELECT u.nome AS usuario_nome, e.nome AS empresa_nome
-           FROM usuarios u JOIN empresas e ON e.id = u.empresa_id
-          WHERE u.id = $1`,
-        [ticket.usuario_id]
-      );
-
-      const anthropic = new Anthropic({ apiKey: creds.apiKey });
-      const resposta = await anthropic.messages.create({
-        model: creds.modelo,
-        max_tokens: 1024,
-        system: promptSuporte(ticket, ctx.rows[0]?.empresa_nome || 'sua empresa', ctx.rows[0]?.usuario_nome || 'você'),
-        messages: await historicoParaIA(ticketId),
-      });
-
-      const bruto = resposta.content
-        .filter((b: any) => b.type === 'text')
-        .map((b: any) => b.text)
-        .join('')
-        .trim();
-
-      if (!bruto) {
-        await this.marcarParaEquipe(ticketId, 'a IA devolveu resposta vazia');
-        return;
-      }
-
-      const escalar = bruto.startsWith(MARCA_ESCALAR);
-      const texto = escalar ? bruto.slice(MARCA_ESCALAR.length).trim() : bruto;
-
-      await this.adicionarMensagem(ticketId, {
-        autor: 'agente_ia',
-        conteudo: texto,
-        automatica: true,
-        // A IA já respondeu: a bola volta para o cliente, a menos que ela mesma
-        // tenha pedido gente.
-        novoStatus: escalar ? 'aguardando_suporte' : 'aguardando_cliente',
-      });
-
-      if (escalar) {
-        await this.avisarEquipe(ticketId, texto);
-      }
-    } catch (err: any) {
-      console.error('[suporte] IA falhou no ticket', ticketId, '—', err?.message || err);
-      await this.marcarParaEquipe(ticketId, `a IA falhou (${err?.message || 'erro desconhecido'})`).catch(() => {});
-    }
-  },
-
   /**
    * Devolve o chamado à fila da equipe e **garante o aviso**.
    *
@@ -401,11 +243,7 @@ export const suporteService = {
     // Daqui para baixo o chamado JÁ EXISTE e JÁ ESTÁ na fila da equipe (o INSERT
     // nasce em `aguardando_suporte`). Nada abaixo pode derrubá-lo, por isso tudo
     // sai fora da requisição — quem abriu vê a tela responder na hora.
-    //
-    // A ordem importa e é a da premissa: avisar a equipe primeiro, IA só depois
-    // (e só se ligada). Por isso o `.finally`, e não dois `void` soltos.
-    void this.avisarEquipe(ticket.id, 'chamado novo', mensagem)
-      .finally(() => { void this.responderComIA(ticket.id); });
+    void this.avisarEquipe(ticket.id, 'chamado novo', mensagem);
     void this.enviarEmailAbertura(ticket.id);
 
     return ticket;
@@ -665,15 +503,6 @@ export const suporteService = {
     if (!ticket) throw new ErroValidacao('Chamado não encontrado');
     if (ticket.status === 'fechado') throw new ErroValidacao('Este chamado está fechado. Abra um novo.');
 
-    // Com a resposta automática ligada, a IA continua tendo a primeira palavra
-    // nos chamados que ainda não são de gente — e ela mesma decide o destino.
-    const comEquipe = ticket.status === FILA_HUMANA;
-    if (RESPOSTA_AUTOMATICA_IA && !comEquipe) {
-      const msg = await this.adicionarMensagem(ticketId, { autor: 'cliente', usuarioId, conteudo, novoStatus: 'aberto', anexoIds });
-      void this.responderComIA(ticketId);
-      return msg;
-    }
-
     const msg = await this.adicionarMensagem(ticketId, {
       autor: 'cliente',
       usuarioId,
@@ -685,17 +514,27 @@ export const suporteService = {
     return msg;
   },
 
-  /** Resposta da equipe. Tira o ticket da fila e devolve a bola ao cliente. */
+  /**
+   * Resposta da equipe. Tira o ticket da fila e devolve a bola ao cliente.
+   *
+   * NÃO sai e-mail: a resposta vive só dentro do sistema, e o cliente a lê em
+   * /gestao/suporte, na conta dele. Decisão de produto de 28/08/2026 — antes
+   * daqui saía um e-mail com um trecho do texto, o que espalhava a conversa por
+   * dois lugares e mandava conteúdo de suporte para fora do app.
+   *
+   * Os outros dois e-mails do módulo são outra coisa e continuam: `avisarEquipe`
+   * é interno, vai para a caixa oficial e é o que impede um chamado de ficar
+   * invisível na fila; `enviarEmailAbertura` confirma ao cliente que o chamado
+   * foi registrado, e não carrega conteúdo de atendimento.
+   */
   async responderComoSuporte(ticketId: number, usuarioId: number, conteudo: string, anexoIds?: number[]): Promise<TicketMensagem> {
-    const msg = await this.adicionarMensagem(ticketId, {
+    return this.adicionarMensagem(ticketId, {
       autor: 'suporte',
       usuarioId,
       conteudo,
       novoStatus: 'aguardando_cliente',
       anexoIds,
     });
-    void this.enviarEmailResposta(ticketId, conteudo, 'a equipe de suporte');
-    return msg;
   },
 
   /**
@@ -747,7 +586,7 @@ export const suporteService = {
     const falhas: string[] = [];
     for (let n = 1; n <= maxTentativas; n++) {
       try {
-        await enviarEmail(destino, assunto, html, remetenteDuoFuturo('Suporte DuoFuturo'));
+        await enviarEmail(destino, assunto, html, await remetenteDuoFuturo('Suporte DuoFuturo'));
         return { tentativas: n };
       } catch (err: any) {
         falhas.push(`tentativa ${n}: ${err?.message || err}`);
@@ -790,31 +629,6 @@ export const suporteService = {
     }
   },
 
-  async enviarEmailResposta(ticketId: number, conteudo: string, quem: string): Promise<void> {
-    try {
-      const ticket = await this.getById(ticketId);
-      if (!ticket) return;
-      const destino = ticket.email_contato || (await this.emailDoUsuario(ticket.usuario_id));
-      if (!destino) return;
-
-      const trecho = conteudo.length > 600 ? `${conteudo.slice(0, 600)}…` : conteudo;
-      await this.enviarComRetentativa(
-        destino,
-        `[#${ticket.id}] ${ticket.assunto}`,
-        `<p>Há uma resposta de ${quem} no seu chamado <strong>#${ticket.id}</strong>:</p>
-         <blockquote style="border-left:3px solid #D2B773;margin:12px 0;padding:4px 0 4px 12px;color:#374151">
-           ${escaparHtml(trecho).replace(/\n/g, '<br>')}
-         </blockquote>
-         <p>Responda em <a href="https://duofuturo.tech/gestao/suporte">duofuturo.tech/gestao/suporte</a>.</p>
-         <p>— Suporte DuoFuturo · ${EMAIL_SUPORTE}</p>`
-      );
-    } catch (err: any) {
-      console.error(
-        `[suporte] e-mail de RESPOSTA nao chegou ao cliente | ticket=${ticketId}` +
-        ` | tentativas=${err?.tentativas ?? 1} | erro_provedor=${err?.message || err}`
-      );
-    }
-  },
 
   /**
    * Avisa a caixa oficial que há chamado esperando gente.
@@ -1079,93 +893,6 @@ export const suporteService = {
       console.log(`[suporte] anexos órfãos: ${removidos} removido(s), ${falhas} falha(s)`);
     }
     return { removidos, falhas };
-  },
-
-  // ── IA copiloto do atendente (Fase 6) ──────────────────────────────────────
-
-  /**
-   * A IA ASSISTE quem atende — não responde o cliente.
-   *
-   * Devolve classificação, prioridade sugerida, resumo e um rascunho de resposta
-   * para o atendente revisar. Nada daqui é enviado a ninguém: o rascunho volta
-   * como texto na tela e só sai se uma pessoa clicar em enviar. É a premissa 4, e
-   * é o oposto da `responderComIA`, que fala com o cliente e segue desligada por
-   * padrão (`SUPORTE_IA_RESPOSTA_AUTOMATICA`).
-   *
-   * Nunca lança por falta de IA: sem chave configurada devolve `disponivel: false`
-   * com o motivo, e a Central continua funcionando sem o painel. Atendimento não
-   * pode depender da IA — mesma regra da fase 0.
-   */
-  async sugestaoParaAtendente(ticketId: number): Promise<{
-    disponivel: boolean;
-    motivo?: string;
-    classificacao?: string;
-    prioridade_sugerida?: string;
-    resumo?: string;
-    resposta_sugerida?: string;
-  }> {
-    const ticket = await this.getById(ticketId);
-    if (!ticket) throw new ErroValidacao('Chamado não encontrado');
-
-    const creds = await credenciaisIA();
-    if (!creds) {
-      return { disponivel: false, motivo: 'A chave de IA do suporte (SUPORTE_IA_API_KEY) não está configurada.' };
-    }
-
-    // O histórico da IA inclui nota interna de propósito: é contexto do atendente,
-    // e o resultado não vai ao cliente sem revisão humana.
-    const hist = await query(
-      `SELECT autor, tipo, conteudo FROM ticket_mensagens
-        WHERE ticket_id = $1 ORDER BY created_at ASC, id ASC LIMIT 40`,
-      [ticketId]
-    );
-    const conversa = hist.rows
-      .map((m: any) => `[${m.tipo === 'nota_interna' ? 'nota interna da equipe' : m.autor}] ${m.conteudo}`)
-      .join('\n');
-
-    const sistema = `Você ajuda a EQUIPE de suporte da DuoFuturo a atender um chamado do Gestão Financeira CRM.
-Você NÃO fala com o cliente: o que você escrever é lido por um atendente humano, que revisa antes de enviar.
-
-Devolva SOMENTE um JSON válido, sem cercas de código, com estas chaves:
-{"classificacao":"duvida|problema|sugestao|cobranca","prioridade_sugerida":"baixa|normal|alta","resumo":"...","resposta_sugerida":"..."}
-
-- "resumo": o problema em no máximo 2 frases, para quem nunca leu o chamado.
-- "resposta_sugerida": rascunho em português do Brasil, direto, no máximo 3
-  parágrafos curtos, passo a passo numerado quando for "como faço X".
-- Prioridade alta é para dinheiro (cobrança, reembolso, cancelamento), suspeita de
-  perda de dados ou operação parada. Não infle: se for dúvida de uso, é normal.
-- Nunca invente prazo, valor, política de reembolso ou combinado comercial. Se
-  faltar informação, diga no resumo o que precisa ser perguntado.`;
-
-    try {
-      const anthropic = new Anthropic({ apiKey: creds.apiKey, timeout: 45_000, maxRetries: 1 });
-      const r = await anthropic.messages.create({
-        model: creds.modelo,
-        max_tokens: 1024,
-        system: sistema,
-        messages: [{
-          role: 'user',
-          content: `Chamado #${ticket.id} — "${ticket.assunto}" (categoria ${ticket.categoria}, prioridade atual ${ticket.prioridade}).\nEmpresa: ${ticket.empresa_nome}. Quem abriu: ${ticket.usuario_nome}.\n\nHistórico:\n${conversa}`,
-        }],
-      });
-      const bruto = r.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
-
-      // O modelo às vezes embrulha o JSON em cerca de código, apesar da instrução.
-      const limpo = bruto.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-      const dados = JSON.parse(limpo);
-      return {
-        disponivel: true,
-        classificacao: CATEGORIAS.includes(dados.classificacao) ? dados.classificacao : undefined,
-        prioridade_sugerida: PRIORIDADES.includes(dados.prioridade_sugerida) ? dados.prioridade_sugerida : undefined,
-        resumo: typeof dados.resumo === 'string' ? dados.resumo : undefined,
-        resposta_sugerida: typeof dados.resposta_sugerida === 'string' ? dados.resposta_sugerida : undefined,
-      };
-    } catch (err: any) {
-      // Inclui JSON malformado: o atendente vê "não foi possível" e atende do
-      // mesmo jeito. Melhor sem sugestão do que com sugestão inventada.
-      console.warn(`[suporte] copiloto falhou no ticket ${ticketId} —`, err?.message || err);
-      return { disponivel: false, motivo: 'Não foi possível gerar a sugestão agora. Você pode atender normalmente.' };
-    }
   },
 
   // ── Métricas (Fase 7) ──────────────────────────────────────────────────────

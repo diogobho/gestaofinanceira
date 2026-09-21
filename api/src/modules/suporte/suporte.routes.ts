@@ -41,7 +41,4 @@ router.post('/suporte/tickets/:id/anexos', authRequired, upload.single('file'), 
 // manda header. Mesma razão da rota de mídia do WhatsApp.
 router.get('/suporte/anexos/:anexoId', authRequiredOuTokenNaQuery, suporteController.baixarAnexo);
 
-// Copiloto do atendente — sugere, nunca envia.
-router.post('/suporte/tickets/:id/ia/sugestao', authRequired, suporteController.sugestaoIA);
-
 export default router;

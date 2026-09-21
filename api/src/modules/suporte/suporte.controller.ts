@@ -252,19 +252,6 @@ export const suporteController = {
     }
   },
 
-  /** Sugestão da IA para o ATENDENTE. Não envia nada ao cliente. */
-  async sugestaoIA(req: AuthRequest, res: Response) {
-    try {
-      if (!ehSuporte(req)) {
-        return res.status(403).json({ message: 'Recurso da equipe de suporte' });
-      }
-      const sugestao = await suporteService.sugestaoParaAtendente(Number(req.params.id));
-      return res.json(sugestao);
-    } catch (error: any) {
-      return responderErro(res, error, 'sugestaoIA');
-    }
-  },
-
   /** Métricas: consolidado para a equipe, recorte da empresa para o cliente. */
   async metricas(req: AuthRequest, res: Response) {
     try {

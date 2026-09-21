@@ -1,7 +1,7 @@
 import api from './client';
 
 export type StatusTicket = 'aberto' | 'aguardando_cliente' | 'aguardando_suporte' | 'resolvido' | 'fechado';
-export type AutorMensagem = 'cliente' | 'agente_ia' | 'suporte';
+export type AutorMensagem = 'cliente' | 'suporte';
 export type TipoMensagem = 'mensagem' | 'nota_interna' | 'evento';
 
 export interface Ticket {
@@ -45,15 +45,6 @@ export interface TicketAnexo {
   mimetype: string;
   tamanho_bytes: number;
   created_at: string;
-}
-
-export interface SugestaoIA {
-  disponivel: boolean;
-  motivo?: string;
-  classificacao?: string;
-  prioridade_sugerida?: string;
-  resumo?: string;
-  resposta_sugerida?: string;
 }
 
 export interface MetricasSuporte {
@@ -152,11 +143,6 @@ export const suporteApi = {
   },
 
   /** Sugestão para o ATENDENTE. Nada daqui é enviado ao cliente sem revisão. */
-  async sugestaoIA(ticketId: number): Promise<SugestaoIA> {
-    const res = await api.post(`/suporte/tickets/${ticketId}/ia/sugestao`, {});
-    return res.data;
-  },
-
   async metricas(): Promise<MetricasSuporte> {
     const res = await api.get('/suporte/metricas');
     return res.data;

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  LifeBuoy, Plus, Send, RefreshCw, Loader2, ArrowLeft, CheckCircle2, Bot, User, Headset,
-  Paperclip, Info, Lock, X, Sparkles, AlertTriangle,
+  LifeBuoy, Plus, Send, RefreshCw, Loader2, ArrowLeft, CheckCircle2, User, Headset,
+  Paperclip, Info, Lock, X, AlertTriangle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
@@ -9,7 +9,7 @@ import { Button, Card, EstadoVazio, Modal, ModalFooter, Input, Select, Textarea 
 import {
   suporteApi, ROTULO_STATUS, ROTULO_CATEGORIA, ROTULO_PRIORIDADE, urlAnexo,
   type Ticket, type TicketMensagem, type StatusTicket, type TicketAnexo,
-  type SugestaoIA, type MetricasSuporte,
+  type MetricasSuporte,
 } from '@/api/suporte'
 
 /**
@@ -122,12 +122,10 @@ function Balao({ m }: { m: TicketMensagem }) {
   }
 
   const doCliente = m.autor === 'cliente'
-  const Icone = m.autor === 'agente_ia' ? Bot : m.autor === 'suporte' ? Headset : User
-  const rotulo = m.autor === 'agente_ia'
-    ? 'Duo · assistente de IA'
-    : m.autor === 'suporte'
-      ? `Suporte DuoFuturo${m.autor_nome ? ` · ${m.autor_nome}` : ''}`
-      : m.autor_nome || 'Você'
+  const Icone = m.autor === 'suporte' ? Headset : User
+  const rotulo = m.autor === 'suporte'
+    ? `Suporte DuoFuturo${m.autor_nome ? ` · ${m.autor_nome}` : ''}`
+    : m.autor_nome || 'Você'
 
   return (
     <div className={`flex ${doCliente ? 'justify-end' : 'justify-start'}`}>
@@ -139,9 +137,7 @@ function Balao({ m }: { m: TicketMensagem }) {
           className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm ${
             doCliente
               ? 'rounded-br-sm bg-primary-600 text-white'
-              : m.autor === 'agente_ia'
-                ? 'rounded-bl-sm border border-primary-100 bg-primary-50 text-gray-800 dark:border-primary-900/50 dark:bg-primary-900/20 dark:text-gray-100'
-                : 'rounded-bl-sm border border-gray-200 bg-white text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100'
+              : 'rounded-bl-sm border border-gray-200 bg-white text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100'
           }`}
         >
           {m.conteudo}
@@ -165,8 +161,6 @@ export const Suporte: React.FC = () => {
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [arquivos, setArquivos] = useState<File[]>([])
   const [interna, setInterna] = useState(false)
-  const [sugestao, setSugestao] = useState<SugestaoIA | null>(null)
-  const [pedindoSugestao, setPedindoSugestao] = useState(false)
   const [metricas, setMetricas] = useState<MetricasSuporte | null>(null)
   const fimDaConversa = useRef<HTMLDivElement>(null)
   const inputArquivo = useRef<HTMLInputElement>(null)
@@ -193,9 +187,8 @@ export const Suporte: React.FC = () => {
 
   const abrirConversa = useCallback(async (id: number) => {
     setCarregandoConversa(true)
-    // Sugestão e anexo pertencem ao chamado que estava aberto: levá-los para o
-    // próximo seria anexar arquivo no ticket errado.
-    setSugestao(null)
+    // O anexo pertence ao chamado que estava aberto: levá-lo para o próximo
+    // seria anexar arquivo no ticket errado.
     setArquivos([])
     setInterna(false)
     try {
@@ -259,17 +252,6 @@ export const Suporte: React.FC = () => {
     if (inputArquivo.current) inputArquivo.current.value = ''
   }
 
-  const pedirSugestao = async () => {
-    if (!selecionado || pedindoSugestao) return
-    setPedindoSugestao(true)
-    try {
-      setSugestao(await suporteApi.sugestaoIA(selecionado.id))
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Não foi possível pedir a sugestão')
-    } finally {
-      setPedindoSugestao(false)
-    }
-  }
 
   const mudarPrioridade = async (prioridade: string) => {
     if (!selecionado) return
@@ -297,9 +279,10 @@ export const Suporte: React.FC = () => {
     <div className="p-4 sm:p-6">
       <Header
         title="Suporte"
+        tourId="suporte"
         subtitle={atendente ? 'Chamados de todas as empresas' : 'Abra um chamado e nossa equipe responde'}
         action={
-          <Button variant="primary" onClick={() => setNovoAberto(true)}>
+          <Button data-tour="suporte-novo" variant="primary" onClick={() => setNovoAberto(true)}>
             <Plus className="mr-2 h-4 w-4" /> Novo chamado
           </Button>
         }
@@ -308,7 +291,7 @@ export const Suporte: React.FC = () => {
       {/* Métricas da Central. Média só de quem já foi respondido — chamado sem
           resposta não tem tempo de resposta, e contá-lo como zero mentiria. */}
       {atendente && metricas && (
-        <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+        <div data-tour="suporte-metricas" className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
           {[
             { r: 'Na fila', v: String(metricas.na_fila), destaque: metricas.na_fila > 0 },
             { r: 'Com o cliente', v: String(metricas.com_cliente) },
@@ -336,7 +319,7 @@ export const Suporte: React.FC = () => {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[360px_1fr]">
         {/* Lista — no celular some quando há conversa aberta */}
-        <Card className={`${selecionado ? 'hidden lg:block' : ''} overflow-hidden`}>
+        <Card data-tour="suporte-lista" className={`${selecionado ? 'hidden lg:block' : ''} overflow-hidden`}>
           <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
             <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
               {atendente ? 'Central de suporte' : 'Meus chamados'}{' '}
@@ -344,6 +327,7 @@ export const Suporte: React.FC = () => {
             </span>
             <div className="flex items-center gap-1.5">
             <select
+              data-tour="suporte-filtro"
               value={filtroStatus}
               onChange={e => setFiltroStatus(e.target.value)}
               aria-label="Filtrar por status"
@@ -464,17 +448,6 @@ export const Suporte: React.FC = () => {
                       <AlertTriangle className="h-3 w-3" /> Alta
                     </span>
                   )}
-                  {atendente && (
-                    <button
-                      onClick={pedirSugestao}
-                      disabled={pedindoSugestao}
-                      title="Pedir à IA um resumo e um rascunho de resposta"
-                      className="inline-flex items-center gap-1 rounded-lg border border-violet-300 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50 dark:border-violet-500/40 dark:text-violet-300 dark:hover:bg-violet-500/10"
-                    >
-                      {pedindoSugestao ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                      Sugestão
-                    </button>
-                  )}
                   {selecionado.status !== 'resolvido' && selecionado.status !== 'fechado' ? (
                     <button
                       onClick={() => mudarStatus('resolvido')}
@@ -492,67 +465,6 @@ export const Suporte: React.FC = () => {
                   )}
                 </div>
               </div>
-
-              {/* Copiloto: SUGERE, nunca envia. O rascunho vai para a caixa de
-                  texto e a pessoa revisa antes de mandar — premissa da fase 6. */}
-              {atendente && sugestao && (
-                <div className="border-b border-violet-200 bg-violet-50 px-4 py-3 dark:border-violet-500/30 dark:bg-violet-500/10">
-                  {!sugestao.disponivel ? (
-                    <p className="flex items-start gap-2 text-xs text-violet-800 dark:text-violet-200">
-                      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {sugestao.motivo}
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="flex items-center gap-1.5 text-xs font-semibold text-violet-900 dark:text-violet-100">
-                          <Sparkles className="h-3.5 w-3.5" /> Sugestão da IA — revise antes de enviar
-                        </p>
-                        <button
-                          onClick={() => setSugestao(null)}
-                          className="rounded p-0.5 text-violet-600 hover:bg-violet-100 dark:text-violet-300 dark:hover:bg-violet-500/20"
-                          aria-label="Fechar sugestão"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                      {sugestao.resumo && (
-                        <p className="text-xs leading-relaxed text-violet-900 dark:text-violet-100">
-                          <strong>Resumo:</strong> {sugestao.resumo}
-                        </p>
-                      )}
-                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                        {sugestao.classificacao && (
-                          <span className="rounded-full bg-white px-2 py-0.5 font-medium text-violet-700 dark:bg-violet-500/20 dark:text-violet-200">
-                            categoria sugerida: {ROTULO_CATEGORIA[sugestao.classificacao] || sugestao.classificacao}
-                          </span>
-                        )}
-                        {sugestao.prioridade_sugerida && (
-                          <button
-                            onClick={() => mudarPrioridade(sugestao.prioridade_sugerida!)}
-                            className="rounded-full bg-white px-2 py-0.5 font-medium text-violet-700 hover:bg-violet-100 dark:bg-violet-500/20 dark:text-violet-200"
-                            title="Aplicar esta prioridade"
-                          >
-                            prioridade sugerida: {ROTULO_PRIORIDADE[sugestao.prioridade_sugerida] || sugestao.prioridade_sugerida} · aplicar
-                          </button>
-                        )}
-                      </div>
-                      {sugestao.resposta_sugerida && (
-                        <>
-                          <p className="whitespace-pre-wrap rounded-lg border border-violet-200 bg-white p-2 text-xs leading-relaxed text-gray-700 dark:border-violet-500/30 dark:bg-gray-800 dark:text-gray-200">
-                            {sugestao.resposta_sugerida}
-                          </p>
-                          <button
-                            onClick={() => { setResposta(sugestao.resposta_sugerida!); setSugestao(null) }}
-                            className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700"
-                          >
-                            Usar como rascunho
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
 
               <div className="flex-1 space-y-4 overflow-y-auto bg-gray-50 p-4 dark:bg-gray-900">
                 {carregandoConversa && mensagens.length === 0 ? (
