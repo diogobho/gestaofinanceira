@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTheme } from '@/contexts/ThemeContext'
+import { assinaturasApi, type Plano } from '@/api/assinaturas'
 import {
   LayoutDashboard, Users, Kanban, MessageSquare, Sparkles,
   DollarSign, Check, ArrowRight, Menu, X,
@@ -59,52 +60,45 @@ const agentCapabilities = [
   { icon: Bot,          title: 'Sempre disponível',       desc: 'Trabalha 24/7 em segundo plano, sem intervenção manual, enquanto você foca no que importa.' },
 ]
 
-const plans = [
-  {
-    name: 'Starter',
-    price: '97',
-    desc: 'Para profissionais autônomos e MEIs.',
-    features: [
-      '1 usuário',
-      'Controle financeiro completo',
-      'Parcelas e recorrências',
-      'Dashboard e relatórios',
-      'Suporte por WhatsApp',
-    ],
-    cta: 'Começar grátis',
-    highlight: false,
-  },
-  {
-    name: 'Profissional',
-    price: '197',
-    desc: 'Para pequenas empresas com equipe de vendas.',
-    features: [
-      'Até 5 usuários',
-      'Tudo do Starter',
-      'CRM com funil visual',
-      'WhatsApp integrado',
-      'Agente IA básico',
-      'Gestão de sessões',
-    ],
-    cta: 'Experimentar 14 dias',
-    highlight: true,
-  },
-  {
-    name: 'Enterprise',
-    price: '397',
-    desc: 'Para empresas com múltiplas equipes.',
-    features: [
-      'Usuários ilimitados',
-      'Tudo do Profissional',
-      'Agente IA completo',
-      'Multi-empresa isolada',
-      'API REST dedicada',
-      'Onboarding guiado',
-    ],
-    cta: 'Falar com comercial',
-    highlight: false,
-  },
-]
+/**
+ * Os planos vêm da API (mesma fonte do /register e da tela de Planos), nunca de uma
+ * lista fixa aqui. Esta página já esteve meses no ar anunciando R$ 97/R$ 197, "usuários
+ * ilimitados" e "14 dias" enquanto o sistema cobrava R$ 79/R$ 219/R$ 397 com 7 dias de
+ * trial — divergência que só existia porque o preço estava duplicado no código.
+ */
+interface PlanoCard {
+  id: number
+  name: string
+  price: string
+  desc: string
+  features: string[]
+  cta: string
+  highlight: boolean
+}
+
+/** Linha de usuários exibida no card, a partir do modelo real do plano. */
+function linhaUsuarios(p: Plano): string {
+  const base = p.usuarios_base ?? 0
+  if (!p.customizavel || !p.usuarios_max || p.usuarios_max <= base) {
+    return `${base} ${base === 1 ? 'usuário' : 'usuários'}`
+  }
+  const adicional = Number(p.preco_usuario_adicional || 0)
+  return `${base} usuários inclusos · adicionais R$ ${adicional.toFixed(0)}/mês (até ${p.usuarios_max})`
+}
+
+function toCard(p: Plano): PlanoCard {
+  return {
+    id: p.id,
+    name: p.nome,
+    price: String(Math.round(Number(p.preco_mensal))),
+    desc: p.descricao || '',
+    // A contagem de usuários da API já vem dentro de features; substituímos por uma
+    // linha calculada para não depender do texto cadastrado.
+    features: [linhaUsuarios(p), ...(p.features || []).filter(f => !/usuários?\b/i.test(f))],
+    cta: 'Testar grátis por 7 dias',
+    highlight: !!p.destaque,
+  }
+}
 
 // ─── MOCKUPS ──────────────────────────────────────────────────────────────────
 
@@ -271,6 +265,7 @@ export const LandingPage: React.FC = () => {
   const { theme, toggleTheme } = useTheme()
   const [menuOpen, setMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  const [plans, setPlans] = useState<PlanoCard[]>([])
 
   const dark = theme === 'dark'
 
@@ -278,6 +273,15 @@ export const LandingPage: React.FC = () => {
     const fn = () => setScrolled(window.scrollY > 40)
     window.addEventListener('scroll', fn)
     return () => window.removeEventListener('scroll', fn)
+  }, [])
+
+  // Planos da API — endpoint público, o mesmo consumido pelo /register.
+  // Falhando, a seção de planos simplesmente não renderiza: melhor não mostrar
+  // preço nenhum do que mostrar preço errado.
+  useEffect(() => {
+    assinaturasApi.getPlanos()
+      .then(ps => setPlans(ps.map(toCard)))
+      .catch(() => setPlans([]))
   }, [])
 
   // ── CTA Buttons ─────────────────────────────────────────────────────────────
@@ -311,7 +315,7 @@ export const LandingPage: React.FC = () => {
 
   const WhatsBtn: React.FC<{ label: string; large?: boolean }> = ({ label, large }) => (
     <a
-      href="https://wa.me/5511999999999"
+      href="https://wa.me/5524988344048"
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex items-center gap-2 font-semibold font-sans transition-all duration-300 rounded-2xl"
@@ -986,6 +990,7 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* ── PLANOS ────────────────────────────────────────────────────────────── */}
+      {plans.length > 0 && (
       <section id="planos" className="py-24" style={{ background: dark ? C.navyD : C.creamD }}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-16">
@@ -997,7 +1002,7 @@ export const LandingPage: React.FC = () => {
               <span className="italic" style={{ color: C.gold }}>sem surpresas</span>
             </h2>
             <p className="text-lg font-sans" style={{ color: dark ? `${C.cream}b3` : `${C.navy}80` }}>
-              14 dias de teste gratuito em todos os planos. Cancele quando quiser.
+              7 dias de teste gratuito em todos os planos, sem cartão de crédito. Cancele quando quiser.
             </p>
           </div>
 
@@ -1047,10 +1052,10 @@ export const LandingPage: React.FC = () => {
                   ))}
                 </ul>
 
+                {/* Todos os planos têm 7 dias grátis sem cartão — todos vão para o
+                    cadastro. Antes o Enterprise mandava falar com o comercial. */}
                 {plan.highlight ? (
                   <GoldBtn label={plan.cta} onClick={() => navigate('/register')} />
-                ) : plan.name === 'Enterprise' ? (
-                  <WhatsBtn label={plan.cta} />
                 ) : (
                   <button onClick={() => navigate('/register')}
                     className="w-full py-3 rounded-2xl text-sm font-semibold font-sans transition-all duration-200"
@@ -1071,13 +1076,14 @@ export const LandingPage: React.FC = () => {
 
           <p className="text-center text-sm font-sans mt-8" style={{ color: dark ? `${C.cream}60` : `${C.navy}60` }}>
             Precisa de um plano personalizado?{' '}
-            <a href="https://wa.me/5511999999999" target="_blank" rel="noopener noreferrer"
+            <a href="https://wa.me/5524988344048" target="_blank" rel="noopener noreferrer"
               className="underline" style={{ color: C.gold }}>
               Fale com a nossa equipe
             </a>
           </p>
         </div>
       </section>
+      )}
 
       {/* ── DIFERENCIAIS ──────────────────────────────────────────────────────── */}
       <section className="py-24" style={{ background: dark ? C.navy : C.cream }}>
@@ -1162,7 +1168,7 @@ export const LandingPage: React.FC = () => {
                 Financeiro, CRM e WhatsApp com DuoAI em um só sistema.
               </p>
               <div className="flex items-center gap-2 mt-4">
-                <a href="https://wa.me/5511999999999" target="_blank" rel="noopener noreferrer"
+                <a href="https://wa.me/5511940524435" target="_blank" rel="noopener noreferrer"
                   className="text-xs font-medium font-sans flex items-center gap-1.5 transition-colors"
                   style={{ color: '#25D366' }}>
                   <svg width={12} height={12} viewBox="0 0 24 24" fill="currentColor">

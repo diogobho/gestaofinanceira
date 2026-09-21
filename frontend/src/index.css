@@ -106,6 +106,34 @@ html.dark textarea::placeholder {
   color: rgb(156 163 175);           /* gray-400 */
 }
 
+/* --- AUTOPREENCHIMENTO DO CHROME ---
+   O Chrome pinta o campo autopreenchido com um fundo proprio (azul-claro) que
+   IGNORA background-color: so um box-shadow interno cobre. Sem isto, abrir o
+   login no modo escuro mostrava dois retangulos claros no meio do formulario.
+   A transicao gigante impede o navegador de reanimar o fundo dele por cima. */
+html.dark input:-webkit-autofill,
+html.dark input:-webkit-autofill:hover,
+html.dark input:-webkit-autofill:focus,
+html.dark input:-webkit-autofill:active,
+html.dark textarea:-webkit-autofill,
+html.dark select:-webkit-autofill {
+  -webkit-text-fill-color: rgb(243 244 246);              /* gray-100 */
+  -webkit-box-shadow: 0 0 0 1000px rgb(55 65 81) inset;   /* gray-700 */
+  box-shadow: 0 0 0 1000px rgb(55 65 81) inset;
+  caret-color: rgb(243 244 246);
+  transition: background-color 600000s 0s, color 600000s 0s;
+}
+
+/* O box-shadow acima ocupa a mesma propriedade que o anel de foco do Tailwind
+   (`focus:ring-2` e box-shadow), entao o campo autopreenchido perderia o
+   indicador de foco. Devolve por outline, que nao disputa com o shadow. */
+html.dark input:-webkit-autofill:focus,
+html.dark textarea:-webkit-autofill:focus,
+html.dark select:-webkit-autofill:focus {
+  outline: 2px solid #3a5483;        /* primary-500 */
+  outline-offset: 0;
+}
+
 /* --- CORES PRIMARY (navy) escuras demais para fundo escuro ---
    primary-600 (#243a65) e 700 (#13264C) somem sobre gray-800; clareia
    para primary-300/200 apenas no dark (links, abas ativas, destaques). */

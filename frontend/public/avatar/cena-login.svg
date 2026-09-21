@@ -1,0 +1,855 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 740" width="1000" height="740" role="img" aria-label="Escritorio DuoFuturo com Lena">
+  <title>Cena do login — escritório DuoFuturo</title>
+  <defs>
+    <linearGradient id="c-wall" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#EDE4D3"/><stop offset="0.65" stop-color="#F8F2E6"/><stop offset="1" stop-color="#FDF9F0"/>
+    </linearGradient>
+    <linearGradient id="c-wallR" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#E2D7C0"/><stop offset="1" stop-color="#F1E7D3"/>
+    </linearGradient>
+    <linearGradient id="c-ceil" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#223A66"/><stop offset="1" stop-color="#15274B"/>
+    </linearGradient>
+    <linearGradient id="c-floor" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#D4C8AF"/><stop offset="1" stop-color="#EFE3C7"/>
+    </linearGradient>
+    <linearGradient id="c-sky" x1="0" y1="1" x2="0.2" y2="0">
+      <stop offset="0" stop-color="#FBEFD4"/><stop offset="0.45" stop-color="#F8E7C0"/><stop offset="1" stop-color="#EFE9DC"/>
+    </linearGradient>
+    <radialGradient id="c-sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FDF3D6"/><stop offset="0.55" stop-color="#F7E3A9"/><stop offset="1" stop-color="#F7E3A9" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="c-shaft" x1="0.85" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FBE7B5" stop-opacity="0.85"/><stop offset="1" stop-color="#FBE7B5" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="c-pool" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FCEBBE" stop-opacity="0.75"/><stop offset="1" stop-color="#FCEBBE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="c-lampglow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FBE2A6" stop-opacity="0.85"/><stop offset="1" stop-color="#FBE2A6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="c-vig" cx="0.52" cy="0.44" r="0.74">
+      <stop offset="0.5" stop-color="#0E1D3A" stop-opacity="0"/><stop offset="1" stop-color="#0E1D3A" stop-opacity="0.3"/>
+    </radialGradient>
+    <linearGradient id="c-screen" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#FDF1D2"/><stop offset="1" stop-color="#F2DEAA"/>
+    </linearGradient>
+    <radialGradient id="c-halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FDF0CE" stop-opacity="0.8"/><stop offset="1" stop-color="#FDF0CE" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="c-depth" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#1B3158" stop-opacity="0.16"/><stop offset="1" stop-color="#1B3158" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="c-baseAO" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B3158" stop-opacity="0.2"/><stop offset="1" stop-color="#1B3158" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="c-glass"><path d="M714,182 L980,72 L980,437 L714,390 Z"/></clipPath>
+    <clipPath id="c-room"><path d="M0,0 H1000 V740 H0 Z"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#c-room)">
+
+    <!-- =============== ARQUITETURA =============== -->
+    <path d="M0,0 H1000 L660,176 L0,96 Z" fill="url(#c-ceil)"/>
+    <path d="M0,96 L660,176 L660,468 L0,566 Z" fill="url(#c-wall)"/>
+    <path d="M660,176 L1000,0 L1000,630 L660,468 Z" fill="url(#c-wallR)"/>
+    <path d="M0,566 L660,468 L1000,630 L1000,740 L0,740 Z" fill="url(#c-floor)"/>
+    <!-- reguas do piso em perspectiva (textura/profundidade) -->
+    <g fill="none" stroke="#C7B896" stroke-width="2" opacity="0.2" stroke-linecap="round">
+      <path d="M0,600.8 L220,574.7 L440,548.5 L660,522.4 L830,587.2 L1000,652.0"/>
+      <path d="M0,639.1 L220,620.1 L440,601.2 L660,582.2 L830,629.2 L1000,676.2"/>
+      <path d="M0,680.8 L220,669.7 L440,658.6 L660,647.5 L830,675.1 L1000,702.6"/>
+    </g>
+
+    <!-- =============== JANELA =============== -->
+    <g clip-path="url(#c-glass)">
+      <path d="M700,60 L990,50 L990,450 L700,400 Z" fill="url(#c-sky)"/>
+      <circle cx="884" cy="178" r="86" fill="url(#c-sun)"/>
+      <circle cx="884" cy="178" r="34" fill="#FDF6E2"/>
+      <!-- nuvens -->
+      <g fill="#FDF8EC" opacity="0.9">
+        <path d="M726,244 c0,-13 16,-19 25,-13 4,-11 22,-11 26,0 12,-3 20,6 18,14 z"/>
+        <path d="M900,110 c0,-11 14,-16 22,-11 4,-9 19,-9 22,0 10,-2 17,5 15,12 z"/>
+      </g>
+      <!-- morros -->
+      <path d="M700,352 c40,-34 78,-28 112,4 26,-40 66,-46 102,-10 30,-26 58,-22 76,2 l0,120 -290,-46 z" fill="#E4D9C0"/>
+      <path d="M700,372 c52,-26 96,-16 132,14 30,-30 72,-30 104,4 24,-16 44,-14 54,0 l0,96 -290,-46 z" fill="#D2C4A6"/>
+      <!-- balao de ar quente -->
+      <g stroke="#B6A88C" stroke-width="2.6" stroke-linejoin="round">
+        <path d="M842,224 L848,238" fill="none"/><path d="M866,222 L860,238" fill="none"/>
+        <path d="M854,180 C868,180 876,194 876,206 C876,220 862,232 854,240 C846,232 832,220 832,206 C832,194 840,180 854,180 Z" fill="#FBF3DE"/>
+        <path d="M854,180 C860,186 862,196 862,208 C862,222 858,232 854,240" fill="none" stroke="#D2B773" stroke-width="3"/>
+        <path d="M854,180 C848,186 846,196 846,208 C846,222 850,232 854,240" fill="none" stroke="#D2B773" stroke-width="3"/>
+        <path d="M846,238 h16 v10 h-16 Z" fill="#C9AE84"/>
+      </g>
+      <!-- passarinhos -->
+      <g fill="none" stroke="#B6A88C" stroke-width="3" stroke-linecap="round">
+        <path d="M916,182 l7,-6 l7,6"/><path d="M940,168 l6,-5 l6,5"/><path d="M934,198 l5,-4 l5,4"/>
+      </g>
+    </g>
+    <!-- caixilhos + peitoril -->
+    <g fill="none" stroke="#2A3F66" stroke-linejoin="round">
+      <path d="M803,145 L803,406" stroke-width="4"/>
+      <path d="M891,108 L891,422" stroke-width="4"/>
+      <path d="M714,286 L980,254" stroke-width="4"/>
+      <path d="M714,182 L980,72 L980,437 L714,390 Z" stroke-width="6"/>
+    </g>
+    <path d="M714,390 L980,437 L984,453 L710,406 Z" fill="#EDE4D2" stroke="#2A3F66" stroke-width="4" stroke-linejoin="round"/>
+
+    <!-- =============== LUZ =============== -->
+    <path d="M714,392 L980,439 L700,740 L40,740 Z" fill="url(#c-shaft)" opacity="0.68"/>
+    <path d="M760,396 L836,410 L430,740 L214,740 Z" fill="#FBE7B5" opacity="0.34"/>
+    <path d="M880,420 L940,432 L720,740 L560,740 Z" fill="#FBE7B5" opacity="0.2"/>
+    <ellipse cx="612" cy="632" rx="340" ry="122" fill="url(#c-pool)" transform="rotate(-7 612 632)"/>
+    <g fill="#FDF6E2">
+      <circle cx="646" cy="470" r="3.4" opacity="0.75"/><circle cx="700" cy="524" r="2.6" opacity="0.6"/>
+      <circle cx="596" cy="562" r="3.8" opacity="0.55"/><circle cx="524" cy="604" r="2.6" opacity="0.5"/>
+      <circle cx="756" cy="556" r="3" opacity="0.65"/><circle cx="668" cy="622" r="2.2" opacity="0.5"/>
+      <circle cx="860" cy="600" r="2.8" opacity="0.55"/><circle cx="470" cy="660" r="2.4" opacity="0.45"/>
+    </g>
+    <g stroke="#FDF6E2" stroke-width="2.6" stroke-linecap="round" opacity="0.7">
+      <path d="M622,502 v-11 M616.5,496.5 h11"/>
+      <path d="M736,596 v-9 M731.5,591.5 h9"/>
+    </g>
+
+    <!-- =============== RODAPE E QUINA =============== -->
+    <path d="M0,566 L660,468 L660,486 L0,584 Z" fill="#24406F"/>
+    <path d="M660,468 L1000,630 L1000,650 L660,486 Z" fill="#1B3158"/>
+    <path d="M660,176 V468" fill="none" stroke="#D8CDB8" stroke-width="3"/>
+    <!-- oclusao ambiente na base das paredes (assenta o piso na quina) -->
+    <path d="M0,584 L660,486 L1000,650 L1000,712 L660,540 L0,644 Z" fill="url(#c-baseAO)"/>
+
+    <!-- =============== QUADRO NA PAREDE =============== -->
+    <g stroke="#2A3F66" stroke-width="4" stroke-linejoin="round">
+      <path d="M80,212 L186,196 L186,296 L80,312 Z" fill="#E5DDD1"/>
+      <path d="M92,224 L174,212 L174,282 L92,296 Z" fill="#FBF6EA" stroke-width="2.6"/>
+      <path d="M92,224 L174,212 L174,282 L92,296 Z" fill="#F7EBD3" stroke="none"/>
+      <circle cx="158" cy="230" r="11" fill="#D2B773" stroke-width="2.6"/>
+      <path d="M92,278 c14,-22 30,-24 44,-6 12,-18 26,-20 38,-4 L174,282 L92,296 Z" fill="#24406F" stroke-width="2.6"/>
+      <path d="M92,288 c18,-14 34,-10 46,4 12,-10 24,-8 36,2 L174,282 L92,296 Z" fill="#16294F" stroke-width="2.6"/>
+    </g>
+
+    <!-- =============== LUMINARIA PENDENTE =============== -->
+    <ellipse cx="296" cy="152" rx="104" ry="86" fill="url(#c-lampglow)"/>
+    <g stroke="#2A3F66" stroke-width="4" stroke-linejoin="round">
+      <path d="M296,0 V88" stroke-width="3.4"/>
+      <path d="M256,124 C258,88 334,88 336,124 Z" fill="#D2B773"/>
+      <path d="M262,120 C264,96 300,92 302,120 Z" fill="#E3CD97" stroke="none"/>
+      <path d="M256,124 H336" stroke-width="3.4"/>
+      <circle cx="296" cy="132" r="9" fill="#FDF3D6"/>
+    </g>
+
+    <!-- =============== CORTINAS =============== -->
+    <g stroke="#2A3F66" stroke-width="4" stroke-linejoin="round">
+      <path d="M698,158 L990,42" stroke-width="5"/>
+      <path d="M700,166 C694,244 702,320 694,414 C712,428 732,422 740,408 C732,318 740,240 742,158 Z" fill="#EDE3D0"/>
+      <path d="M712,168 C708,246 714,322 708,410" fill="none" stroke="#D8CBB0" stroke-width="3.4"/>
+      <path d="M728,164 C724,242 730,318 724,406" fill="none" stroke="#D8CBB0" stroke-width="3.4"/>
+      <path d="M950,58 C946,124 952,196 946,290 C960,302 976,296 982,284 C976,194 982,122 984,48 Z" fill="#E5DAC4"/>
+      <path d="M964,54 C960,120 966,192 960,286" fill="none" stroke="#D0C2A6" stroke-width="3.4"/>
+    </g>
+
+    <!-- =============== APARADOR =============== -->
+    <ellipse cx="126" cy="576" rx="86" ry="15" fill="#13264C" opacity="0.13" transform="rotate(4 126 576)"/>
+    <g stroke="#2A3F66" stroke-width="4" stroke-linejoin="round">
+      <path d="M56,428 L176,410 L188,436 L68,456 Z" fill="#D8C4A2"/>
+      <path d="M68,456 L188,436 L188,546 L68,570 Z" fill="#C9AE84"/>
+      <path d="M56,428 L68,456 L68,570 L56,542 Z" fill="#B0946A"/>
+      <path d="M78,470 L178,452" fill="none" stroke-width="2.6" opacity="0.7"/>
+      <path d="M78,506 L178,488" fill="none" stroke-width="2.6" opacity="0.7"/>
+      <circle cx="128" cy="482" r="4" fill="#D2B773" stroke-width="2.4"/>
+      <circle cx="128" cy="518" r="4" fill="#D2B773" stroke-width="2.4"/>
+      <!-- livros -->
+      <path d="M132,415 L178,407 L178,417 L132,425 Z" fill="#24406F"/>
+      <path d="M136,406 L174,399 L174,408 L136,415 Z" fill="#D2B773"/>
+      <path d="M140,398 L170,392 L170,400 L140,406 Z" fill="#E5DDD1"/>
+      <!-- planta -->
+      <path d="M86,388 C74,368 84,346 98,354" fill="none" stroke="#127760" stroke-width="7" stroke-linecap="round"/>
+      <path d="M98,352 C96,330 112,316 122,326 C132,336 118,356 98,352 Z" fill="#127760"/>
+      <path d="M92,362 C74,356 62,368 70,378 C78,388 92,378 92,362 Z" fill="#158A6E"/>
+      <path d="M104,368 C118,358 134,364 130,376 C126,388 110,384 104,368 Z" fill="#158A6E"/>
+      <path d="M82,392 L120,386 L114,424 C114,430 88,432 88,426 Z" fill="#E5DDD1"/>
+      <path d="M84,402 L118,396" fill="none" stroke="#D2B773" stroke-width="4"/>
+    </g>
+
+    <!-- =============== TAPETE =============== -->
+    <g transform="rotate(-6 450 636)">
+      <ellipse cx="450" cy="636" rx="232" ry="76" fill="#F2EBDC" stroke="#D9CDB4" stroke-width="4"/>
+      <ellipse cx="450" cy="636" rx="206" ry="60" fill="none" stroke="#D2B773" stroke-width="3.4" opacity="0.8"/>
+      <ellipse cx="450" cy="636" rx="184" ry="46" fill="none" stroke="#E3D8BF" stroke-width="3"/>
+    </g>
+
+    <!-- =============== MASCOTE ESCONDIDO =============== -->
+    <g transform="translate(441.9,246.2) scale(0.36)">
+  
+  <defs>
+    <!-- Corpo = UMA peca de quebra-cabeca. Topo com ENCAIXE (concavo), nunca knob solto.
+         Grade: corpo 180x180 em x[110,290] y[210,390]; centro exato (200,300). -->
+    <path id="d3-shape" d="M138,210
+             H182 C180,236 220,236 218,210 H262
+             A28,28 0 0 1 290,238
+             V282 C316,280 316,320 290,318
+             V362 A28,28 0 0 1 262,390
+             H138 A28,28 0 0 1 110,362
+             V318 C134,320 134,280 110,282
+             V238 A28,28 0 0 1 138,210 Z"/>
+    <clipPath id="d3-clip"><use href="#d3-shape"/></clipPath>
+    <clipPath id="d3-eyeL"><ellipse cx="170" cy="292" rx="26" ry="28"/></clipPath>
+    <!-- Recorte das pupilas: os dois olhos juntos, recuado 2 (metade do traco
+         de 4, que fica para dentro do branco). Sem ele a iris escapa do olho
+         quando o olhar vai longe; com ele, ela so encosta na borda. -->
+    <clipPath id="d3-eyes">
+      <ellipse cx="170" cy="292" rx="24" ry="26"/>
+      <ellipse cx="230" cy="292" rx="24" ry="26"/>
+    </clipPath>
+    <clipPath id="d3-eyeR"><ellipse cx="230" cy="292" rx="26" ry="28"/></clipPath>
+
+    <!-- ===== LUVAS DO MASCOTE (4 dedos + polegar) ===== -->
+    <!-- MITTEN meia-lua (sem dedos): dome para -y, base plana no punho. Origem = punho. -->
+    <g id="d3-glove-open" fill="#E5DDD1">
+      <path d="M-20,5 C-20,-19 -11,-31 0,-31 C11,-31 20,-19 20,5 Z"/>
+    </g>
+    <!-- punho fechado segurando: origem = punho, dedos para +x -->
+    <g id="d3-glove-grip">
+      <path d="M-4,-19 C6,-22 20,-18 24,-8 C28,2 24,15 14,19 C4,23 -8,20 -13,12 C-18,3 -14,-15 -4,-19 Z" fill="#E5DDD1"/>
+      <g fill="#E5DDD1" stroke-width="3.4">
+        <path d="M6,-16 h14 a7,7 0 0 1 0,14 h-14 Z"/>
+        <path d="M7,-2 h16 a7,7 0 0 1 0,14 h-16 Z"/>
+      </g>
+      <path d="M-2,-14 C6,-20 18,-16 18,-8 C18,-2 10,1 3,-1" fill="none" stroke-width="3.4"/>
+    </g>
+  </defs>
+
+  <style><![CDATA[
+    /* ============ RIG DE ANIMACAO — DUO ============ */
+    #d3-duo, #d3-body, #d3-legs, #d3-arm-wave, #d3-arm-piece, #d3-piece,
+    #d3-lidL, #d3-lidR, #d3-pupils, #d3-shadow, #d3-face, #d3-closedL, #d3-closedR {
+      transform-box: view-box;
+    }
+
+    /* flutuacao leve do conjunto */
+    #d3-duo       { animation: d3-float 3.4s ease-in-out infinite; }
+    /* squash e stretch de 1.5% com pivo na base do corpo */
+    #d3-body      { transform-origin: 200px 390px; animation: d3-squash 3.4s ease-in-out infinite; }
+    /* pernas nao acompanham a flutuacao inteira (contra-movimento) */
+    #d3-legs      { transform-origin: 200px 478px; animation: d3-legs 3.4s ease-in-out infinite; }
+    /* ACENO: dois acenos e descanso, ciclo de 5s, pivo no ombro */
+    #d3-arm-wave  { transform-origin: 122px 268px; animation: d3-wave 5s ease-in-out infinite; }
+    /* braco da peca acompanha a flutuacao com atraso */
+    #d3-arm-piece { transform-origin: 284px 332px; animation: d3-armp 3.4s ease-in-out -0.3s infinite; }
+    /* ENCAIXE: a peca "clica" no lugar — o gesto de marca */
+    #d3-piece     { transform-origin: 356px 392px; animation: d3-snap 5s cubic-bezier(.34,1.56,.64,1) infinite; }
+    #d3-shadow    { transform-origin: 200px 482px; animation: d3-shadow 3.4s ease-in-out infinite; }
+    #d3-lidL, #d3-lidR { animation: d3-blink 4.6s infinite; }
+    #d3-lidR      { animation-delay: 0.04s; }
+    /* o arco de olho fechado entra exatamente no frame em que a palpebra desce */
+    #d3-closedL, #d3-closedR { animation: d3-closed 4.6s infinite; }
+    #d3-closedR   { animation-delay: 0.04s; }
+    #d3-pupils    { animation: d3-look 7.5s ease-in-out infinite; }
+
+    @keyframes d3-float  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
+    @keyframes d3-squash { 0%,100%{transform:scale(1.015,0.985)} 50%{transform:scale(0.99,1.01)} }
+    @keyframes d3-legs   { 0%,100%{transform:translateY(0) scaleY(1)} 50%{transform:translateY(3px) scaleY(1.03)} }
+    @keyframes d3-armp   { 0%,100%{transform:rotate(2deg)} 50%{transform:rotate(-2.5deg)} }
+    @keyframes d3-shadow { 0%,100%{transform:scale(1)} 50%{transform:scale(0.9,0.85)} }
+    @keyframes d3-wave {
+      0%, 8%    { transform:rotate(0deg) }
+      16%       { transform:rotate(-17deg) }
+      24%       { transform:rotate(7deg) }
+      32%       { transform:rotate(-17deg) }
+      40%       { transform:rotate(6deg) }
+      48%, 100% { transform:rotate(0deg) }
+    }
+    @keyframes d3-snap {
+      0%, 54%   { transform:translate(0,0) rotate(0deg) }
+      62%       { transform:translate(7px,-5px) rotate(5deg) }
+      70%       { transform:translate(0,0) rotate(0deg) }
+      74%       { transform:translate(0,0) rotate(0deg) scale(1.05) }
+      80%,100%  { transform:translate(0,0) rotate(0deg) scale(1) }
+    }
+    @keyframes d3-blink {
+      0%, 90%     { transform:translateY(0) }
+      91.4%       { transform:translateY(58px) }
+      93.6%, 100% { transform:translateY(0) }
+    }
+    @keyframes d3-closed {
+      0%, 90.6%   { opacity:0 }
+      91.4%       { opacity:1 }
+      93%         { opacity:1 }
+      93.8%, 100% { opacity:0 }
+    }
+    @keyframes d3-look {
+      0%,42%   { transform:translate(0,0) }
+      50%,66%  { transform:translate(-3px,1px) }
+      74%,90%  { transform:translate(3px,-1px) }
+      96%,100% { transform:translate(0,0) }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+
+  ]]></style>
+
+
+  <g id="d3-root" stroke="#0F1F3E" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- ============ SOMBRA (fora do grupo que flutua: fica no chao) ============ -->
+
+    <g id="d3-duo">
+
+    <!-- ============ PERNAS + PES (alinhados no eixo de cada perna) ============ -->
+    <g id="d3-legs">
+      <path d="M172,376 V452" fill="none" stroke-width="27"/>
+      <path d="M228,376 V452" fill="none" stroke-width="27"/>
+      <path d="M186,450 L162,450 C142,450 130,462 130,470 C130,475 134,478 140,478 L182,478 C187,478 190,474 190,468 Z" fill="#E5DDD1"/>
+      <path d="M214,450 L238,450 C258,450 270,462 270,470 C270,475 266,478 260,478 L218,478 C213,478 210,474 210,468 Z" fill="#E5DDD1"/>
+      <path d="M136,472 H186" fill="none" stroke-width="2.6" opacity="0.4"/>
+      <path d="M214,472 H264" fill="none" stroke-width="2.6" opacity="0.4"/>
+    </g>
+
+    <!-- ============ BRACO ESQUERDO (aceno) ============ -->
+    <g id="d3-arm-wave">
+      <path d="M120,262 C88,250 68,224 66,198" fill="none" stroke-width="22"/>
+      <g transform="translate(64,192) rotate(-12)"><use href="#d3-glove-open"/></g>
+    </g>
+
+    <!-- ============ BRACO DIREITO (segura a peca) ============ -->
+    <g id="d3-arm-piece">
+      <path d="M280,330 C308,340 322,354 328,368" fill="none" stroke-width="22"/>
+      <!-- peca dourada que ele encaixa -->
+      <g id="d3-piece"><g transform="rotate(-8 356 392)">
+        <path d="M326,360 H348 C347,348 369,348 368,360 H390 V382 C378,381 378,401 390,400 V422 H326 Z" fill="#D2B773" stroke-width="4"/>
+        <path d="M326,360 H348 C347,348 369,348 368,360 H390 V370 H326 Z" fill="#E3CD97" stroke="none"/>
+      </g></g>
+      <!-- mao do Duo: meia-lua pequena, por cima da peca -->
+      <g fill="#E5DDD1">
+        <path d="M320,374 C310,368 310,352 322,350 C333,348 340,360 335,372 C331,382 326,380 320,374 Z"/>
+      </g>
+    </g>
+
+    <!-- ============ CORPO: A PECA ============ -->
+    <g id="d3-body">
+      <use href="#d3-shape" fill="#16294F"/>
+      <g clip-path="url(#d3-clip)" stroke="none">
+        <!-- faixa dourada do topo: simetrica no eixo x=200, recortada pelo encaixe -->
+        <path d="M96,196 H336 V266 H96 Z" fill="#D2B773"/>
+        <path d="M180,196 C178,238 222,238 220,196 Z" fill="#0F1F3E" opacity="0"/>
+        <!-- luz suave seguindo a borda superior-esquerda -->
+        <path d="M100,330 C100,250 138,202 200,200 L200,212 C152,214 116,254 116,330 Z" fill="#FFFFFF" opacity="0.10"/>
+        <!-- sombra suave na base -->
+        <path d="M96,368 H336 V404 H96 Z" fill="#0E1D3A" opacity="0.22"/>
+      </g>
+      <!-- costura central: o "duo" — duas metades que se encaixam -->
+      <g clip-path="url(#d3-clip)" fill="none" stroke="#0D1A36" stroke-width="2.6" opacity="0.28">
+        <path d="M200,238 V404"/>
+      </g>
+      <path d="M182,210 C180,236 220,236 218,210" fill="none" stroke-width="4.5"/>
+      <use href="#d3-shape" fill="none"/>
+
+      <!-- ============ ROSTO ============ -->
+      <g id="d3-face">
+        <ellipse cx="170" cy="292" rx="26" ry="28" fill="#FFFFFF" stroke-width="4"/>
+        <ellipse cx="230" cy="292" rx="26" ry="28" fill="#FFFFFF" stroke-width="4"/>
+        <g clip-path="url(#d3-eyes)"><g id="d3-pupils" stroke="none">
+          <circle cx="174" cy="296" r="13.5" fill="#16294F"/><circle cx="234" cy="296" r="13.5" fill="#16294F"/>
+          <circle cx="168.5" cy="289" r="5.2" fill="#FFFFFF"/><circle cx="228.5" cy="289" r="5.2" fill="#FFFFFF"/>
+          <circle cx="179" cy="303" r="2.6" fill="#FFFFFF" opacity="0.9"/><circle cx="239" cy="303" r="2.6" fill="#FFFFFF" opacity="0.9"/>
+        </g></g>
+        <g clip-path="url(#d3-eyeL)"><rect id="d3-lidL" x="142" y="202" width="56" height="62" fill="#16294F"/></g>
+        <g clip-path="url(#d3-eyeR)"><rect id="d3-lidR" x="202" y="202" width="56" height="62" fill="#16294F"/></g>
+        <!-- olho fechado: arco creme que aparece so no frame da piscada -->
+        <path id="d3-closedL" d="M154,290 Q170,304 186,290" fill="none" stroke="#E5DDD1" stroke-width="6" opacity="0"/>
+        <path id="d3-closedR" d="M214,290 Q230,304 246,290" fill="none" stroke="#E5DDD1" stroke-width="6" opacity="0"/>
+        <!-- sobrancelhas simetricas -->
+        <path d="M150,256 Q170,243 190,255" fill="none" stroke="#16294F" stroke-width="6"/>
+        <path d="M210,255 Q230,243 250,256" fill="none" stroke="#16294F" stroke-width="6"/>
+        <!-- sorriso centrado no eixo -->
+        <path d="M172,334 Q200,364 228,334" fill="none" stroke="#E5DDD1" stroke-width="8"/>
+        <ellipse cx="140" cy="328" rx="12" ry="6" fill="#D2B773" opacity="0.9" stroke="none"/>
+        <ellipse cx="260" cy="328" rx="12" ry="6" fill="#D2B773" opacity="0.9" stroke="none"/>
+      </g>
+    </g>
+    </g>
+  </g>
+</g>
+
+    <ellipse cx="534" cy="552" rx="96" ry="15" fill="#13264C" opacity="0.13"/>
+    <!-- =============== POLTRONA =============== -->
+    <g stroke="#2A3F66" stroke-width="4" stroke-linejoin="round" stroke-linecap="round">
+      <!-- respaldo abaulado -->
+      <path d="M450,504 C441,450 447,402 466,390 C500,366 552,362 584,380 C600,389 604,438 600,492 Z" fill="#24406F"/>
+      <path d="M463,494 C456,450 461,412 476,401 C504,383 548,380 574,395 C587,403 590,436 587,484 Z" fill="#2E4E82"/>
+      <path d="M497,388 C492,424 492,458 495,490" fill="none" stroke="#24406F" stroke-width="3.4" opacity="0.8"/>
+      <path d="M551,385 C548,422 548,456 552,488" fill="none" stroke="#24406F" stroke-width="3.4" opacity="0.8"/>
+      <!-- pes -->
+      <path d="M486,530 L484,556" stroke-width="12"/>
+      <path d="M596,516 L599,540" stroke-width="12"/>
+      <!-- assento com espessura -->
+      <path d="M462,498 L592,486 L608,510 L474,524 Z" fill="#E5DDD1"/>
+      <path d="M474,524 L608,510 L608,524 L474,538 Z" fill="#D6CCB6"/>
+      <path d="M470,506 L594,494" fill="none" stroke="#CFC2A8" stroke-width="3"/>
+      <!-- bracos por cima do assento -->
+      <path d="M452,466 C443,486 445,506 458,518" fill="none" stroke="#1B3158" stroke-width="30"/>
+      <path d="M452,466 C443,486 445,506 458,518" fill="none" stroke="#2E4E82" stroke-width="22"/>
+      <path d="M598,454 C608,472 608,492 598,504" fill="none" stroke="#1B3158" stroke-width="30"/>
+      <path d="M598,454 C608,472 608,492 598,504" fill="none" stroke="#2E4E82" stroke-width="22"/>
+    </g>
+
+    <!-- =============== GATO DORMINDO NA POLTRONA =============== -->
+    <g stroke="#2A3F66" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M502,500 C489,500 480,492 481,483 C483,470 499,464 519,465 C541,466 555,475 554,486 C553,496 539,503 521,502 Z" fill="#EFE4CD"/>
+      <path d="M557,483 C570,475 578,483 573,492 C569,499 559,498 554,493" fill="#EFE4CD"/>
+      <path d="M492,470 L488,459 L501,466 Z" fill="#EFE4CD"/>
+      <path d="M512,464 L515,454 L524,465 Z" fill="#EFE4CD"/>
+      <path d="M494,479 C498,482 503,482 507,479" fill="none" stroke-width="2.8"/>
+      <path d="M514,477 C518,480 523,480 527,477" fill="none" stroke-width="2.8"/>
+      <path d="M508,487 C511,490 516,490 519,487" fill="none" stroke-width="2.6"/>
+      <path d="M534,476 C540,474 545,476 547,480" fill="none" stroke-width="2.6" opacity="0.6"/>
+    </g>
+
+    <!-- =============== MESA =============== -->
+    <!-- sombra de contato no piso (ancora a mesa no chao) -->
+    <ellipse cx="884" cy="642" rx="132" ry="30" fill="#13264C" opacity="0.14" transform="rotate(9 884 642)"/>
+    <g transform="translate(0,54)">
+    <g stroke="#2A3F66" stroke-width="4" stroke-linejoin="round">
+      <path d="M858,396 L860,512" stroke-width="11" stroke-linecap="round"/>
+      <path d="M988,462 L992,582" stroke-width="11" stroke-linecap="round"/>
+      <path d="M770,429 L772,549" stroke-width="11" stroke-linecap="round"/>
+      <path d="M900,495 L904,615" stroke-width="11" stroke-linecap="round"/>
+      <path d="M782,470 L892,526" stroke-width="6" stroke-linecap="round" opacity="0.85"/>
+      <path d="M858,392 L988,458 L900,491 L770,425 Z" fill="#E5DDD1"/>
+      <path d="M770,425 L900,491 L900,503 L770,437 Z" fill="#CDC0A8"/>
+      <path d="M900,491 L988,458 L988,470 L900,503 Z" fill="#C0B197"/>
+    </g>
+    <g stroke="#2A3F66" stroke-width="3.6" stroke-linejoin="round">
+      <!-- notebook -->
+      <path d="M868,417 L934,450 L925,385 L860,352 Z" fill="#24406F"/>
+      <path d="M866,412 L928,443 L920,388 L859,358 Z" fill="url(#c-screen)" stroke-width="2.6"/>
+      <g stroke="none" opacity="0.75">
+        <path d="M872,404 L892,414 L892,398 L872,390 Z" fill="#24406F"/>
+        <path d="M896,416 L914,425 L914,394 L896,386 Z" fill="#127760"/>
+      </g>
+      <path d="M868,417 L934,450 L898,463 L833,430 Z" fill="#EFE8DA"/>
+      <path d="M846,432 L906,461" fill="none" stroke="#C9BCA4" stroke-width="2.6"/>
+      <path d="M858,442 L896,460" fill="none" stroke="#C9BCA4" stroke-width="2.6"/>
+      <!-- caneca com vapor -->
+      <path d="M794,416 C794,411 799,408 806,408 C813,408 818,411 818,416 L816,440 C816,445 811,448 806,448 C801,448 796,445 796,440 Z" fill="#FBF8F2"/>
+      <path d="M818,416 C827,416 827,429 818,429" fill="none" stroke-width="3"/>
+      <path d="M796,415 C801,419 811,419 816,415" fill="none" stroke="#D2B773" stroke-width="4"/>
+      <path d="M800,400 C794,392 808,388 802,378" fill="none" stroke="#C9BCA4" stroke-width="3" opacity="0.85"/>
+      <path d="M812,398 C806,390 820,386 814,376" fill="none" stroke="#C9BCA4" stroke-width="3" opacity="0.6"/>
+      <!-- caderno fechado -->
+      <path d="M914,454 L956,438 L966,443 L924,459 Z" fill="#24406F"/>
+      <path d="M916,446 L954,431 L963,436 L925,451 Z" fill="#D2B773"/>
+    </g>
+    </g>
+
+    <ellipse cx="336" cy="330" rx="210" ry="230" fill="url(#c-halo)" opacity="0.55"/>
+    <!-- =============== LENA =============== -->
+    <!-- sombra da figura: centro deslocado um pouco a esquerda (luz vem da janela
+         a direita) e base na linha de solo dos tenis, y=653.6 na escala da cena -->
+    <ellipse cx="335" cy="655" rx="118" ry="15" fill="#13264C" opacity="0.17" transform="rotate(-4 335 655)"/>
+    <g transform="translate(159,150.4) scale(0.905)">
+  
+  <defs>
+    <clipPath id="l3-face"><ellipse cx="200" cy="132" rx="53" ry="57"/></clipPath>
+    <clipPath id="l3-shirt"><path d="M152,214 C152,208 160,204 168,202 L200,216 L232,202 C240,204 248,208 248,214 C251,240 252,268 252,294 C253,314 253,326 254,338 L146,338 C147,326 147,314 148,294 C148,268 149,240 152,214 Z"/></clipPath>
+    <clipPath id="l3-eyeL"><ellipse cx="181" cy="138" rx="15.5" ry="16.5"/></clipPath>
+    <clipPath id="l3-eyeR"><ellipse cx="219" cy="138" rx="15.5" ry="16.5"/></clipPath>
+    <!-- silhueta do cabelo de tras (cacheado): recorta mechas e sombras -->
+    <clipPath id="l3-hairback-clip"><path d="M148,152
+             a15,15 0 0 1 -2,-28  a16,16 0 0 1 4,-30  a16,16 0 0 1 12,-24
+             a16,16 0 0 1 20,-16 a16,16 0 0 1 18,-8
+             a16,16 0 0 1 18,8   a16,16 0 0 1 20,16  a16,16 0 0 1 12,24
+             a16,16 0 0 1 4,30   a15,15 0 0 1 -2,28
+             a12,12 0 0 1 6,24   a13,13 0 0 1 6,26   a13,13 0 0 1 4,26
+             a13,13 0 0 1 2,26   a13,13 0 0 1 0,26   a13,13 0 0 1 -2,26
+             a13,13 0 0 1 -4,26  a12,12 0 0 1 -6,24  a12,12 0 0 1 -8,22
+             C244,392 230,390 228,374
+             C238,300 234,222 212,186
+             L188,186
+             C166,222 162,300 172,374
+             C170,390 156,392 150,378
+             a12,12 0 0 1 -8,-22 a12,12 0 0 1 -6,-24 a13,13 0 0 1 -4,-26
+             a13,13 0 0 1 -2,-26 a13,13 0 0 1 0,-26  a13,13 0 0 1 2,-26
+             a13,13 0 0 1 4,-26  a13,13 0 0 1 6,-26  a12,12 0 0 1 6,-24 Z"/></clipPath>
+    <!-- silhueta da franja (cacheada) -->
+    <clipPath id="l3-fringe-clip"><path d="M152,150
+               C142,108 162,56 200,54
+               C238,56 258,104 250,146
+               C250,128 242,110 226,105
+               L216,93
+               c-8,9 -20,13 -32,10
+               c-11,-3 -18,1 -22,9
+               c-6,12 -11,26 -12,40 Z"/></clipPath>
+
+    <!-- mao em repouso: silhueta LISA + vincos. Ondulacao na borda nao sobrevive a
+         escala pequena (o contorno fecha no vale e vira mancha); os vincos leem melhor. -->
+    <g id="l3-hand-relax" stroke-width="3.4">
+      <path d="M-12,-2
+               C-16,6 -17,18 -14,25
+               C-11,29.5 -4,31 2,30
+               C8,29 12.5,26 13,20
+               C14.5,10 14,2 12,-2 Z" fill="#E7B58C"/>
+      <g fill="none" stroke="#D49B77" stroke-width="2" opacity="0.65" stroke-linecap="round">
+        <path d="M-6,26.5 C-7,23.5 -7,20 -6,17.5"/>
+        <path d="M1.5,27.5 C0.5,24.5 0.5,21 1.5,18.5"/>
+        <path d="M8,25.5 C7,22.5 7,19.5 8,17"/>
+      </g>
+    </g>
+
+    <!-- ===== SOMBREAMENTO EM GRADIENTE (luz vindo da direita) =====
+         userSpaceOnUse para que a mesma rampa valha em todas as pecas do corpo -->
+    <linearGradient id="l3-g-hair" gradientUnits="userSpaceOnUse" x1="140" y1="0" x2="262" y2="0">
+      <stop offset="0" stop-color="#3E2718"/><stop offset="0.42" stop-color="#563921"/><stop offset="1" stop-color="#7E5636"/>
+    </linearGradient>
+    <linearGradient id="l3-g-skin" gradientUnits="userSpaceOnUse" x1="146" y1="0" x2="256" y2="0">
+      <stop offset="0" stop-color="#D3966F"/><stop offset="0.45" stop-color="#E7B58C"/><stop offset="1" stop-color="#F3C8A3"/>
+    </linearGradient>
+    <linearGradient id="l3-g-leg" gradientUnits="userSpaceOnUse" x1="156" y1="0" x2="244" y2="0">
+      <stop offset="0" stop-color="#D3966F"/><stop offset="0.45" stop-color="#E7B58C"/><stop offset="1" stop-color="#F3C8A3"/>
+    </linearGradient>
+    <linearGradient id="l3-g-shirt" gradientUnits="userSpaceOnUse" x1="146" y1="0" x2="254" y2="0">
+      <stop offset="0" stop-color="#39679A"/><stop offset="0.46" stop-color="#4E86BE"/><stop offset="1" stop-color="#77AAD9"/>
+    </linearGradient>
+    <linearGradient id="l3-g-sleeve-back" gradientUnits="userSpaceOnUse" x1="246" y1="0" x2="282" y2="0">
+      <stop offset="0" stop-color="#325D8A"/><stop offset="1" stop-color="#4A80B4"/>
+    </linearGradient>
+    <linearGradient id="l3-g-short" gradientUnits="userSpaceOnUse" x1="146" y1="0" x2="254" y2="0">
+      <stop offset="0" stop-color="#5C4185"/><stop offset="0.46" stop-color="#7B5CA8"/><stop offset="1" stop-color="#A085CA"/>
+    </linearGradient>
+    <linearGradient id="l3-g-shine" gradientUnits="userSpaceOnUse" x1="204" y1="56" x2="252" y2="146">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.17"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <style><![CDATA[
+    /* ============ RIG DE ANIMACAO — LENA ============
+       Cada keyframe embute seu proprio pivo via translate(...) rotate(...) translate(-...),
+       em vez de transform-origin + transform-box. Assim o rig funciona tanto no arquivo
+       isolado quanto quando o avatar e injetado numa cena com outro viewBox. */
+
+    #l3-lena       { animation: l3-breathe 5.2s ease-in-out infinite; }
+    #l3-head       { animation: l3-tilt 7.4s ease-in-out infinite; }
+    #l3-hair-back  { animation: l3-tilt 7.4s ease-in-out -0.3s infinite; }
+    #l3-fringe     { animation: l3-swayhair 7.4s ease-in-out -0.42s infinite; }
+    #l3-arm-back   { animation: l3-armB 6.2s ease-in-out infinite; }
+    #l3-arm-front  { animation: l3-armF 6.2s ease-in-out -0.45s infinite; }
+    #l3-badge      { animation: l3-badge 4.6s ease-in-out infinite; }
+    #l3-shadow     { animation: l3-shadow 5.2s ease-in-out infinite; }
+    #l3-lidL, #l3-lidR { animation: l3-blink 5.8s infinite; }
+    #l3-lidR       { animation-delay: 0.04s; }   /* olhos nunca 100% sincronos */
+    #l3-pupils     { animation: l3-look 8.6s ease-in-out infinite; }
+
+    @keyframes l3-breathe { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+    /* cabeca e cabelo: pivo na base do pescoco (200,204) */
+    @keyframes l3-tilt {
+      0%,100% { transform:translate(200px,204px) rotate(-1.5deg) translate(-200px,-204px) }
+      50%     { transform:translate(200px,204px) rotate(1.5deg)  translate(-200px,-204px) }
+    }
+    /* franja: pivo no topo da testa (200,150) */
+    @keyframes l3-swayhair {
+      0%,100% { transform:translate(200px,150px) rotate(-1.6deg) translate(-200px,-150px) }
+      50%     { transform:translate(200px,150px) rotate(1.6deg)  translate(-200px,-150px) }
+    }
+    /* bracos: pivo no ombro */
+    @keyframes l3-armB {
+      0%,100% { transform:translate(248px,214px) rotate(1.8deg)  translate(-248px,-214px) }
+      50%     { transform:translate(248px,214px) rotate(-1.8deg) translate(-248px,-214px) }
+    }
+    @keyframes l3-armF {
+      0%,100% { transform:translate(152px,214px) rotate(-1.4deg) translate(-152px,-214px) }
+      50%     { transform:translate(152px,214px) rotate(1.4deg)  translate(-152px,-214px) }
+    }
+    @keyframes l3-badge {
+      0%,100% { transform:translate(203px,259px) rotate(-5deg) translate(-203px,-259px) }
+      50%     { transform:translate(203px,259px) rotate(5deg)  translate(-203px,-259px) }
+    }
+    /* sombra respira ao contrario do corpo */
+    @keyframes l3-shadow {
+      0%,100% { transform:translate(200px,558px) scaleX(1)     translate(-200px,-558px) }
+      50%     { transform:translate(200px,558px) scaleX(0.965) translate(-200px,-558px) }
+    }
+    @keyframes l3-look {
+      0%,36%   { transform:translate(0,0) }
+      42%,60%  { transform:translate(2.4px,0.6px) }
+      66%,86%  { transform:translate(-2.2px,-0.4px) }
+      92%,100% { transform:translate(0,0) }
+    }
+    @keyframes l3-blink {
+      0%, 87%     { transform:translateY(0) }
+      88.5%       { transform:translateY(36px) }
+      90.8%       { transform:translateY(0) }
+      93%         { transform:translateY(36px) }
+      95.5%, 100% { transform:translateY(0) }
+    }
+
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+
+  ]]></style>
+
+
+  <g id="l3-root" stroke="#0F1F3E" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- ============ SOMBRA ============ -->
+
+    <g id="l3-lena">
+
+    <!-- ============ CABELO DE TRAS (massa longa e cacheada) ============ -->
+    <g transform="translate(200,177) scale(0.95) translate(-200,-189)">
+    <g id="l3-hair-back">
+      <path id="l3-hair-back-shape" d="M148,152
+             a15,15 0 0 1 -2,-28  a16,16 0 0 1 4,-30  a16,16 0 0 1 12,-24
+             a16,16 0 0 1 20,-16 a16,16 0 0 1 18,-8
+             a16,16 0 0 1 18,8   a16,16 0 0 1 20,16  a16,16 0 0 1 12,24
+             a16,16 0 0 1 4,30   a15,15 0 0 1 -2,28
+             a12,12 0 0 1 6,24   a13,13 0 0 1 6,26   a13,13 0 0 1 4,26
+             a13,13 0 0 1 2,26   a13,13 0 0 1 0,26   a13,13 0 0 1 -2,26
+             a13,13 0 0 1 -4,26  a12,12 0 0 1 -6,24  a12,12 0 0 1 -8,22
+             C244,392 230,390 228,374
+             C238,300 234,222 212,186
+             L188,186
+             C166,222 162,300 172,374
+             C170,390 156,392 150,378
+             a12,12 0 0 1 -8,-22 a12,12 0 0 1 -6,-24 a13,13 0 0 1 -4,-26
+             a13,13 0 0 1 -2,-26 a13,13 0 0 1 0,-26  a13,13 0 0 1 2,-26
+             a13,13 0 0 1 4,-26  a13,13 0 0 1 6,-26  a12,12 0 0 1 6,-24 Z" fill="url(#l3-g-hair)"/>
+      <g clip-path="url(#l3-hairback-clip)">
+        <!-- brilho especular na massa de cachos -->
+        <path d="M212,60 C234,74 248,102 250,136 C244,108 230,86 206,70 Z" fill="url(#l3-g-shine)" stroke="none"/>
+        <!-- cachos: mechas onduladas claras -->
+        <g fill="none" stroke="#8A6440" stroke-width="2.8" opacity="0.5" stroke-linecap="round">
+          <path d="M160,194 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26"/>
+          <path d="M240,194 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26"/>
+          <path d="M200,198 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24"/>
+          <path d="M138,206 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26"/>
+          <path d="M262,206 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26"/>
+        </g>
+        <!-- cachos: mechas onduladas escuras -->
+        <g fill="none" stroke="#3B2718" stroke-width="2.6" opacity="0.42" stroke-linecap="round">
+          <path d="M177,200 c-6,8 6,16 0,24 c-6,8 6,16 0,24 c-6,8 6,16 0,24 c-6,8 6,16 0,24 c-6,8 6,16 0,24 c-6,8 6,16 0,24"/>
+          <path d="M223,200 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24"/>
+          <path d="M148,178 c7,8 -6,14 0,22 c7,8 -6,14 0,22"/>
+          <path d="M252,178 c-7,8 6,14 0,22 c-7,8 6,14 0,22"/>
+        </g>
+        <!-- espirais nas pontas -->
+        <g fill="none" stroke="#3B2718" stroke-width="2.6" opacity="0.4" stroke-linecap="round">
+          <path d="M156,362 a9,9 0 1 0 12,6"/>
+          <path d="M244,362 a9,9 0 1 1 -12,6"/>
+          <path d="M194,352 a8,8 0 1 0 11,5"/>
+        </g>
+      </g>
+    </g>
+    </g>
+
+    <!-- ============ PERNAS + TENIS ============ -->
+    <g id="l3-legs">
+      <path d="M158,346 C155,390 157,466 162,532
+               L188,532 C191,490 194,440 194,392
+               C196,387 204,387 206,392
+               C206,440 209,490 212,532
+               L238,532 C243,466 245,390 242,346 Z" fill="url(#l3-g-leg)"/>
+          </g>
+    <g id="l3-feet">
+      <path d="M195,523.2 L166,523.2 C150,523.2 140,534.1 140,545.1 C140,551.6 144,556 150,556 L192,556 C196,556 199,552.7 199,546.2 Z" fill="#F4F0E8"/>
+      <path d="M205,523.2 L234,523.2 C250,523.2 260,534.1 260,545.1 C260,551.6 256,556 250,556 L208,556 C204,556 201,552.7 201,546.2 Z" fill="#F4F0E8"/>
+      <path d="M144,547.3 H196" fill="none" stroke-width="2.4" opacity="0.4"/>
+      <path d="M204,547.3 H256" fill="none" stroke-width="2.4" opacity="0.4"/>
+      <path d="M150,531.9 l6,-8 M168,527.6 l4,-6" fill="none" stroke="#D8CFBE" stroke-width="2.6"/>
+      <path d="M250,531.9 l-6,-8 M232,527.6 l-4,-6" fill="none" stroke="#D8CFBE" stroke-width="2.6"/>
+    </g>
+
+    <!-- ============ SHORT ROXO ============ -->
+    <path d="M150,330 L250,330
+             C255,344 255,370 246,392
+             L210,392 C206,387 194,387 190,392
+             L154,392 C145,370 145,344 150,330 Z" fill="url(#l3-g-short)"/>
+            <g stroke="none" fill="#A98BD0" opacity="0.65">
+      <circle cx="184" cy="346" r="3.2"/><circle cx="214" cy="356" r="2.8"/><circle cx="226" cy="344" r="3.2"/>
+      <circle cx="176" cy="372" r="2.6"/><circle cx="238" cy="368" r="2.8"/><circle cx="200" cy="352" r="2.4"/>
+    </g>
+    <path d="M150,330 L250,330" fill="none" stroke-width="4"/>
+
+    <!-- ============ BRACO DE TRAS (manga media azul) ============ -->
+    <g id="l3-arm-back">
+      <path d="M264,258 C267,282 266,306 263,326" fill="none" stroke="#0F1F3E" stroke-width="26"/>
+      <path d="M264,258 C267,282 266,306 263,326" fill="none" stroke="#D9A87F" stroke-width="22"/>
+      <!-- manga media: costura de cima sobre a curva do ombro da blusa (248,214 -> 232,202) -->
+      <path d="M248,214
+               C260,224 282,244 280,268
+               L251.8,273.4
+               C251.3,253.6 250.2,233.2 248,214 Z" fill="url(#l3-g-sleeve-back)"/>
+      <g transform="translate(263,322) scale(-1,1) rotate(8)"><use href="#l3-hand-relax"/></g>
+    </g>
+
+    <!-- ============ PESCOCO + BASE DOS OMBROS (atras da blusa) ============ -->
+    <g id="l3-neck">
+      <path d="M186,170 L184,198 C180,206 174,212 168,220 L232,220 C226,212 220,206 216,198 L214,170 Z" fill="url(#l3-g-skin)"/>
+      <path d="M187,186 Q200,200 213,186" fill="none" stroke="#D49B77" stroke-width="6" opacity="0.6" stroke-linecap="butt"/>
+    </g>
+
+    <!-- ============ BLUSA AZUL ============ -->
+    <path d="M152,214
+             C152,208 160,204 168,202
+             L200,216
+             L232,202
+             C240,204 248,208 248,214
+             C251,240 252,268 252,294
+             C253,314 253,326 254,338
+             L146,338
+             C147,326 147,314 148,294
+             C148,268 149,240 152,214 Z" fill="url(#l3-g-shirt)"/>
+    <!-- gola em V acompanhando o decote -->
+    <path d="M172,206 L200,219 L228,206" fill="none" stroke="#3C6C9E" stroke-width="6" opacity="0.85"/>
+    <!-- pecinha dourada no peito (marca) -->
+    <g id="l3-badge">
+      <path d="M192,266 h6 a4,4 0 0 1 10,0 h6 v6 a4,4 0 0 0 0,9 v6 h-22 Z" fill="#D2B773" stroke-width="3"/>
+    </g>
+
+    <!-- ============ BRACO DA FRENTE (manga media azul) ============ -->
+    <g id="l3-arm-front">
+      <path d="M136,258 C133,282 134,306 137,326" fill="none" stroke="#0F1F3E" stroke-width="26"/>
+      <path d="M136,258 C133,282 134,306 137,326" fill="none" stroke="#E7B58C" stroke-width="22"/>
+      <!-- manga media: a costura de cima percorre a MESMA curva do ombro da blusa
+           (152,214 -> 168,202), por isso nao sobra bico acima da linha do ombro -->
+      <path d="M152,214
+               C140,224 118,244 120,268
+               L148.2,273.4
+               C148.7,253.6 149.8,233.2 152,214 Z" fill="url(#l3-g-shirt)"/>
+      <g transform="translate(137,322) rotate(-8)"><use href="#l3-hand-relax"/></g>
+    </g>
+
+    <!-- ============ CABECA ============ -->
+    <g transform="translate(200,177) scale(0.95) translate(-200,-189)">
+    <g id="l3-head">
+      <ellipse cx="200" cy="132" rx="53" ry="57" fill="url(#l3-g-skin)"/>
+      <!-- sombreamento do rosto (luz da direita) -->
+      <g clip-path="url(#l3-face)" stroke="none">
+        <ellipse cx="176" cy="157" rx="12" ry="7" fill="#E88A9A" opacity="0.28"/>
+        <ellipse cx="224" cy="157" rx="12" ry="7" fill="#E88A9A" opacity="0.28"/>
+      </g>
+
+      <!-- sobrancelhas marcadas -->
+      <path d="M166,120 C174,114 187,113 195,118" fill="none" stroke="#4A3020" stroke-width="5.5"/>
+      <path d="M205,118 C213,113 226,114 234,120" fill="none" stroke="#4A3020" stroke-width="5.5"/>
+
+      <!-- olhos -->
+      <g id="l3-eyes">
+        <ellipse cx="181" cy="138" rx="13" ry="14" fill="#FBF8F2"/>
+        <ellipse cx="219" cy="138" rx="13" ry="14" fill="#FBF8F2"/>
+        <g id="l3-pupils" stroke="none">
+          <circle cx="182" cy="140" r="8" fill="#4A2E1A"/>
+          <circle cx="220" cy="140" r="8" fill="#4A2E1A"/>
+          <circle cx="182" cy="140" r="3.6" fill="#25160C"/>
+          <circle cx="220" cy="140" r="3.6" fill="#25160C"/>
+          <circle cx="185" cy="137" r="2.4" fill="#FFFFFF"/>
+          <circle cx="223" cy="137" r="2.4" fill="#FFFFFF"/>
+        </g>
+        <path d="M168,138 a13,14 0 0 1 26,0" fill="none" stroke="#0F1F3E" stroke-width="3.4"/>
+        <path d="M206,138 a13,14 0 0 1 26,0" fill="none" stroke="#0F1F3E" stroke-width="3.4"/>
+        <!-- palpebras (rig de piscada): cada uma carrega sua propria linha de fechamento,
+             por isso o olho fechado nao mostra o contorno do olho aberto -->
+        <g clip-path="url(#l3-eyeL)"><g id="l3-lidL">
+          <rect x="164" y="84" width="34" height="36" fill="#E7B58C" stroke="none"/>
+          <path d="M168,107 Q181,114 194,107" fill="none" stroke="#0F1F3E" stroke-width="3.6"/>
+        </g></g>
+      </g>
+
+      <!-- nariz -->
+      <path d="M200,145 C196,156 195,161 200,164 C203,164 205,162.5 205,161" fill="none" stroke="#D49B77" stroke-width="3.4"/>
+
+      <!-- boca: sorriso fechado suave -->
+      <!-- boca: sorriso fechado; o labio inferior e sugerido por um traco de batom
+           logo abaixo da linha do sorriso (dois tons de preenchimento leem como boca aberta) -->
+      <g id="l3-mouth" stroke-linecap="round" fill="none">
+        <path d="M185,171 C192,180 208,180 215,171" stroke="#7E2F38" stroke-width="3.8"/>
+        <path d="M189,175.5 C195,180 205,180 211,175.5" stroke="#C4636D" stroke-width="3.4" opacity="0.9"/>
+      </g>
+
+      <!-- ============ FRANJA / CABELO DA FRENTE (cacheado, risca lateral) ============ -->
+      <g id="l3-fringe">
+        <path id="l3-fringe-shape" d="M152,150
+               C142,108 162,56 200,54
+               C238,56 258,104 250,146
+               C250,128 242,110 226,105
+               L216,93
+               c-8,9 -20,13 -32,10
+               c-11,-3 -18,1 -22,9
+               c-6,12 -11,26 -12,40 Z" fill="url(#l3-g-hair)" stroke="none"/>
+        <g clip-path="url(#l3-fringe-clip)">
+          <!-- mechas cacheadas de luz -->
+          <g stroke-linecap="round" fill="none" opacity="0.55">
+            <path d="M212,90 c-6,7 -15,10 -23,9 c-9,-1 -15,4 -19,11" stroke="#8A6440" stroke-width="3"/>
+            <path d="M174,74 c-6,9 -12,17 -13,27 c-1,9 -6,17 -8,26" stroke="#8A6440" stroke-width="2.8"/>
+            <path d="M238,86 c5,10 4,20 6,28 c2,8 2,16 0,24" stroke="#8A6440" stroke-width="2.8"/>
+            <path d="M196,68 c-9,4 -14,12 -16,20" stroke="#8A6440" stroke-width="2.6"/>
+            <path d="M222,68 c9,4 14,12 16,20" stroke="#8A6440" stroke-width="2.6"/>
+          </g>
+          <!-- espirais no topo -->
+          <g stroke-linecap="round" fill="none" stroke="#3B2718" stroke-width="2.4" opacity="0.35">
+            <path d="M182,84 a9,9 0 1 1 12,-5"/>
+            <path d="M230,100 a8,8 0 1 0 -11,-5"/>
+          </g>
+          <!-- sombra interna da mecha por cima da testa -->
+          <path d="M216,93 C206,101 190,105 176,101 C182,111 200,113 214,105 Z" fill="#4A3020" opacity="0.4" stroke="none"/>
+        </g>
+        <!-- contorno so da borda que fica sobre a testa -->
+        <path id="l3-fringe-edge" d="M252,160
+               C252,138 244,112 226,105
+               L216,93
+               c-8,9 -20,13 -32,10
+               c-11,-3 -18,1 -22,9
+               c-7,13 -11,28 -12,44" fill="none"/>
+      </g>
+
+      <!-- ============ ORELHAS (cabelo preso atras da orelha) ============ -->
+      <g id="l3-ears">
+        <path d="M152,129 C142,126 136,135 137,145 C138,154 144,159 151,157" fill="#E7B58C"/>
+        <path d="M248,129 C258,126 264,135 263,145 C262,154 256,159 249,157" fill="#E7B58C"/>
+        <path d="M148,138 C144,140 143,147 147,151" fill="none" stroke="#D49B77" stroke-width="2.8"/>
+        <path d="M252,138 C256,140 257,147 253,151" fill="none" stroke="#D49B77" stroke-width="2.8"/>
+      </g>
+
+      <!-- ============ OCULOS ROSA ============ -->
+      <!-- lentes: vidro creme translucido (#FBF8F2 da Nina) para o oculos existir na leitura -->
+      <g id="l3-glasses-lens" stroke="none" fill="#FBF8F2" opacity="0.15">
+        <path d="M162,126 C169,120 180,119 188,123 C193,126 196,131 196,138
+                 C196,148 189,155 179,155 C168,155 160,148 159,137 C158,132 159,129 162,126 Z"/>
+        <path d="M238,126 C231,120 220,119 212,123 C207,126 204,131 204,138
+                 C204,148 211,155 221,155 C232,155 240,148 241,137 C242,132 241,129 238,126 Z"/>
+      </g>
+      <!-- armacao: navy da marca (#24406F, paleta Nina) -->
+      <g id="l3-glasses" fill="none" stroke="#24406F" stroke-width="4.2" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M162,126 C169,120 180,119 188,123 C193,126 196,131 196,138
+                 C196,148 189,155 179,155 C168,155 160,148 159,137 C158,132 159,129 162,126 Z"/>
+        <path d="M238,126 C231,120 220,119 212,123 C207,126 204,131 204,138
+                 C204,148 211,155 221,155 C232,155 240,148 241,137 C242,132 241,129 238,126 Z"/>
+        <path d="M196,133 C199,129 201,129 204,133" stroke-width="3.4"/>
+        <path d="M159,132 L150,136" stroke-width="3.4"/>
+        <path d="M241,132 L250,136" stroke-width="3.4"/>
+      </g>
+      <!-- dobradicas douradas (#D2B773) + brilho no vidro -->
+      <g stroke="none">
+        <circle cx="160.5" cy="132" r="2.6" fill="#D2B773"/>
+        <circle cx="239.5" cy="132" r="2.6" fill="#D2B773"/>
+        <g fill="#FBF8F2" opacity="0.42">
+          <path d="M166,131 C172,126 180,124 186,126 C179,128 172,131 166,135 Z"/>
+          <path d="M234,131 C228,126 220,124 214,126 C221,128 228,131 234,135 Z"/>
+        </g>
+      </g>
+    </g>
+    </g>
+
+    </g>
+  </g>
+</g>
+
+    <path d="M0,470 H1000 V740 H0 Z" fill="url(#c-depth)"/>
+    <!-- =============== VINHETA =============== -->
+    <path d="M0,0 H1000 V740 H0 Z" fill="url(#c-vig)"/>
+  </g>
+</svg>

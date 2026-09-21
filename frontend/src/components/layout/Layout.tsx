@@ -9,7 +9,7 @@ import { Sidebar } from './Sidebar'
 import { SubscriptionExpired } from '@/components/ui/SubscriptionExpired'
 import { useAssinatura } from '@/hooks/useAssinatura'
 import { useAuth } from '@/contexts/AuthContext'
-import SextaFeiraWidget from '@/components/SextaFeiraWidget'
+import DuoWidget from '@/components/DuoWidget'
 
 const ROTAS_LIVRES = ['/planos', '/minha-conta', '/perfil']
 
@@ -94,9 +94,9 @@ export const Layout: React.FC = () => {
         </div>
       </div>
 
-      {/* Widget global Sexta-feira — agente IA consultora */}
-      {!rotaLivre && location.pathname !== '/agente-sexta-feira' && (
-        <SextaFeiraWidget />
+      {/* Widget global do Duo — assistente de IA */}
+      {!rotaLivre && location.pathname !== '/agente-duo' && (
+        <DuoWidget />
       )}
     </div>
   )
