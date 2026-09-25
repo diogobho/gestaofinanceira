@@ -449,6 +449,8 @@ export const leadsController = {
       const empresaId = (req as any).user.empresa_id;
       const { id } = req.params;
       const { mensagem } = req.body;
+      // id do WhatsApp da mensagem respondida (#188); o service confere que é desta conversa
+      const respostaA = typeof req.body.resposta_a === 'string' ? req.body.resposta_a.slice(0, 100) : null;
 
       if (!mensagem) {
         return res.status(400).json({ message: 'mensagem é obrigatória' });
@@ -485,7 +487,9 @@ export const leadsController = {
         empresaId,
         contatoId,
         mensagem,
-        parseInt(id)
+        parseInt(id),
+        'manual',
+        respostaA
       );
 
       if (!resultado.success) {
@@ -655,6 +659,36 @@ export const leadsController = {
   },
 
   // Obter historico de mensagens WhatsApp pelo lead
+  // Reagir a uma mensagem da conversa do card (#188). emoji vazio remove a reação.
+  async reagirMensagemWhatsApp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const usuarioId = (req as any).user.id;
+      const empresaId = (req as any).user.empresa_id;
+      const leadId = parseInt(req.params.id);
+      const historicoId = parseInt(req.params.mensagemId);
+      const emoji = typeof req.body.emoji === 'string' ? req.body.emoji.trim() : '';
+      if (!historicoId) return res.status(400).json({ message: 'Mensagem inválida' });
+      if (emoji.length > 16 || /[A-Za-z0-9<>]/.test(emoji)) {
+        return res.status(400).json({ message: 'Reação inválida' });
+      }
+
+      const lead = await leadsService.getById(leadId, empresaId);
+      if (!lead) return res.status(404).json({ message: 'Lead não encontrado' });
+      if (!lead.contato_whatsapp_id) return res.status(400).json({ message: 'Lead sem conversa no WhatsApp' });
+
+      // Mesmo chip do envio manual: o do responsável do card.
+      const remetenteId = await contatosService.resolverRemetente(lead.responsavel_id, usuarioId);
+      const resultado = await contatosService.reagir(remetenteId, empresaId, lead.contato_whatsapp_id, historicoId, emoji);
+      if (!resultado.success) return res.status(400).json({ message: resultado.error });
+      res.json({ success: true, emoji: emoji || null });
+    } catch (error: any) {
+      if (error.message?.includes('não encontrado') || error.message?.includes('não configurado')) {
+        return res.status(400).json({ message: error.message });
+      }
+      next(error);
+    }
+  },
+
   async getHistoricoWhatsApp(req: Request, res: Response, next: NextFunction) {
     try {
       const empresaId = (req as any).user.empresa_id;

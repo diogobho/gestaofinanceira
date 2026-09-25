@@ -238,10 +238,12 @@ export default function CRMFunilCX() {
     lead: Lead
   } | null>(null)
 
-  const handleMoverLead = (leadId: number, novoEstagioId: number, novaOrdem: number) => {
+  const handleMoverLead = (leadId: number, novoEstagioId: number, novaOrdem: number, leadAberto?: Lead | null) => {
     const estagioDestino = colunas.find(c => c.id === novoEstagioId)
     if (estagioDestino?.is_ganho) {
-      const lead = colunas.flatMap(c => c.leads).find(l => l.id === leadId)
+      // Pelo card aberto o lead pode não estar entre os carregados (paginação,
+      // ?lead= de outro funil) — sem ele a conversão seria pulada.
+      const lead = colunas.flatMap(c => c.leads).find(l => l.id === leadId) ?? leadAberto
       if (lead) {
         setConversaoGanho({ leadId, novoEstagioId, novaOrdem, lead })
         return
@@ -614,6 +616,7 @@ export default function CRMFunilCX() {
           <LeadDetailsModal
             lead={selectedLead}
             estagios={colunas as EstagioFunil[]}
+            onMoverEstagio={(leadId, estagioId) => handleMoverLead(leadId, estagioId, 0, selectedLead)}
             isOpen={!!selectedLead}
             onClose={() => setSelectedLead(null)}
           />

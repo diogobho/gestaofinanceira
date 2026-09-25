@@ -12,6 +12,8 @@ export const BASE_URL = 'https://graph.facebook.com/v25.0';
 export interface MetaTextMessage {
   to: string;
   text: string;
+  /** id (wamid) da mensagem respondida — vira a citação no WhatsApp do cliente. */
+  respostaA?: string;
 }
 
 export interface MetaTemplateMessage {
@@ -199,7 +201,7 @@ function destinatario(to: string): { to: string } | { recipient: string } {
   return { to: normalizarDestino(bruto) };
 }
 
-export async function sendTextMessage({ to, text }: MetaTextMessage, cred?: CredenciaisMeta) {
+export async function sendTextMessage({ to, text, respostaA }: MetaTextMessage, cred?: CredenciaisMeta) {
   try {
     const { data } = await axios.post(
       `${BASE_URL}/${phoneId(cred)}/messages`,
@@ -207,8 +209,32 @@ export async function sendTextMessage({ to, text }: MetaTextMessage, cred?: Cred
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
         ...destinatario(to),
+        ...(respostaA ? { context: { message_id: respostaA } } : {}),
         type: 'text',
         text: { preview_url: false, body: text },
+      },
+      { headers: getHeaders(cred), timeout: 30000 }
+    );
+    return data;
+  } catch (err) {
+    throw erroMeta(err);
+  }
+}
+
+/** Reage a uma mensagem (emoji vazio remove). Conta como mensagem: exige a janela de 24h. */
+export async function sendReaction(
+  { to, messageId, emoji }: { to: string; messageId: string; emoji: string },
+  cred?: CredenciaisMeta
+) {
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/${phoneId(cred)}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        ...destinatario(to),
+        type: 'reaction',
+        reaction: { message_id: messageId, emoji },
       },
       { headers: getHeaders(cred), timeout: 30000 }
     );

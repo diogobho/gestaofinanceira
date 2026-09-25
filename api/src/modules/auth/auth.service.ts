@@ -187,6 +187,11 @@ export const authService = {
         // catch, e o cliente vê erro em vez de pagar para o lugar errado.
         await asaasService.garantirContaCorreta();
 
+        // O ciclo é conferido antes do Asaas: pedido de um compromisso fora de
+        // venda (link antigo, tela em cache) para aqui, sem cliente criado lá.
+        // `value` é o que se cobra POR CICLO: no anual, os 12 meses de uma vez.
+        const ciclo = await assinaturasService.getCiclo(plano.id, data.ciclo);
+
         // 3. Criar customer no Asaas
         let customer = await asaasService.findCustomerByEmail(data.email);
         if (!customer) {
@@ -202,9 +207,7 @@ export const authService = {
         nextDue.setDate(nextDue.getDate() + 1);
         const nextDueDate = nextDue.toISOString().split('T')[0];
 
-        // 5. Criar subscription no Asaas — no ciclo escolhido. `value` é o que
-        // se cobra POR CICLO: no anual, os 12 meses de uma vez.
-        const ciclo = await assinaturasService.getCiclo(plano.id, data.ciclo);
+        // 5. Criar subscription no Asaas — no ciclo escolhido.
         const cobranca = calcularCobranca(plano, ciclo, plano.usuarios_base ?? 1, 0);
         const subscription = await asaasService.createSubscription({
           customerId: customer.id,

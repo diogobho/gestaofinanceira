@@ -52,6 +52,7 @@ router.delete('/leads/:id/tags/:tagId', leadsController.removeTag);
 router.post('/leads/:id/mensagem', leadsController.enviarMensagemWhatsApp);
 router.post('/leads/:id/media', upload.single('file'), leadsController.enviarMediaWhatsApp);
 router.post('/leads/:id/whatsapp/modelo', leadsController.enviarModeloWhatsApp);
+router.post('/leads/:id/mensagens/:mensagemId/reacao', leadsController.reagirMensagemWhatsApp);
 router.get('/leads/:id/historico-whatsapp', leadsController.getHistoricoWhatsApp);
 router.post('/leads/:id/marcar-lido', leadsController.marcarLidoWhatsApp);
 

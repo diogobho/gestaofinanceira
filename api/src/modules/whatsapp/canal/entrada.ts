@@ -148,8 +148,22 @@ async function garantirContato(
 }
 
 export async function encaminharMensagemAoCRM(conta: ContaCloud, msg: any, value: any): Promise<void> {
-  // Reação e mensagem de sistema não são conversa — o Baileys também as deixa de fora.
-  if (msg.type === 'reaction' || msg.type === 'system' || msg.type === 'ephemeral' || msg.type === 'unsupported') {
+  // Reação não é balão: vai como evento e vira atributo da mensagem reagida (086),
+  // o mesmo contrato que o Baileys usa.
+  if (msg.type === 'reaction') {
+    if (!msg.reaction?.message_id) return;
+    await axios.post(URL_WEBHOOK_CRM, {
+      event: 'reaction',
+      from: msg.from || msg.from_user_id || '',
+      fromMe: false,
+      targetId: msg.reaction.message_id,
+      emoji: msg.reaction.emoji || '',
+      port: conta.porta_virtual,
+    }, { headers: { 'x-webhook-secret': WEBHOOK_SECRET }, timeout: 30000 });
+    return;
+  }
+  // Mensagem de sistema não é conversa — o Baileys também a deixa de fora.
+  if (msg.type === 'system' || msg.type === 'ephemeral' || msg.type === 'unsupported') {
     if (msg.type === 'unsupported') {
       console.warn(`[CloudAPI] mensagem de tipo não suportado de ${msg.from ?? msg.from_user_id}:`, JSON.stringify(msg.errors ?? []));
     }
@@ -176,6 +190,7 @@ export async function encaminharMensagemAoCRM(conta: ContaCloud, msg: any, value
     pushname: nome,
     port: conta.porta_virtual,
     hasMedia: false,
+    quotedId: msg.context?.id || null,
   };
 
   const midia = msg[msg.type];

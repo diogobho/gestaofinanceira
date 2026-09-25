@@ -141,8 +141,12 @@ export const leadsApi = {
     api.delete(`/crm/leads/${id}/tags/${tagId}`),
 
   // WhatsApp messaging via lead
-  enviarMensagem: (id: number, mensagem: string) =>
-    api.post(`/crm/leads/${id}/mensagem`, { mensagem }).then(r => r.data),
+  enviarMensagem: (id: number, mensagem: string, respostaA?: string | null) =>
+    api.post(`/crm/leads/${id}/mensagem`, { mensagem, ...(respostaA ? { resposta_a: respostaA } : {}) }).then(r => r.data),
+
+  // emoji vazio remove a reação
+  reagirMensagem: (id: number, mensagemId: number, emoji: string) =>
+    api.post(`/crm/leads/${id}/mensagens/${mensagemId}/reacao`, { emoji }).then(r => r.data),
 
   enviarMedia: (id: number, file: File, caption?: string) => {
     const formData = new FormData()

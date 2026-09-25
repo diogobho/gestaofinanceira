@@ -376,7 +376,9 @@ export const contatosService = {
     // automação: sem isto, a conversa manual do operador empurrava a fila de
     // follow-up indefinidamente. 'manual' é o padrão porque o caminho mais comum
     // desta função é o chat do card, operado por gente.
-    origem: OrigemMensagem = 'manual'
+    origem: OrigemMensagem = 'manual',
+    // id do WhatsApp da mensagem respondida (#188). Só vale se ela for DESTA conversa.
+    respostaA?: string | null
   ): Promise<{ success: boolean; messageId?: string; error?: string; status?: number }> {
     // Buscar contato (verificando empresa)
     const contato = await this.getById(contatoId, empresaId);
@@ -404,11 +406,27 @@ export const contatosService = {
       throw new Error('WhatsApp não configurado');
     }
 
+    // Citação: a mensagem respondida tem que ser desta conversa, e a instância precisa
+    // de quem a escreveu (fromMe) e do texto para montar o trecho citado.
+    let quoted: { id: string; fromMe: boolean; text: string } | undefined;
+    if (respostaA) {
+      const citada = await query(
+        `SELECT whatsapp_message_id, direcao, conteudo FROM historico_mensagens
+          WHERE empresa_id = $1 AND contato_whatsapp_id = $2 AND whatsapp_message_id = $3
+            AND grupo_whatsapp_id IS NULL
+          LIMIT 1`,
+        [empresaId, contatoId, respostaA]
+      );
+      const c = citada.rows[0];
+      if (c) quoted = { id: c.whatsapp_message_id, fromMe: c.direcao === 'saida', text: c.conteudo || '' };
+    }
+
     // Enviar mensagem usando whatsapp_id como chatId (suporta @c.us, @g.us, @lid)
     try {
       const response = await instancia(porta).post(`/send`, {
         number: contato.whatsapp_id,
-        message: mensagem
+        message: mensagem,
+        ...(quoted ? { quoted } : {})
       }, {
         timeout: 30000
       });
@@ -423,8 +441,8 @@ export const contatosService = {
       await query(
         `INSERT INTO historico_mensagens (
           lead_id, contato_whatsapp_id, usuario_id, empresa_id,
-          whatsapp_message_id, direcao, tipo, conteudo, origem, enviado_at
-        ) VALUES ($1, $2, $3, $4, $5, 'saida', 'texto', $6, $7, CURRENT_TIMESTAMP)`,
+          whatsapp_message_id, direcao, tipo, conteudo, origem, enviado_at, resposta_a_message_id
+        ) VALUES ($1, $2, $3, $4, $5, 'saida', 'texto', $6, $7, CURRENT_TIMESTAMP, $8)`,
         [
           leadId || null,
           contatoId,
@@ -432,7 +450,8 @@ export const contatosService = {
           empresaId,
           response.data.messageId || null,
           mensagem,
-          origem
+          origem,
+          quoted?.id ?? null
         ]
       );
 
@@ -593,11 +612,70 @@ export const contatosService = {
    */
   // `copia_indevida` (migration 075): mensagem de outra empresa gravada aqui pelo
   // vazamento de até 19/08/2026. Fica no banco, mas não é conversa desta empresa.
+  /**
+   * Reage a uma mensagem da conversa do card (#188). emoji vazio remove a reação.
+   * Sai pelo chip de quem está falando com o lead (o mesmo `usuarioId` do envio
+   * manual) e grava `reacao_minha` na hora — o eco da instância só confirma.
+   */
+  async reagir(
+    usuarioId: number,
+    empresaId: number,
+    contatoId: number,
+    historicoId: number,
+    emoji: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const contato = await this.getById(contatoId, empresaId);
+    if (!contato) throw new Error('Contato não encontrado');
+
+    const alvo = await query(
+      `SELECT id, whatsapp_message_id, direcao FROM historico_mensagens
+        WHERE id = $1 AND empresa_id = $2 AND contato_whatsapp_id = $3
+          AND grupo_whatsapp_id IS NULL AND NOT copia_indevida`,
+      [historicoId, empresaId, contatoId]
+    );
+    const msg = alvo.rows[0];
+    if (!msg) return { success: false, error: 'Mensagem não encontrada nesta conversa' };
+    if (!msg.whatsapp_message_id) {
+      return { success: false, error: 'Esta mensagem não tem registro no WhatsApp para receber reação' };
+    }
+
+    const porta = (await query(`SELECT whatsapp_porta FROM usuarios WHERE id = $1`, [usuarioId])).rows[0]?.whatsapp_porta;
+    if (!porta) throw new Error('WhatsApp não configurado');
+
+    try {
+      const r = await instancia(porta).post(`/react`, {
+        number: contato.whatsapp_id,
+        messageId: msg.whatsapp_message_id,
+        fromMe: msg.direcao === 'saida',
+        emoji: emoji || '',
+      }, { timeout: 30000 });
+      if (!r.data?.success) throw new Error(r.data?.error || 'Erro ao reagir');
+    } catch (error: any) {
+      const motivo = error.response?.data?.details || error.response?.data?.error || error.message;
+      return { success: false, error: motivo };
+    }
+
+    await query(`UPDATE historico_mensagens SET reacao_minha = $2 WHERE id = $1`, [msg.id, emoji || null]);
+    return { success: true };
+  },
+
   async getHistoricoMensagens(contatoId: number, empresaId: number, limit = 50): Promise<any[]> {
+    // `citada_*`: o trecho da mensagem respondida (#188), achado pelo id do WhatsApp
+    // na mesma conversa. Citada anterior ao CRM não é achada — o balão mostra só a resposta.
     const result = await query(
-      `SELECT hm.*, u.nome as usuario_nome
+      `SELECT hm.*, u.nome as usuario_nome,
+              cit.conteudo AS citada_conteudo, cit.direcao AS citada_direcao, cit.tipo AS citada_tipo
        FROM historico_mensagens hm
        LEFT JOIN usuarios u ON hm.usuario_id = u.id
+       LEFT JOIN LATERAL (
+         SELECT c.conteudo, c.direcao, c.tipo FROM historico_mensagens c
+          WHERE hm.resposta_a_message_id IS NOT NULL
+            AND c.empresa_id = hm.empresa_id
+            AND c.whatsapp_message_id = hm.resposta_a_message_id
+            AND c.contato_whatsapp_id = hm.contato_whatsapp_id
+            AND NOT c.copia_indevida
+          LIMIT 1
+       ) cit ON true
        WHERE hm.contato_whatsapp_id = $1 AND hm.empresa_id = $2
          AND hm.grupo_whatsapp_id IS NULL
          AND NOT hm.copia_indevida

@@ -30,7 +30,9 @@ export default function KanbanColumn({
 }: KanbanColumnProps) {
   const [showMenu, setShowMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
-  const valorTotal = estagio.leads.reduce((acc, lead) => acc + (lead.valor_potencial || 0), 0)
+  // numeric do pg chega como STRING: somar sem Number() emendava texto ("09700.000.00")
+  // e o total da coluna sumia sempre que dois leads tinham valor.
+  const valorTotal = estagio.leads.reduce((acc, lead) => acc + (Number(lead.valor_potencial) || 0), 0)
 
   // Fechar menu ao clicar fora
   useEffect(() => {

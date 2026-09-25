@@ -3,6 +3,7 @@ import { X, User, Phone, Mail, Building, DollarSign, Thermometer, Calendar, List
 import { useCreateLead, useUpdateLead, useUsuariosEmpresa, useOrigensCatalogo } from '@/hooks/useCRM'
 import type { CreateLeadDto, UpdateLeadDto, TarefaTipo, Lead } from '@/types/crm'
 import { toInputDate } from '@/utils'
+import { lerValorBR, valorParaCampo } from '@/utils/moeda'
 
 interface LeadFormModalProps {
   isOpen: boolean
@@ -95,6 +96,10 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
     responsavel_id: undefined,
   })
 
+  // O que está escrito no campo de valor. Fica separado do número porque
+  // "9.700," no meio da digitação ainda não é um valor (#184).
+  const [valorTexto, setValorTexto] = useState('')
+
   const { data: usuariosEmpresa = [] } = useUsuariosEmpresa()
   const { data: origens = [] } = useOrigensCatalogo()
 
@@ -119,6 +124,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
     if (!isEditMode) {
       setCodigoPais('55')
       setCodigoCustom('')
+      setValorTexto('')
       return
     }
 
@@ -131,6 +137,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
         setCodigoPais('outro')
         setCodigoCustom(code)
       }
+      setValorTexto(valorParaCampo(initialLead.valor_potencial))
       setFormData({
         funil_id: initialLead.funil_id,
         estagio_id: initialLead.estagio_id,
@@ -157,9 +164,6 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData((prev) => {
-      if (name === 'valor_potencial') {
-        return { ...prev, valor_potencial: value ? parseFloat(value) : undefined }
-      }
       if (name === 'responsavel_id') {
         return { ...prev, responsavel_id: value ? parseInt(value, 10) : undefined }
       }
@@ -226,6 +230,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
       // O país entra no reset junto com o resto: ele é parte do telefone.
       setCodigoPais('55')
       setCodigoCustom('')
+      setValorTexto('')
       setFormData({
         funil_id: funilId,
         estagio_id: estagioId,
@@ -411,13 +416,17 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   name="valor_potencial"
-                  value={formData.valor_potencial || ''}
-                  onChange={handleChange}
+                  value={valorTexto}
+                  onChange={(e) => {
+                    const texto = e.target.value.replace(/[^\d.,]/g, '')
+                    setValorTexto(texto)
+                    setFormData((prev) => ({ ...prev, valor_potencial: lerValorBR(texto) }))
+                  }}
+                  onBlur={() => setValorTexto(valorParaCampo(formData.valor_potencial))}
                   placeholder="0,00"
-                  step="0.01"
-                  min="0"
                   className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 />
               </div>

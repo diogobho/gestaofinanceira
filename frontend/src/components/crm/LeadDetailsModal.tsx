@@ -5,7 +5,7 @@ import {
   Thermometer, Tag as TagIcon, Archive, ArchiveRestore, Trash2, Send, Clock, User,
   Paperclip, Image, FileText, Mic, XCircle, Plus, Check,
   Trash, PhoneCall, Video, MailIcon, RefreshCw, FileSignature, MapPin,
-  MoreHorizontal, StickyNote, AlertTriangle, Bell, Globe, Square, Edit2, ArrowRight, ChevronRight
+  MoreHorizontal, StickyNote, AlertTriangle, Bell, Globe, Square, Edit2, ArrowRight, ChevronRight, ChevronDown, Reply
 } from 'lucide-react'
 import LeadFormModal from './LeadFormModal'
 import AgendamentoConfig, { AgendamentoValue, agendamentoPadrao } from './AgendamentoConfig'
@@ -17,10 +17,11 @@ import {
   useLeadEnviarMensagem, useLeadEnviarMedia, useLeadHistoricoWhatsApp, useLeadMarcarLido,
   useUsuariosEmpresa, useFunis, useTransferirFunil,
   useFollowupsLead, useCreateFollowup, useCancelarFollowup,
-  useOrigensCatalogo, useLead,
+  useOrigensCatalogo, useLead, useLeadReagirMensagem,
 } from '@/hooks/useCRM'
 import GerenciarOrigensModal from './GerenciarOrigensModal'
 import ChatBubble, { ChatDateSeparator } from './ChatBubble'
+import { trechoDaMensagem } from '@/utils/mensagemChat'
 import AgenteIALeadToggle from './AgenteIALeadToggle'
 import FollowupFalhadoItem from './FollowupFalhadoItem'
 import { WhatsAppFormatToolbar } from '@/components/ui/WhatsAppFormatToolbar'
@@ -34,6 +35,9 @@ interface LeadDetailsModalProps {
   estagios: EstagioFunil[]
   isOpen: boolean
   onClose: () => void
+  /** Trocar de estágio pelo cabeçalho (#183). Sem ele, o estágio é só etiqueta.
+   *  Passa pelo mesmo handler do arrastar, para "ganho" abrir a conversão. */
+  onMoverEstagio?: (leadId: number, novoEstagioId: number) => void
 }
 
 const temperaturaOptions = [
@@ -55,7 +59,7 @@ const origemConfig: Record<string, { label: string; color: string }> = {
 }
 
 
-export default function LeadDetailsModal({ lead: leadProp, estagios, isOpen, onClose }: LeadDetailsModalProps) {
+export default function LeadDetailsModal({ lead: leadProp, estagios, isOpen, onClose, onMoverEstagio }: LeadDetailsModalProps) {
   // A página passa o objeto que estava no card — um retrato do momento do clique,
   // que não se atualiza quando uma edição daqui invalida a lista. Era por isso que
   // trocar o responsável parecia não funcionar: o PUT ia, mas o <select> voltava a
@@ -69,6 +73,8 @@ export default function LeadDetailsModal({ lead: leadProp, estagios, isOpen, onC
   const tabsRef = useRef<HTMLDivElement>(null)
   const [tabScroll, setTabScroll] = useState({ left: false, right: false })
   const [mensagem, setMensagem] = useState('')
+  // Mensagem sendo respondida (#188): vira citação no envio e some depois dele.
+  const [respondendoA, setRespondendoA] = useState<HistoricoMensagem | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [caption, setCaption] = useState('')
   const [isRecording, setIsRecording] = useState(false)
@@ -86,6 +92,8 @@ export default function LeadDetailsModal({ lead: leadProp, estagios, isOpen, onC
   const [tarefaDescricao, setTarefaDescricao] = useState('')
   const [tarefaDataVencimento, setTarefaDataVencimento] = useState('')
   const [tarefaPrioridade, setTarefaPrioridade] = useState<TarefaPrioridade>('normal')
+  // Mesmo formulário para criar e editar (#183): com id, o "salvar" é um PUT.
+  const [tarefaEditandoId, setTarefaEditandoId] = useState<number | null>(null)
 
   const [showEditModal, setShowEditModal] = useState(false)
   const [showTransferirFunil, setShowTransferirFunil] = useState(false)
@@ -116,6 +124,7 @@ const arquivarLead = useArquivarLead()
   const { data: funisList = [] } = useFunis()
   const transferirFunilMutation = useTransferirFunil()
   const leadEnviarMensagem = useLeadEnviarMensagem()
+  const leadReagir = useLeadReagirMensagem()
   const leadEnviarMedia = useLeadEnviarMedia()
   const leadMarcarLido = useLeadMarcarLido()
   const { data: atividades } = useLeadAtividades(lead?.id)
@@ -216,14 +225,48 @@ const arquivarLead = useArquivarLead()
 
   const estagioAtual = estagios.find((e) => e.id === lead.estagio_id)
 
+  const fecharFormTarefa = () => {
+    setShowTarefaForm(false)
+    setTarefaEditandoId(null)
+    setTarefaTitulo('')
+    setTarefaDescricao('')
+    setTarefaDataVencimento('')
+    setTarefaTipo('follow_up')
+    setTarefaPrioridade('normal')
+  }
+
+  const abrirEdicaoTarefa = (tarefa: { id: number; tipo: TarefaTipo; titulo: string; descricao?: string | null; data_vencimento: string; prioridade: TarefaPrioridade }) => {
+    // datetime-local quer a hora LOCAL, sem fuso — a mesma que a lista mostra.
+    const d = new Date(tarefa.data_vencimento)
+    const p = (n: number) => String(n).padStart(2, '0')
+    setTarefaEditandoId(tarefa.id)
+    setTarefaTipo(tarefa.tipo)
+    setTarefaTitulo(tarefa.titulo)
+    setTarefaDescricao(tarefa.descricao ?? '')
+    setTarefaDataVencimento(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`)
+    setTarefaPrioridade(tarefa.prioridade)
+    setShowTarefaForm(true)
+  }
+
   const handleEnviarMensagem = async () => {
     if (!mensagem.trim()) return
     // Usar endpoint via lead (auto-cria contato se necessario)
     await leadEnviarMensagem.mutateAsync({
       leadId: lead.id,
       mensagem,
+      respostaA: respondendoA?.whatsapp_message_id ?? null,
     })
     setMensagem('')
+    setRespondendoA(null)
+  }
+
+  const handleResponder = (m: HistoricoMensagem) => {
+    setRespondendoA(m)
+    mensagemTextareaRef.current?.focus()
+  }
+
+  const handleReagir = (m: HistoricoMensagem, emoji: string) => {
+    leadReagir.mutate({ leadId: lead.id, mensagemId: m.id, emoji })
   }
 
   const handleEnviarMedia = async () => {
@@ -385,7 +428,27 @@ const handleArquivar = async () => {
             {lead.titulo && lead.titulo !== lead.nome && (
               <p className="text-sm text-gray-500">{lead.titulo}</p>
             )}
-            {estagioAtual && (
+            {estagioAtual && onMoverEstagio ? (
+              <label
+                className="relative inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-xs font-medium mt-1 cursor-pointer hover:brightness-95"
+                style={{ backgroundColor: `${estagioAtual.cor}20`, color: estagioAtual.cor }}
+                title="Mudar de estágio"
+              >
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: estagioAtual.cor }} />
+                <select
+                  value={estagioAtual.id}
+                  onChange={(e) => onMoverEstagio(lead.id, Number(e.target.value))}
+                  aria-label="Estágio do lead"
+                  className="appearance-none bg-transparent border-0 p-0 pr-4 text-xs font-medium focus:ring-0 cursor-pointer"
+                  style={{ color: estagioAtual.cor }}
+                >
+                  {[...estagios].sort((a, b) => a.ordem - b.ordem).map((e) => (
+                    <option key={e.id} value={e.id} className="text-gray-800">{e.nome}</option>
+                  ))}
+                </select>
+                <ChevronDown size={12} className="absolute right-1 pointer-events-none" />
+              </label>
+            ) : estagioAtual && (
               <span
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium mt-1"
                 style={{ backgroundColor: `${estagioAtual.cor}20`, color: estagioAtual.cor }}
@@ -689,6 +752,9 @@ const handleArquivar = async () => {
               {/* Form nova tarefa */}
               {showTarefaForm && (
                 <div className="p-4 border rounded-lg bg-gray-50 space-y-3">
+                  {tarefaEditandoId && (
+                    <p className="text-sm font-medium text-gray-700">Editar tarefa</p>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs font-medium text-gray-600 mb-1 block">Tipo</label>
@@ -751,12 +817,7 @@ const handleArquivar = async () => {
                   <div className="flex gap-2 justify-end">
                     <button
                       onClick={() => {
-                        setShowTarefaForm(false)
-                        setTarefaTitulo('')
-                        setTarefaDescricao('')
-                        setTarefaDataVencimento('')
-                        setTarefaTipo('follow_up')
-                        setTarefaPrioridade('normal')
+                        fecharFormTarefa()
                       }}
                       className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
                     >
@@ -766,28 +827,38 @@ const handleArquivar = async () => {
                       onClick={async () => {
                         if (!tarefaTitulo.trim() || !tarefaDataVencimento) return
                         try {
-                          await createTarefa.mutateAsync({
-                            lead_id: lead.id,
-                            tipo: tarefaTipo,
-                            titulo: tarefaTitulo,
-                            descricao: tarefaDescricao || undefined,
-                            data_vencimento: new Date(tarefaDataVencimento).toISOString(),
-                            prioridade: tarefaPrioridade,
-                          })
-                          setShowTarefaForm(false)
-                          setTarefaTitulo('')
-                          setTarefaDescricao('')
-                          setTarefaDataVencimento('')
-                          setTarefaTipo('follow_up')
-                          setTarefaPrioridade('normal')
+                          if (tarefaEditandoId) {
+                            await updateTarefa.mutateAsync({
+                              id: tarefaEditandoId,
+                              data: {
+                                tipo: tarefaTipo,
+                                titulo: tarefaTitulo,
+                                descricao: tarefaDescricao,
+                                data_vencimento: new Date(tarefaDataVencimento).toISOString(),
+                                prioridade: tarefaPrioridade,
+                              },
+                            })
+                          } else {
+                            await createTarefa.mutateAsync({
+                              lead_id: lead.id,
+                              tipo: tarefaTipo,
+                              titulo: tarefaTitulo,
+                              descricao: tarefaDescricao || undefined,
+                              data_vencimento: new Date(tarefaDataVencimento).toISOString(),
+                              prioridade: tarefaPrioridade,
+                            })
+                          }
+                          fecharFormTarefa()
                         } catch {
                           // Erro já tratado pelo onError do hook
                         }
                       }}
-                      disabled={!tarefaTitulo.trim() || !tarefaDataVencimento || createTarefa.isPending}
+                      disabled={!tarefaTitulo.trim() || !tarefaDataVencimento || createTarefa.isPending || updateTarefa.isPending}
                       className="px-4 py-1.5 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
                     >
-                      {createTarefa.isPending ? 'Criando...' : 'Criar Tarefa'}
+                      {tarefaEditandoId
+                        ? (updateTarefa.isPending ? 'Salvando...' : 'Salvar alterações')
+                        : (createTarefa.isPending ? 'Criando...' : 'Criar Tarefa')}
                     </button>
                   </div>
                 </div>
@@ -867,6 +938,14 @@ const handleArquivar = async () => {
                           {new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(tarefa.data_vencimento))}
                         </p>
                       </div>
+
+                      <button
+                        onClick={() => abrirEdicaoTarefa(tarefa)}
+                        className="p-1 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded"
+                        title="Editar tarefa"
+                      >
+                        <Edit2 size={14} />
+                      </button>
 
                       {/* Delete — sempre visível */}
                       <button
@@ -1031,7 +1110,13 @@ const handleArquivar = async () => {
                       item.type === 'date' ? (
                         <ChatDateSeparator key={`date-${i}`} date={item.date!} />
                       ) : (
-                        <ChatBubble key={item.msg!.id} mensagem={item.msg!} />
+                        <ChatBubble
+                          key={item.msg!.id}
+                          mensagem={item.msg!}
+                          nomeContato={lead.nome}
+                          onResponder={janelaFechada ? undefined : handleResponder}
+                          onReagir={janelaFechada ? undefined : handleReagir}
+                        />
                       )
                     )}
                   </>
@@ -1186,6 +1271,28 @@ const handleArquivar = async () => {
                       {isRecording ? <Square size={20} /> : <Mic size={20} />}
                     </button>
                     <div className="flex-1 min-w-0 flex flex-col gap-1">
+                      {respondendoA && (
+                        <div className="flex items-start gap-2 rounded-lg border-l-4 border-green-500 bg-gray-50 dark:bg-gray-700/60 px-2.5 py-1.5">
+                          <Reply size={14} className="mt-0.5 shrink-0 text-gray-400" />
+                          <div className="min-w-0 flex-1 text-xs">
+                            <p className="font-semibold text-gray-700 dark:text-gray-200">
+                              Respondendo a {respondendoA.direcao === 'saida' ? 'você' : (lead.nome || 'lead')}
+                            </p>
+                            <p className="truncate text-gray-500 dark:text-gray-400">
+                              {trechoDaMensagem(respondendoA.conteudo, respondendoA.tipo)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setRespondendoA(null)}
+                            className="shrink-0 rounded p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                            title="Cancelar resposta"
+                            aria-label="Cancelar resposta"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      )}
                       <WhatsAppFormatToolbar
                         textareaRef={mensagemTextareaRef}
                         value={mensagem}

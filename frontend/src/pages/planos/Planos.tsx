@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Check, Zap, Crown, Star, Loader2, CreditCard, Lock } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { assinaturasApi, Plano, Assinatura, calcularPreco, cicloDe, calcularCobranca, economiaAnual, ROTULO_CICLO, COMPROMISSO_CICLO } from '@/api/assinaturas'
+import { assinaturasApi, Plano, Assinatura, cicloDe, cicloReferencia, ciclosDisponiveis, calcularCobranca, economiaAnual, ROTULO_CICLO, COMPROMISSO_CICLO } from '@/api/assinaturas'
 import type { Ciclo } from '@/api/assinaturas'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
@@ -64,15 +64,17 @@ export const Planos: React.FC = () => {
 
   // Um compromisso só para a tela toda: ele muda o preço dos três cards ao mesmo
   // tempo, e escolher dentro de cada card faria o cliente decidir três vezes.
-  const [ciclo, setCiclo] = useState<Ciclo>('mensal')
-  const CICLOS: Ciclo[] = ['mensal', 'trimestral', 'semestral', 'anual']
-
   // Mesma referência da landing e do cadastro: o plano em destaque.
   const planoReferencia = planos.find(p => p.destaque) || planos[0]
+  // Os compromissos vêm da API (só os à venda). Sem escolha, vale o primeiro —
+  // o de menor prazo; escolha que saiu da lista também cai nele.
+  const CICLOS = ciclosDisponiveis(planoReferencia)
+  const [cicloEscolhido, setCiclo] = useState<Ciclo | null>(null)
+  const ciclo: Ciclo = cicloEscolhido && CICLOS.includes(cicloEscolhido) ? cicloEscolhido : (CICLOS[0] ?? 'semestral')
   const descontoDoCiclo = (c: Ciclo) => {
     if (!planoReferencia) return 0
     const alvo = cicloDe(planoReferencia, c)
-    return Math.round((1 - Number(alvo.preco_mensal) / Number(planoReferencia.preco_mensal)) * 100)
+    return Math.round((1 - Number(alvo.preco_mensal) / Number(cicloReferencia(planoReferencia).preco_mensal)) * 100)
   }
 
   const handleAssinar = async (plano: Plano) => {
@@ -327,7 +329,7 @@ export const Planos: React.FC = () => {
 
       {/* Compromisso de fidelidade — vale para os três cards abaixo. */}
       <div className="mb-6">
-        <div className="mx-auto grid max-w-xl grid-cols-2 gap-1.5 rounded-xl bg-gray-100 p-1 dark:bg-gray-800 sm:grid-cols-4" role="tablist" aria-label="Compromisso de fidelidade">
+        <div className="mx-auto grid max-w-sm grid-cols-2 gap-1.5 rounded-xl bg-gray-100 p-1 dark:bg-gray-800" role="tablist" aria-label="Compromisso de fidelidade">
           {CICLOS.map(c => {
             const ativo = ciclo === c
             const desconto = descontoDoCiclo(c)
@@ -395,16 +397,17 @@ export const Planos: React.FC = () => {
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">{plano.descricao}</p>
 
                 <div className="mb-4">
-                  {ciclo !== 'mensal' && (
+                  {/* Riscado só contra um compromisso que ainda se contrata. */}
+                  {economiaAnual(plano, cicloDe(plano, ciclo)) > 0 && (
                     <div className="text-sm text-gray-400 line-through dark:text-gray-500">
-                      R$ {calcularPreco(plano, qtdDe(plano)).toFixed(2).replace('.', ',')}
+                      R$ {calcularCobranca(plano, cicloReferencia(plano), qtdDe(plano)).mensal.toFixed(2).replace('.', ',')}
                     </div>
                   )}
                   <span className="text-3xl font-bold text-gray-900 dark:text-white">
                     R$ {calcularCobranca(plano, cicloDe(plano, ciclo), qtdDe(plano)).mensal.toFixed(2).replace('.', ',')}
                   </span>
                   <span className="text-sm text-gray-500 dark:text-gray-400">/mês</span>
-                  {ciclo !== 'mensal' && (
+                  {cicloDe(plano, ciclo).meses > 1 && (
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       R$ {calcularCobranca(plano, cicloDe(plano, ciclo), qtdDe(plano)).total.toFixed(2).replace('.', ',')}
                       {' '}a cada {cicloDe(plano, ciclo).meses} meses
@@ -417,7 +420,7 @@ export const Planos: React.FC = () => {
                   )}
                   {plano.customizavel && qtdDe(plano) > (plano.usuarios_base ?? 0) && (
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      R$ {Number(plano.preco_mensal).toFixed(2).replace('.', ',')} do plano
+                      R$ {Number(cicloDe(plano, ciclo).preco_mensal).toFixed(2).replace('.', ',')} do plano
                       {' + '}
                       {qtdDe(plano) - (plano.usuarios_base ?? 0)} usuário
                       {qtdDe(plano) - (plano.usuarios_base ?? 0) > 1 ? 's' : ''} adicional

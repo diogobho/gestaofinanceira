@@ -3,8 +3,9 @@ import { query } from '../../../config/database';
 import { adicionarJobAgente } from '../../agente-ia/agente-ia.queue';
 import { automacoesGrupoService as automacoesService } from '../../automacoes/automacoes-grupo.service';
 import { leadsService } from '../leads/leads.service';
-import { variantesTelefone } from '../_shared/telefone';
+import { variantesTelefone, telefonePlausivel, podeSerContatoNovo } from '../_shared/telefone';
 import { normalizarUtmSource } from '../_shared/utm';
+import { campanhaDoEvento, donoPedidoNaUrl } from '../_shared/sendflow';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -119,6 +120,22 @@ const SENDFLOW_RESPONSAVEL_ID = Number(process.env.SENDFLOW_RESPONSAVEL_ID) || 2
 // leads.origem é VARCHAR(50) — curta e idêntica à que já está no banco.
 const SENDFLOW_ORIGEM = (process.env.SENDFLOW_ORIGEM || 'Desafio 52 semanas').slice(0, 50);
 const SENDFLOW_CAMPANHA = process.env.SENDFLOW_CAMPANHA || 'Desafio 52 Semanas';
+
+// O dono do lead vem da URL (`&dono=<id>`): o evento do SendFlow não diz por qual
+// número a campanha foi disparada, então cada conta/número do SendFlow é cadastrada
+// com a própria URL. Id que não é usuário ativo da empresa cai no padrão (Débora) —
+// um lead com o dono errado é melhor do que um lead perdido, e o log avisa.
+async function donoDoLeadSendflow(q: Record<string, unknown>): Promise<number> {
+  const pedido = donoPedidoNaUrl(q);
+  if (!pedido) return SENDFLOW_RESPONSAVEL_ID;
+  const r = await query(
+    `SELECT 1 FROM usuarios WHERE id = $1 AND empresa_id = $2 AND ativo = true`,
+    [pedido, SENDFLOW_EMPRESA_ID]
+  );
+  if (r.rows.length) return pedido;
+  console.warn(`[SendFlow] dono=${pedido} não é usuário ativo da empresa ${SENDFLOW_EMPRESA_ID} — usando ${SENDFLOW_RESPONSAVEL_ID}`);
+  return SENDFLOW_RESPONSAVEL_ID;
+}
 
 // Webhook do app de Diagnóstico (/var/www/apps/diagnostico) → cria o lead que
 // preencheu o diagnóstico no funil "Funil Principal" (id 46) da conta DuoFuturo
@@ -239,16 +256,40 @@ function acharCampo(campos: Array<[string, string]>, aliases: string[]): string 
   return '';
 }
 
-// Um número só é aceito se puder ser telefone de gente. O primeiro evento real do
-// SendFlow (02/09/2026) trouxe "0000000000000" e virou um lead chamado 0000000000000:
-// contar dígitos não basta, placeholder também tem 13.
-function telefonePlausivel(digitos: string): boolean {
-  if (digitos.length < 10 || digitos.length > 15) return false;
-  if (/^(\d)\1+$/.test(digitos)) return false;      // 000..., 111... — placeholder
-  if (digitos.startsWith('0')) return false;         // nenhum DDI começa com 0
-  // Brasil: DDI + DDD + 8/9 dígitos. Fora disso é id, não telefone.
-  if (digitos.startsWith('55') && digitos.length !== 12 && digitos.length !== 13) return false;
-  return true;
+// Estágios que pedem card para quem escreve a este usuário. Nenhum usuário marcado
+// (NULL ou lista vazia) = todos os números da empresa.
+async function estagiosComAutoLead(empresaId: number, usuarioId: number) {
+  const r = await query(
+    `SELECT ef.id AS estagio_id, ef.funil_id
+       FROM estagios_funil ef
+       JOIN funis f ON f.id = ef.funil_id
+      WHERE f.empresa_id = $1
+        AND f.ativo = true
+        AND ef.auto_criar_lead = true
+        AND (ef.auto_criar_lead_usuarios IS NULL
+             OR array_length(ef.auto_criar_lead_usuarios, 1) IS NULL
+             OR $2 = ANY(ef.auto_criar_lead_usuarios))`,
+    [empresaId, usuarioId]
+  );
+  return r.rows as Array<{ estagio_id: number; funil_id: number }>;
+}
+
+// Cria o contato de quem escreveu pela primeira vez, no nome do dono da instância —
+// só se algum estágio da empresa captura as mensagens dele. O nome chega depois, pelo
+// `pushname`, no mesmo bloco que atualiza qualquer contato.
+async function contatoParaPrimeiraMensagem(
+  dono: { id: number; empresa_id: number }, jid: string, numero: string
+): Promise<{ id: number; usuario_id: number; empresa_id: number } | null> {
+  if (!podeSerContatoNovo(jid, numero)) return null;
+  if ((await estagiosComAutoLead(dono.empresa_id, dono.id)).length === 0) return null;
+  const r = await query(
+    `INSERT INTO contatos_whatsapp (usuario_id, empresa_id, whatsapp_id, numero, is_grupo, sincronizado_at)
+     VALUES ($1, $2, $3, $4, false, CURRENT_TIMESTAMP)
+     ON CONFLICT (usuario_id, whatsapp_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+     RETURNING id, usuario_id, empresa_id`,
+    [dono.id, dono.empresa_id, `${numero}@c.us`, numero]
+  );
+  return r.rows[0] ?? null;
 }
 
 // Telefone tem validação própria: qualquer chave "phone-like" é candidata, mas só
@@ -541,6 +582,21 @@ export const webhookController = {
         return res.json({ success: true, processed: false, reason: 'porta_sem_dono' });
       }
 
+      // Reação (#188, migration 086): atributo da mensagem reagida, nunca um balão.
+      // A mensagem é achada pelo id do WhatsApp dentro da empresa do dono da porta —
+      // o mesmo recorte que impede a conversa de uma empresa aparecer em outra.
+      if (req.body.event === 'reaction') {
+        const { targetId, emoji } = req.body;
+        if (!targetId) return res.json({ success: true, processed: false, reason: 'reacao_sem_alvo' });
+        const coluna = fromMe ? 'reacao_minha' : 'reacao_contato';
+        const r = await query(
+          `UPDATE historico_mensagens SET ${coluna} = $3
+            WHERE empresa_id = $1 AND whatsapp_message_id = $2 AND grupo_whatsapp_id IS NULL`,
+          [donoInstancia.empresa_id, String(targetId), String(emoji || '').slice(0, 16) || null]
+        );
+        return res.json({ success: true, processed: (r.rowCount ?? 0) > 0, reason: r.rowCount ? undefined : 'mensagem_reagida_fora_do_crm' });
+      }
+
       // Guard: ignorar self-messages (from === to após normalização).
       // Ocorre quando o número do WhatsApp da instância coincide com o número de um lead
       // e o agente tenta enviar mensagem para si mesmo, gerando loop infinito.
@@ -628,8 +684,22 @@ export const webhookController = {
         );
 
         if (leadsParaVincular.rows.length === 0) {
-          console.log(`[Webhook] Contato nao encontrado: ${from} (numero: ${numero})${isGroup ? ` [grupo: ${groupId}]` : ''}`);
-          return res.json({ success: true, processed: false, reason: 'contato_nao_encontrado' });
+          // Quem escreve pela PRIMEIRA vez não tem contato nem lead — e é justamente quem
+          // o "Criar lead automaticamente" do estágio promete capturar. Até 23/09/2026 a
+          // mensagem era descartada aqui, antes de chegar ao auto-lead (#177, Anchor: a
+          // Flaviane escreveu 6 vezes para os dois chips e nada entrou). O motivo era não
+          // haver como saber de quem é a instância; desde 15/09 o `port` é obrigatório e o
+          // dono está resolvido. Só vale para número que um estágio da empresa pediu para
+          // capturar — sem isso, toda conversa pessoal do chip viraria contato no CRM.
+          const contatoNovo = direcao === 'entrada' && !isGroup
+            ? await contatoParaPrimeiraMensagem(donoInstancia, contatoIdentifier || from, numero)
+            : null;
+          if (!contatoNovo) {
+            console.log(`[Webhook] Contato nao encontrado: ${from} (numero: ${numero})${isGroup ? ` [grupo: ${groupId}]` : ''}`);
+            return res.json({ success: true, processed: false, reason: 'contato_nao_encontrado' });
+          }
+          console.log(`[Webhook] Primeira mensagem de ${numero}: contato #${contatoNovo.id} criado para o usuário #${donoInstancia.id} (estágio com criação automática)`);
+          contatosResult = { ...contatosResult, rows: [contatoNovo] };
         }
 
         // Criar contato em contatos_whatsapp e vincular cada lead encontrado
@@ -659,7 +729,9 @@ export const webhookController = {
           contatosCriados.push(contato);
         }
 
-        contatosResult = { ...contatosResult, rows: contatosCriados };
+        if (contatosCriados.length > 0) {
+          contatosResult = { ...contatosResult, rows: contatosCriados };
+        }
       }
 
       // Para cada contato encontrado, garantir que leads com telefone correspondente estejam vinculados
@@ -756,8 +828,8 @@ export const webhookController = {
             contato_whatsapp_id, usuario_id, empresa_id, whatsapp_message_id,
             direcao, tipo, conteudo, media_url, media_filename, media_mimetype, media_tamanho,
             grupo_whatsapp_id, grupo_nome, origem,
-            enviado_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, to_timestamp($15))`,
+            enviado_at, resposta_a_message_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, to_timestamp($15), $16)`,
           [
             contatoId,
             usuarioId,
@@ -773,7 +845,8 @@ export const webhookController = {
             isGroup ? (groupId || null) : null,
             isGroup ? (req.body.groupName || null) : null,
             direcao === 'entrada' ? 'recebida' : 'manual',
-            timestamp || Math.floor(Date.now() / 1000)
+            timestamp || Math.floor(Date.now() / 1000),
+            req.body.quotedId ? String(req.body.quotedId).slice(0, 100) : null
           ]
         );
 
@@ -942,19 +1015,7 @@ export const webhookController = {
         // (usuario_id) casa com o dono deste contato. Dedup por funil evita recriação.
         if (direcao === 'entrada' && !isGroup) {
           try {
-            const estagiosAuto = await query(
-              `SELECT ef.id AS estagio_id, ef.funil_id
-                 FROM estagios_funil ef
-                 JOIN funis f ON f.id = ef.funil_id
-                WHERE f.empresa_id = $1
-                  AND f.ativo = true
-                  AND ef.auto_criar_lead = true
-                  AND (ef.auto_criar_lead_usuarios IS NULL
-                       OR array_length(ef.auto_criar_lead_usuarios, 1) IS NULL
-                       OR $2 = ANY(ef.auto_criar_lead_usuarios))`,
-              [empresaId, usuarioId]
-            );
-            for (const est of estagiosAuto.rows) {
+            for (const est of await estagiosComAutoLead(empresaId, usuarioId)) {
               const novo = await leadsService.autoCriarLeadDoWhatsApp(
                 empresaId, usuarioId, contatoId, est.funil_id, est.estagio_id
               );
@@ -1336,6 +1397,12 @@ export const webhookController = {
       // por onde a pessoa entrou quando a mesma conta roda mais de uma campanha.
       const campanha = acharCampo(campos, ['campaignname', 'campaign_name', 'campanha', 'campaign']);
       const grupo = acharCampo(campos, ['groupname', 'group_name', 'grupo', 'group']);
+      // Club do Livro e Desafio 52 Semanas chegam pela mesma conta: é o nome do grupo
+      // (ou da campanha) que decide a origem do lead.
+      const destino = campanhaDoEvento(campanha, grupo, {
+        origem: SENDFLOW_ORIGEM,
+        campanha: SENDFLOW_CAMPANHA,
+      });
 
       // Sem nome no payload, tenta o contato de WhatsApp já conhecido; em último caso o
       // card fica com o número — melhor um lead identificável pelo telefone do que nenhum.
@@ -1343,7 +1410,7 @@ export const webhookController = {
       const nomeLead = (nomeConhecido || telefone).slice(0, 200);
 
       const notas = [
-        `Campanha ${campanha || SENDFLOW_CAMPANHA} (SendFlow)`,
+        `Campanha ${campanha || destino.campanha} (SendFlow)`,
         grupo ? `Grupo: ${grupo}` : '',
         evento ? `Evento: ${evento}` : '',
         tags ? `Tags: ${tags}` : '',
@@ -1397,23 +1464,24 @@ export const webhookController = {
         return res.status(500).json({ error: 'Funil de destino sem estágios' });
       }
 
+      const dono = await donoDoLeadSendflow(req.query as Record<string, unknown>);
       const lead = await leadsService.create(
         SENDFLOW_EMPRESA_ID,
-        SENDFLOW_RESPONSAVEL_ID,
+        dono,
         {
           funil_id: SENDFLOW_FUNIL_ID,
           estagio_id: estagio,              // "Entrada de Leads"
-          responsavel_id: SENDFLOW_RESPONSAVEL_ID,  // Débora
+          responsavel_id: dono,             // &dono= da URL; sem ele, a Débora
           nome: nomeLead,
           telefone,
           email: email || undefined,
-          origem: SENDFLOW_ORIGEM,
+          origem: destino.origem,
           notas,
         },
         false // requireTarefa = false (lead automático de captação)
       );
 
-      console.log(`[SendFlow] Lead #${lead.id} criado: "${lead.nome}" (${telefone})${evento ? ` — evento ${evento}` : ''}`);
+      console.log(`[SendFlow] Lead #${lead.id} criado: "${lead.nome}" (${telefone}) · ${destino.origem} · dono ${dono}${evento ? ` — evento ${evento}` : ''}`);
       return res.status(201).json({ success: true, lead_id: lead.id });
     } catch (error: any) {
       // Duplicata em corrida (dois eventos no mesmo instante): 200 para não reenviar.

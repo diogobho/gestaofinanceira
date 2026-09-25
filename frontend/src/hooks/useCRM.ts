@@ -392,8 +392,8 @@ export const useLeadEnviarMensagem = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ leadId, mensagem }: { leadId: number; mensagem: string }) =>
-      leadsApi.enviarMensagem(leadId, mensagem),
+    mutationFn: ({ leadId, mensagem, respostaA }: { leadId: number; mensagem: string; respostaA?: string | null }) =>
+      leadsApi.enviarMensagem(leadId, mensagem, respostaA),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
       queryClient.invalidateQueries({ queryKey: ['crm', 'historico'] })
@@ -402,6 +402,23 @@ export const useLeadEnviarMensagem = () => {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erro ao enviar mensagem')
+    },
+  })
+}
+
+// Reagir a uma mensagem da conversa do card (#188)
+export const useLeadReagirMensagem = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ leadId, mensagemId, emoji }: { leadId: number; mensagemId: number; emoji: string }) =>
+      leadsApi.reagirMensagem(leadId, mensagemId, emoji),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'historico'] })
+      queryClient.invalidateQueries({ queryKey: ['crm', 'lead-historico'] })
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Não foi possível reagir')
     },
   })
 }

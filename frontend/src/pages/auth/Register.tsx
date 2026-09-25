@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { Loader2, Check, Copy, ExternalLink, User, Building2, Phone, MessageCircle } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import { authApi } from '@/api/auth'
-import { assinaturasApi, cicloDe, calcularCobranca, economiaAnual, ROTULO_CICLO, COMPROMISSO_CICLO } from '@/api/assinaturas'
+import { assinaturasApi, cicloDe, cicloReferencia, ciclosDisponiveis, calcularCobranca, economiaAnual, ROTULO_CICLO, COMPROMISSO_CICLO } from '@/api/assinaturas'
 import type { Plano, Ciclo } from '@/api/assinaturas'
 import toast from 'react-hot-toast'
 
@@ -22,7 +22,6 @@ const schema = z.object({
     .refine(v => v.length === 10 || v.length === 11, 'Informe DDD + número (ex: 11988887777)'),
 })
 
-const CICLOS: Ciclo[] = ['mensal', 'trimestral', 'semestral', 'anual']
 
 type FormData = z.infer<typeof schema>
 type BillingType = 'PIX' | 'CREDIT_CARD' | 'BOLETO' | 'TRIAL'
@@ -87,7 +86,7 @@ export const Register: React.FC = () => {
   const [optinWhatsapp, setOptinWhatsapp] = useState(false)
   const [whatsappUrl, setWhatsappUrl] = useState<string | undefined>()
   const [erroTermos, setErroTermos] = useState(false)
-  const [ciclo, setCiclo] = useState<Ciclo>('mensal')
+  const [cicloEscolhido, setCiclo] = useState<Ciclo | null>(null)
   const termosRef = useRef<HTMLLabelElement>(null)
 
   /**
@@ -96,10 +95,14 @@ export const Register: React.FC = () => {
    * dava percentuais diferentes nos dois lugares para a mesma fidelidade.
    */
   const planoReferencia = planos.find(p => p.destaque) || planos[0]
+  // Os compromissos vêm da API (só os à venda, desde 21/09/2026 semestral e
+  // anual). Sem escolha, vale o de menor prazo.
+  const CICLOS = ciclosDisponiveis(planoReferencia)
+  const ciclo: Ciclo = cicloEscolhido && CICLOS.includes(cicloEscolhido) ? cicloEscolhido : (CICLOS[0] ?? 'semestral')
   const descontoDoCiclo = (c: Ciclo) => {
     if (!planoReferencia) return 0
     const alvo = cicloDe(planoReferencia, c)
-    return Math.round((1 - Number(alvo.preco_mensal) / Number(planoReferencia.preco_mensal)) * 100)
+    return Math.round((1 - Number(alvo.preco_mensal) / Number(cicloReferencia(planoReferencia).preco_mensal)) * 100)
   }
 
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
@@ -342,15 +345,13 @@ export const Register: React.FC = () => {
                 </div>
               </Secao>
 
-              <Secao numero={2} titulo="Plano" descricao="Quanto maior o compromisso, menor a mensalidade. No mensal, cancele quando quiser.">
+              <Secao numero={2} titulo="Plano" descricao="Compromisso de 6 ou 12 meses. Quanto maior o compromisso, menor a mensalidade.">
                 {/*
                   Seletor de fidelidade. Fica ACIMA dos planos porque muda o preço de
                   todos eles ao mesmo tempo — dentro de cada card, o cliente teria de
-                  escolher três vezes. No celular vira 2x2 em vez de encolher a fonte:
-                  quatro abas numa linha de 360px deixam o alvo de toque abaixo do
-                  mínimo confortável.
+                  escolher três vezes. As abas saem da API (só os ciclos à venda).
                 */}
-                <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-gray-100 p-1 sm:grid-cols-4 mb-4" role="radiogroup" aria-label="Compromisso de fidelidade">
+                <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-gray-100 p-1 mb-4" role="radiogroup" aria-label="Compromisso de fidelidade">
                   {CICLOS.map(c => {
                     const ativo = ciclo === c
                     const desconto = descontoDoCiclo(c)
@@ -456,16 +457,16 @@ export const Register: React.FC = () => {
                             <div className="text-right flex-shrink-0">
                               {/* No compromisso, o preço de tabela fica riscado ao lado:
                                   sem a âncora, "R$ 169" não se lê como desconto. */}
-                              {ciclo !== 'mensal' && (
+                              {economiaAnual(p, cicloDe(p, ciclo)) > 0 && (
                                 <div className="text-xs text-gray-400 line-through">
-                                  R$ {formatPrice(p.preco_mensal)}
+                                  R$ {formatPrice(cicloReferencia(p).preco_mensal)}
                                 </div>
                               )}
                               <div className="text-2xl font-bold text-gray-900">
                                 R$ {formatPrice(cicloDe(p, ciclo).preco_mensal)}
                               </div>
                               <div className="text-xs text-gray-500">/mês</div>
-                              {ciclo !== 'mensal' && economiaAnual(p, cicloDe(p, ciclo)) > 0 && (
+                              {economiaAnual(p, cicloDe(p, ciclo)) > 0 && (
                                 <div className="mt-0.5 text-[11px] font-medium text-green-600">
                                   economia de R$ {formatPrice(economiaAnual(p, cicloDe(p, ciclo)))}/ano
                                 </div>

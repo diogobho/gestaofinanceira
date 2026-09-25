@@ -180,3 +180,24 @@ export function erroVinculoDivergente(
     `desvincule a conversa antes de enviar.`
   );
 }
+
+// Um número só é aceito se puder ser telefone de gente. O primeiro evento real do
+// SendFlow (02/09/2026) trouxe "0000000000000" e virou um lead chamado 0000000000000:
+// contar dígitos não basta, placeholder também tem 13.
+export function telefonePlausivel(digitos: string): boolean {
+  if (digitos.length < 10 || digitos.length > 15) return false;
+  if (/^(\d)\1+$/.test(digitos)) return false;      // 000..., 111... — placeholder
+  if (digitos.startsWith('0')) return false;         // nenhum DDI começa com 0
+  // Brasil: DDI + DDD + 8/9 dígitos. Fora disso é id, não telefone.
+  if (digitos.startsWith('55') && digitos.length !== 12 && digitos.length !== 13) return false;
+  return true;
+}
+
+// Primeira mensagem de um número desconhecido só vira contato quando o remetente é um
+// TELEFONE: `@lid` sem resolução é id interno do WhatsApp (14–15 dígitos que passariam
+// na contagem) e `@g.us` é grupo. Gravar um desses criaria card com número que não
+// recebe mensagem.
+export function podeSerContatoNovo(jid: string, numero: string): boolean {
+  if (!jid || /@(lid|g\.us|broadcast|newsletter)$/.test(jid)) return false;
+  return telefonePlausivel(numero);
+}

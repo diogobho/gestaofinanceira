@@ -230,7 +230,7 @@ export default function ImportLeadsModal({ isOpen, onClose, defaultFunilId }: Im
                         { col: 'cargo',           desc: 'Cargo ou função do contato',        hint: 'ex: CEO, Diretora...' },
                         { col: 'valor_potencial', desc: 'Valor estimado do negócio',         hint: 'ex: 5000.00' },
                         { col: 'temperatura',     desc: 'Nível de interesse',                hint: 'frio · morno · quente' },
-                        { col: 'origem',          desc: 'Como o lead chegou',                hint: 'manual · instagram · indicacao · whatsapp · lancamento · forms' },
+                        { col: 'origem',          desc: 'Como o lead chegou',                hint: 'texto livre — ex: instagram, indicação, Diagnóstico' },
                         { col: 'notas',           desc: 'Observações livres',                hint: '' },
                       ].map(f => (
                         <div key={f.col} className="flex items-center gap-3 px-3 py-2 bg-white hover:bg-gray-50">

@@ -15,9 +15,39 @@ function limparTelefone(raw: any): string | null {
   return limpo || null;
 }
 
-function normalizarOrigem(valor: any): string {
-  const v = (valor || '').toString().toLowerCase().trim();
-  return ORIGENS_VALIDAS.has(v) ? v : 'importacao';
+// Planilha é lida pelos BYTES, não pelo caminho: o SheetJS abre CSV como Latin-1, e
+// o CSV que o Excel/Google Planilhas exporta é UTF-8 — "MENDONÇA" virava
+// "MENDONÃ\u0087A" (21 nomes da Anchor em 17/09/2026). xlsx/xls (zip/OLE) seguem pelo
+// SheetJS; texto é decodificado como UTF-8 e, se não for UTF-8 válido, como Latin-1
+// (o "CSV" antigo do Excel no Windows).
+export function lerPlanilha(buf: Buffer): XLSX.WorkBook {
+  const zip = buf[0] === 0x50 && buf[1] === 0x4b;               // PK: xlsx/ods
+  const ole = buf[0] === 0xd0 && buf[1] === 0xcf;               // xls antigo
+  if (zip || ole) return XLSX.read(buf, { type: 'buffer' });
+  let texto: string;
+  try {
+    texto = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    texto = new TextDecoder('latin1').decode(buf);
+  }
+  return XLSX.read(texto.replace(/^\uFEFF/, ''), { type: 'string' });
+}
+
+// Origem da planilha é do cliente, não nossa: ela classifica o lead ("Diagnóstico",
+// "Evento maio") para o comercial personalizar a conversa. Até 23/09/2026 tudo que
+// não fosse uma das chaves fixas virava 'importacao' — os 873 leads da Anchor perderam
+// a classificação. Agora: chave conhecida fica como chave, nome do catálogo da empresa
+// (sem diferença de caixa/acento) fica com a grafia do catálogo, o resto entra como
+// veio. `leads.origem` é VARCHAR(50).
+const semAcento = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+export function normalizarOrigem(valor: any, catalogo: string[] = []): string {
+  const texto = (valor ?? '').toString().replace(/\s+/g, ' ').trim();
+  if (!texto) return 'importacao';
+  const chave = semAcento(texto);
+  if (ORIGENS_VALIDAS.has(chave)) return chave;
+  const doCatalogo = catalogo.find(nome => semAcento(nome) === chave);
+  return (doCatalogo ?? texto).slice(0, 50);
 }
 
 export interface MapeamentoColunas {
@@ -48,7 +78,7 @@ export interface PreviewDados {
 export const importacaoService = {
   // Fazer preview do arquivo (primeiras 10 linhas)
   async preview(filePath: string): Promise<PreviewDados> {
-    const workbook = XLSX.readFile(filePath);
+    const workbook = lerPlanilha(fs.readFileSync(filePath));
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
 
@@ -89,7 +119,7 @@ export const importacaoService = {
     funilId: number,
     mapeamento: MapeamentoColunas
   ): Promise<ResultadoImportacao> {
-    const workbook = XLSX.readFile(filePath);
+    const workbook = lerPlanilha(fs.readFileSync(filePath));
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
 
@@ -124,6 +154,10 @@ export const importacaoService = {
     // A chave ignora DDI e 9º dígito: a mesma pessoa chega da planilha como
     // "43999536125" e já está no CRM como "5543999536125". Comparar dígito a dígito
     // deixava passar a duplicata.
+    const catalogoOrigens: string[] = (await query(
+      `SELECT nome FROM crm_origens WHERE empresa_id = $1`, [empresaId]
+    )).rows.map((r: any) => r.nome);
+
     const existingPhonesResult = await query(
       `SELECT telefone, nome
        FROM leads WHERE empresa_id = $1 AND funil_id = $2 AND arquivado = false AND telefone IS NOT NULL AND telefone != ''`,
@@ -165,7 +199,7 @@ export const importacaoService = {
         const cargo = mapeamento.cargo ? linha[mapeamento.cargo]?.toString().trim() : null;
         const valorStr = mapeamento.valor_potencial ? linha[mapeamento.valor_potencial]?.toString() : null;
         const temperatura = mapeamento.temperatura ? linha[mapeamento.temperatura]?.toString().toLowerCase().trim() : 'morno';
-        const origem = normalizarOrigem(mapeamento.origem ? linha[mapeamento.origem] : null);
+        const origem = normalizarOrigem(mapeamento.origem ? linha[mapeamento.origem] : null, catalogoOrigens);
         const notas = mapeamento.notas ? linha[mapeamento.notas]?.toString().trim() : null;
 
         if (!nome) {
@@ -250,6 +284,19 @@ export const importacaoService = {
       );
 
       resultado.importados += batch.length;
+    }
+
+    // Origem nova da planilha entra no catálogo da empresa: é de lá que o card do lead
+    // monta a lista de origens (com cor), e sem isso ela só apareceria como valor solto.
+    const origensNovas = [...new Set(leadsValidos.map(l => l[12] as string))]
+      .filter(o => !ORIGENS_VALIDAS.has(o) && !catalogoOrigens.includes(o));
+    if (origensNovas.length > 0) {
+      await query(
+        `INSERT INTO crm_origens (empresa_id, nome)
+         SELECT $1, unnest($2::text[])
+         ON CONFLICT (empresa_id, nome) DO NOTHING`,
+        [empresaId, origensNovas]
+      );
     }
 
     // Limpar arquivo temporário

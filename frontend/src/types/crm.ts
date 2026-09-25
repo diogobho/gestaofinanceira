@@ -517,6 +517,15 @@ export interface HistoricoMensagem {
   entregue_at?: string;
   erro?: string;
   created_at: string;
+  /** id do WhatsApp da mensagem que esta responde (#188, migration 086). */
+  resposta_a_message_id?: string | null;
+  /** Trecho da mensagem citada, quando ela está no histórico do CRM. */
+  citada_conteudo?: string | null;
+  citada_direcao?: 'entrada' | 'saida' | null;
+  citada_tipo?: HistoricoMensagem['tipo'] | null;
+  /** Última reação de cada lado; nula = sem reação. */
+  reacao_contato?: string | null;
+  reacao_minha?: string | null;
 }
 
 // Agente IA

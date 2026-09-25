@@ -54,11 +54,24 @@ export function calcularPreco(plano: Plano, usuarios: number, cortesia = 0): num
   return Math.round(total * 100) / 100;
 }
 
-/** O ciclo mensal serve de referência para calcular a economia dos demais. */
+/**
+ * O compromisso de menor prazo À VENDA é a referência de preço: é contra ele que
+ * se mede o desconto dos demais. Era o mensal até 21/09/2026, quando mensal e
+ * trimestral saíram de venda — riscar "R$ 219" ao lado de um preço que ninguém
+ * mais consegue contratar seria anunciar um desconto que não existe.
+ * A API só devolve ciclos ativos, já ordenados por meses.
+ */
+export function cicloReferencia(plano: Plano): PlanoCiclo {
+  return plano.ciclos?.[0] ?? { ciclo: 'mensal', meses: 1, preco_mensal: Number(plano.preco_mensal), asaas_cycle: 'MONTHLY' };
+}
+
+/** Compromissos à venda, na ordem do seletor. */
+export function ciclosDisponiveis(plano?: Plano): Ciclo[] {
+  return plano?.ciclos?.map(c => c.ciclo) ?? []
+}
+
 export function cicloDe(plano: Plano, ciclo: Ciclo): PlanoCiclo {
-  const achado = plano.ciclos?.find(c => c.ciclo === ciclo);
-  if (achado) return achado;
-  return { ciclo: 'mensal', meses: 1, preco_mensal: Number(plano.preco_mensal), asaas_cycle: 'MONTHLY' };
+  return plano.ciclos?.find(c => c.ciclo === ciclo) ?? cicloReferencia(plano);
 }
 
 /**
@@ -79,10 +92,10 @@ export function calcularCobranca(
   return { mensal, total: Math.round(mensal * ciclo.meses * 100) / 100, meses: ciclo.meses };
 }
 
-/** Quanto se economiza no ano ao trocar o mensal por este compromisso. */
+/** Quanto se economiza no ano contra o compromisso de referência. */
 export function economiaAnual(plano: Plano, ciclo: PlanoCiclo): number {
-  const mensal = Number(plano.preco_mensal);
-  return Math.round((mensal - Number(ciclo.preco_mensal)) * 12 * 100) / 100;
+  const referencia = Number(cicloReferencia(plano).preco_mensal);
+  return Math.round((referencia - Number(ciclo.preco_mensal)) * 12 * 100) / 100;
 }
 
 export interface Assinatura {
@@ -153,7 +166,7 @@ export const assinaturasApi = {
     credit_card_holder_info?: object;
     /** Total de usuários contratados; omitido usa a base do plano. */
     usuarios?: number;
-    /** Compromisso de fidelidade; omitido é mensal. */
+    /** Compromisso de fidelidade; omitido é o de menor prazo à venda. */
     ciclo?: Ciclo;
   }): Promise<{ assinatura: Assinatura; paymentUrl?: string; pixQrCode?: string; pixQrCodeImage?: string }> {
     const res = await api.post('/assinaturas/assinar', data);

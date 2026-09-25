@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { Bell, Paperclip, X, FileText, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { followupsApi } from '@/api/crm'
+import { TextareaAutoCresce } from '@/components/ui/TextareaAutoCresce'
 
 const MEDIA_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -308,12 +309,12 @@ export default function AgendamentoConfig({
 
             {value.tipo === 'manual' ? (
               <div>
-                <textarea
+                <TextareaAutoCresce
                   value={value.mensagem ?? ''}
                   onChange={(e) => set({ mensagem: e.target.value })}
                   placeholder="Olá [PrimeiroNome]! Tudo bem? ..."
                   rows={3}
-                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 resize-none"
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
                 />
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   {VARIAVEIS_AGENDAMENTO.map((v) => (
@@ -382,12 +383,12 @@ export default function AgendamentoConfig({
               </div>
             ) : (
               <div>
-                <textarea
+                <TextareaAutoCresce
                   value={value.instrucao_ia ?? ''}
                   onChange={(e) => set({ instrucao_ia: e.target.value })}
                   placeholder="Instrução pré-definida ao agente. Ex: Retome o contato perguntando se ficou alguma dúvida sobre a proposta..."
                   rows={3}
-                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 resize-none"
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">
                   O agente IA gera a resposta seguindo esta instrução pré-definida.

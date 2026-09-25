@@ -4,6 +4,7 @@ import {
   consultarNumero,
   sendTextMessage,
   sendMediaMessage,
+  sendReaction,
   uploadMedia,
   tipoMidiaMeta,
   ErroMeta,
@@ -178,8 +179,16 @@ async function cloud(porta: number, metodo: 'GET' | 'POST', caminhoCompleto: str
         const texto = String(corpo?.message ?? corpo?.text ?? '');
         if (!texto.trim()) throw erroNoFormatoDaInstancia(400, 'Número e mensagem são obrigatórios');
         await exigirJanela(conta, destino);
-        const r = await sendTextMessage({ to: destino, text: texto }, cred);
+        const r = await sendTextMessage({ to: destino, text: texto, respostaA: corpo?.quoted?.id || undefined }, cred);
         return ok({ success: true, messageId: mensagemIdDe(r), provedor: 'cloud_api' });
+      }
+
+      if (caminho === '/react') {
+        const destino = destinoCloud(corpo?.number);
+        if (!corpo?.messageId) throw erroNoFormatoDaInstancia(400, 'Número e messageId são obrigatórios');
+        await exigirJanela(conta, destino);
+        await sendReaction({ to: destino, messageId: String(corpo.messageId), emoji: String(corpo?.emoji || '') }, cred);
+        return ok({ success: true, provedor: 'cloud_api' });
       }
 
       if (caminho === '/send-media') {

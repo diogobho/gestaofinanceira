@@ -146,19 +146,40 @@ export const assinaturasService = {
   },
 
   /**
-   * Um compromisso específico de um plano. Ciclo desconhecido ou desativado cai
-   * no mensal — nunca em preço zero: um ciclo inválido vindo do body não pode
-   * virar assinatura de graça.
+   * Um compromisso específico de um plano.
+   *
+   * Vender e ler são coisas diferentes (21/09/2026, mensal e trimestral saíram
+   * de venda): para CONTRATAR só vale ciclo ativo, e pedir um desativado é erro
+   * — cair calado noutro ciclo cobraria um valor que a tela não mostrou. Para
+   * mexer numa assinatura que JÁ EXISTE (`{ contratado: true }`) o ciclo vale
+   * ativo ou não: a Ive paga no mensal, e reprecificar os usuários dela não pode
+   * trocar o compromisso que ela assinou.
+   *
+   * Sem ciclo pedido, vale o ativo de menor compromisso. Nunca preço zero: um
+   * ciclo inválido vindo do body não pode virar assinatura de graça.
    */
-  async getCiclo(planoId: number, ciclo?: string): Promise<PlanoCiclo> {
-    const alvo = CICLOS_VALIDOS.includes(ciclo as Ciclo) ? ciclo : 'mensal';
+  async getCiclo(planoId: number, ciclo?: string, opcoes: { contratado?: boolean } = {}): Promise<PlanoCiclo> {
+    const pedido = CICLOS_VALIDOS.includes(ciclo as Ciclo) ? (ciclo as Ciclo) : null;
     const res = await query(
-      `SELECT ciclo, meses, preco_mensal::float8 AS preco_mensal, asaas_cycle
+      `SELECT ciclo, meses, preco_mensal::float8 AS preco_mensal, asaas_cycle, ativo
          FROM planos_ciclos
-        WHERE plano_id = $1 AND ciclo = $2 AND ativo = true`,
-      [planoId, alvo]
+        WHERE plano_id = $1
+        ORDER BY meses`,
+      [planoId]
     );
-    if (res.rows[0]) return res.rows[0];
+    const linhas = res.rows as (PlanoCiclo & { ativo: boolean })[];
+    const semAtivo = ({ ativo, ...c }: PlanoCiclo & { ativo: boolean }): PlanoCiclo => c;
+
+    if (pedido) {
+      const achado = linhas.find(l => l.ciclo === pedido);
+      if (achado && (achado.ativo || opcoes.contratado)) return semAtivo(achado);
+      if (achado && !opcoes.contratado) {
+        throw new Error(`O compromisso ${pedido} não está mais disponível. Escolha semestral ou anual.`);
+      }
+    }
+
+    const primeiroAtivo = linhas.find(l => l.ativo);
+    if (primeiroAtivo) return semAtivo(primeiroAtivo);
 
     // Plano sem linha em planos_ciclos (cadastrado à mão, por exemplo): usa o
     // preço de tabela como mensal, para a cobrança nunca sair errada.
@@ -174,7 +195,7 @@ export const assinaturasService = {
              (SELECT COUNT(*)::int FROM usuarios u WHERE u.empresa_id = a.empresa_id AND u.ativo) AS usuarios_em_uso
       FROM assinaturas a
       LEFT JOIN planos p ON a.plano_id = p.id
-      LEFT JOIN planos_ciclos c ON c.plano_id = p.id AND c.ciclo = a.ciclo AND c.ativo = true
+      LEFT JOIN planos_ciclos c ON c.plano_id = p.id AND c.ciclo = a.ciclo
       WHERE a.empresa_id = $1
     `, [empresaId]);
 
@@ -200,9 +221,8 @@ export const assinaturasService = {
     // Assinatura antiga sem quantidade definida cai na base do plano.
     const contratados = row.usuarios_contratados ?? plano?.usuarios_base ?? null;
 
-    // Assinatura anterior à 067 não tem linha em planos_ciclos para o ciclo
-    // dela? Não acontece (todas nascem 'mensal'), mas o LEFT JOIN pode vir
-    // vazio se alguém desativar um ciclo já contratado — aí vale o de tabela.
+    // O JOIN não filtra `ativo`: ciclo fora de venda continua valendo para quem
+    // já o contratou (o mensal da Ive). Sem linha nenhuma, vale o de tabela.
     const cicloAtual: PlanoCiclo = {
       ciclo: (row.ciclo || 'mensal') as Ciclo,
       meses: row.ciclo_meses ?? 1,
@@ -280,7 +300,7 @@ export const assinaturasService = {
     // O valor mandado ao Asaas é o do CICLO, não o mensal: numa assinatura anual
     // o `value` da subscription é o que se cobra de uma vez por ano. Mandar o
     // mensal aqui cortaria a cobrança a um doze avos sem ninguém notar.
-    const ciclo = await this.getCiclo(plano.id, assinatura.ciclo);
+    const ciclo = await this.getCiclo(plano.id, assinatura.ciclo, { contratado: true });
     const cobranca = calcularCobranca(plano, ciclo, qtd, assinatura.usuarios_cortesia);
 
     // Reprecifica no Asaas antes de gravar: se a cobrança falhar, o limite não muda.
@@ -357,7 +377,7 @@ export const assinaturasService = {
     remoteIp?: string;
     /** Total de usuários contratados (inclui o master). Default: base do plano. */
     usuarios?: number;
-    /** Compromisso de fidelidade. Default: mensal. */
+    /** Compromisso de fidelidade. Default: o ativo de menor compromisso. */
     ciclo?: string;
   }): Promise<{ assinatura: Assinatura; paymentUrl?: string; pixQrCode?: string; pixQrCodeImage?: string }> {
     const plano = await this.getPlanoById(params.planoId);

@@ -67,7 +67,8 @@ export interface ContaEmFimDeTrial {
   usuario_nome: string;
   email: string;
   plano_nome: string | null;
-  preco_mensal: string | null;
+  /** Compromissos à venda, do menor para o maior — só os ativos (21/09/2026). */
+  ciclos: { ciclo: string; preco_mensal: number }[] | null;
   /** Já convertido para Brasília, pronto para imprimir. */
   expira_em_brt: string;
   expira_data_brt: string;
@@ -86,7 +87,10 @@ export async function contasParaAvisar(): Promise<ContaEmFimDeTrial[]> {
             u.nome  AS usuario_nome,
             u.email,
             p.nome  AS plano_nome,
-            p.preco_mensal,
+            (SELECT json_agg(json_build_object('ciclo', c.ciclo, 'preco_mensal', c.preco_mensal::float8)
+                             ORDER BY c.meses)
+               FROM planos_ciclos c
+              WHERE c.plano_id = a.plano_id AND c.ativo) AS ciclos,
             to_char(${SQL_EM_BRASILIA('a.trial_expira_em')}, 'DD/MM/YYYY') || ' às ' ||
             to_char(${SQL_EM_BRASILIA('a.trial_expira_em')}, 'HH24:MI') AS expira_em_brt,
             to_char(${SQL_EM_BRASILIA('a.trial_expira_em')}, 'DD/MM/YYYY') AS expira_data_brt
@@ -115,13 +119,17 @@ export async function contasParaAvisar(): Promise<ContaEmFimDeTrial[]> {
 
 /** Assunto, HTML e texto puro do aviso — também é a prévia da tela. */
 export async function montarAviso(
-  c: Pick<ContaEmFimDeTrial, 'usuario_nome' | 'empresa_nome' | 'plano_nome' | 'preco_mensal' | 'expira_em_brt'>
+  c: Pick<ContaEmFimDeTrial, 'usuario_nome' | 'empresa_nome' | 'plano_nome' | 'ciclos' | 'expira_em_brt'>
 ): Promise<{ assunto: string; html: string; texto: string }> {
   const primeiroNome = (c.usuario_nome || '').trim().split(/\s+/)[0] || 'tudo bem';
   const plano = c.plano_nome || 'seu plano';
-  const preco = c.preco_mensal
-    ? `R$ ${Number(c.preco_mensal).toFixed(2).replace('.', ',')}/mês`
-    : null;
+  // O preço vem dos ciclos À VENDA: o mensal saiu em 21/09/2026, e anunciar o
+  // valor dele seria prometer um compromisso que a tela não oferece mais.
+  const reais = (v: number) => `R$ ${Number(v).toFixed(2).replace('.', ',')}/mês`;
+  const opcoes = (c.ciclos || []).map(x => `${reais(x.preco_mensal)} no ${x.ciclo}`);
+  const precos = opcoes.length > 1
+    ? `${opcoes.slice(0, -1).join(', ')} ou ${opcoes[opcoes.length - 1]}`
+    : opcoes[0] || null;
 
   const assunto = `${primeiroNome}, seu teste do DuoFuturo termina amanhã`;
 
@@ -149,9 +157,9 @@ export async function montarAviso(
     </p>
 
     <p style="margin:0 0 16px;">
-      Você está no <strong>${escapar(plano)}</strong>${preco ? ` (${preco} no plano mensal)` : ''}.
-      Nos planos trimestral, semestral e anual o valor por mês fica menor — a
-      comparação aparece na mesma tela, sem compromisso de decidir agora.
+      Você está no <strong>${escapar(plano)}</strong>${precos ? `: ${precos}` : ''}.
+      Quanto maior o compromisso, menor o valor por mês — a comparação aparece
+      na mesma tela, sem compromisso de decidir agora.
     </p>
 
     <p style="margin:0 0 16px;">

@@ -238,6 +238,22 @@ Telefone só vale com 10–15 dígitos, e chaves de ruído (`campanha`, `grupo`,
 - `GET /webhook/sendflow` responde `{success, configurado}` — é o teste que o cliente
   faz colando a URL no navegador.
 
+#### Club do Livro e dono por URL (24/09/2026)
+
+Uma conta do SendFlow roda várias automações ("Comercial - Clube do Livro", "- Workshop",
+"- Desafio 52 Semanas"), todas pelo mesmo webhook. `campanhaDoEvento`
+(`_shared/sendflow.ts`, com teste) decide a origem pelo nome do **grupo ou da campanha**:
+`/livro/i` → `Clube do Livro` (a grafia dos 46 leads que a Débora cadastrou à mão); o
+resto segue `Desafio 52 semanas`. Mesmo funil e estágio (24/208).
+
+- **O evento não diz por qual número a automação disparou** — só quem entrou. O dono vem
+  da URL: `&dono=<usuario_id>` (ou `responsavel`/`proprietario`), um URL por conta/número
+  no SendFlow. Id que não é usuário ativo da empresa 5 cai na Débora, com aviso no log.
+- Duplicata continua anexando: o dono do card antigo não muda.
+- Até 24/09 **nenhum evento do grupo do Club do Livro tinha chegado** — a automação dele
+  enviava mensagem, mas o webhook do SendFlow não estava ligado àquele grupo. Conferir
+  com `grep -o '"groupName":"[^"]*"' logs/out.log | sort | uniq -c`.
+
 `form-diagnostico` é chamado pelo app de Diagnóstico (`/var/www/apps/diagnostico`)
 em dois eventos: `iniciado` cria o lead e `concluido` anexa uma anotação com
 score, perfil e plano recomendado no lead existente (achado pelo telefone no
@@ -285,6 +301,18 @@ tinha ficado órfã quando a master@ passou para o número oficial, ou seja, o q
 nela seria gravado em toda empresa com o número. Toda instância no ar carimba `port` desde
 01/09, e o canal oficial também. Ao mexer em `api-multi-baileys.js`, `pm2 restart` em cada
 `whatsapp-30xx`.
+
+### Primeira mensagem de número desconhecido vira card (23/09/2026, #177)
+
+Mensagem de quem não tem contato nem lead era descartada (`contato_nao_encontrado`)
+**antes** de chegar ao "Criar lead automaticamente" — o estágio só capturava quem já era
+contato. Agora, quando algum estágio da empresa tem a criação automática ligada para o
+dono da porta, `contatoParaPrimeiraMensagem` cria o contato (`<numero>@c.us`, no nome do
+dono) e o fluxo segue normal: card com o `pushname`, mensagem vinculada e não lida.
+Sem estágio ligado continua descartando — senão toda conversa pessoal do chip viraria
+contato. `@lid` não resolvido, grupo e número implausível ficam fora
+(`podeSerContatoNovo`, `_shared/telefone.ts`, com teste). Estágios ligados hoje:
+empresas 1 (Cloud API, outro caminho), 38, 40 e 45.
 
 ### O passado vazado é separado, não apagado (migration 075)
 
@@ -752,6 +780,40 @@ imagem entra no tamanho natural e estoura o cabeçalho. Arte de e-mail vai publi
 em 600px (largura padrão) em `uploads/email-images/` — a única árvore de `uploads/`
 que é pública, porque a imagem precisa abrir para quem não tem login.
 
+## Reagir e responder citando no chat do card (migration 086, 25/09/2026, #188)
+
+A reação é **atributo da mensagem reagida**, nunca uma linha nova: `reacao_contato` e
+`reacao_minha` em `historico_mensagens` (a última de cada lado vale; vazio remove). Uma
+linha por reação era o que poluía a conversa antes, e por isso a instância descartava
+tudo — 1.081 reações só no chip da Alcione. Agora ela manda um evento próprio
+(`{event:'reaction', targetId, emoji, fromMe}`) e `receberMensagem` faz um `UPDATE` pelo
+`whatsapp_message_id` **dentro da empresa do dono da porta**, antes de qualquer lógica
+de mensagem. Reação em grupo não é anotada.
+
+- **Citação:** `resposta_a_message_id` guarda o id da mensagem citada (`contextInfo.stanzaId`
+  no Baileys, `context.id` na Cloud API). `getHistoricoMensagens` acha o texto dela num
+  `LATERAL` pelo mesmo id na mesma conversa; citada anterior ao CRM não é achada e o balão
+  diz "a uma mensagem anterior ao CRM".
+- **Envio:** `/send` aceita `quoted: {id, fromMe, text}` e há `/react` — nas instâncias
+  e na porta virtual do número oficial (`context.message_id` / `type: reaction`, que
+  também exige a janela de 24h). `enviarMensagem` só cita mensagem **desta** conversa.
+- Rotas: `resposta_a` no `POST /crm/leads/:id/mensagem` e
+  `POST /crm/leads/:id/mensagens/:mensagemId/reacao` (`{emoji}`), pelo chip do responsável.
+- Tela: `ChatBubble` ganha os botões (hover/foco; sempre visíveis em tela de toque) só
+  com `onResponder`/`onReagir` e mensagem com `whatsapp_message_id` sem erro. Janela de
+  24h fechada esconde os dois.
+
+## Arrastar card para coluna fora da tela (25/09/2026, #123)
+
+**Não existe auto-scroll horizontal, e não é esquecimento.** O quadro rola na horizontal e
+cada coluna na vertical: scroll aninhado, que o `@hello-pangea/dnd` não suporta — rolar o
+quadro no meio do arrasto dessincroniza as medidas e o card cai na coluna errada. No lugar,
+enquanto um CARD é arrastado, `KanbanBoard` mostra no rodapé do quadro uma faixa com todas
+as etapas (`atalho-<id>`); soltar numa delas manda o card para o topo daquela coluna pelo
+mesmo `onMoverLead` (etapa de ganho abre a conversão, como no arrasto normal). A faixa é
+montada no `onBeforeCapture` com `flushSync`: Droppable que nasce depois de a lib medir
+não existe para ela.
+
 ## Histórico de mensagens — quem grava
 
 Todo envio tem que gravar em `historico_mensagens`, e o card só mostra a conversa
@@ -790,6 +852,19 @@ dashboards e na tela do Duo. Estado de tela novo que deva sobreviver ao F5 usa
   Filtros, **fora** de `filtros` (limpar filtro não desfaz a ordem). Vai à API como
   `ordenar`, e `normalizarOrdem` reduz a uma lista branca antes de virar `ORDER BY`. A
   manual ganhou `id` de desempate: lead de webhook nasce com `ordem_estagio = 0`.
+
+## Importar planilha de leads — origem e acento (23/09/2026, #175/#176)
+
+- **A origem da planilha é do cliente.** `normalizarOrigem` trocava tudo que não fosse
+  uma das 10 chaves fixas por `importacao` (os 873 leads da Anchor perderam a
+  classificação). Agora: chave conhecida vira chave, nome do catálogo (`crm_origens`,
+  sem caixa/acento) usa a grafia de lá, o resto entra como veio (teto 50). Origem nova
+  entra no catálogo da empresa, que é de onde o card monta a lista.
+- **Planilha é lida pelos bytes** (`lerPlanilha`). O SheetJS abre CSV como Latin-1 e o
+  CSV exportado pelo Excel/Google é UTF-8: "MENDONÇA" virava "MENDONÃ\u0087A". Texto é
+  decodificado como UTF-8 e, se inválido, Latin-1; xlsx/xls seguem binários. O multer
+  grava sem extensão, por isso a detecção é pelo cabeçalho (PK / D0CF).
+- A planilha é apagada depois de importar: origem perdida só volta com o arquivo.
 
 ## Importar participantes de grupo (CRM → Contatos → Grupos, 15/09/2026)
 
@@ -1294,6 +1369,14 @@ contra R$ 219/mês no mensal" sem dividir nada.
 | Starter | 79 | 72 | 69 | 59 |
 | Profissional | 219 | 199 | 189 | 169 |
 | Enterprise | 397 | 359 | 339 | 299 |
+
+> **Mensal e trimestral saíram de venda em 21/09/2026 (migration 085)** — `ativo = false`,
+> linhas mantidas. Vender e ler são caminhos separados em `getCiclo`: para contratar, ciclo
+> inativo é **erro** (cair calado noutro cobraria o que a tela não mostrou); para mexer numa
+> assinatura existente, `{ contratado: true }` aceita o inativo — a Anchor (38) paga no
+> mensal. O JOIN de `getAssinaturaByEmpresa` não filtra `ativo` pelo mesmo motivo. O preço
+> riscado (tela, cadastro, landing) passou a ser o **semestral**, o menor compromisso à venda:
+> riscar R$ 219 seria anunciar desconto sobre um preço que ninguém contrata.
 
 Usuários inclusos: Starter 2, **Profissional 2** (era 4), **Enterprise 4** (era
 6). Quem já pagava manteve o que tinha via `usuarios_cortesia` — a 067 soma a
