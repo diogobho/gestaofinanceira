@@ -570,6 +570,11 @@ Tudo depois que a janela devolve `code`, `waba_id` e `phone_number_id`:
 - **O passo 4 não é nosso e não trava a conexão.** Sem forma de pagamento o cliente
   responde quem escreve e só a conversa iniciada por ele é recusada — por isso
   `pagamento_ok` é aviso na tela, não bloqueio no cadastro.
+- **Desde 01/10/2026 a Meta cobra também a resposta** (mensagem de serviço, R$ 0,0350 no
+  Brasil, 1.000 grátis por mês por número) e a utilidade dentro da janela de 24h. Sem forma
+  de pagamento, passada a franquia do mês **a resposta deixa de ser entregue** — o aviso de
+  `pagamento_ok` passou a importar para quem só responde. Tabela no passo 4 de
+  `landing/panteras/whatsapp-oficial.html` (marketing R$ 0,3217; fonte: rate card BRL da Meta).
 - O PIN é aleatório e fica cifrado (`pin_enc`, mesma chave dos outros segredos do
   processo). Número que já tem verificação em duas etapas com outro PIN devolve
   **133005**, e a mensagem diz o que fazer — não é erro nosso.
