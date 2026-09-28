@@ -13,6 +13,8 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.E
   suspensa: { label: 'Suspensa', color: 'text-orange-600 bg-orange-50 dark:bg-orange-900/20', icon: AlertTriangle },
   cancelada: { label: 'Cancelada', color: 'text-red-600 bg-red-50 dark:bg-red-900/20', icon: XCircle },
   expirada: { label: 'Expirada', color: 'text-red-600 bg-red-50 dark:bg-red-900/20', icon: XCircle },
+  trial: { label: 'Teste grátis', color: 'text-blue-600 bg-blue-50 dark:bg-blue-900/20', icon: Clock },
+  trial_encerrado: { label: 'Teste encerrado', color: 'text-amber-700 bg-amber-50 dark:bg-amber-900/20', icon: Clock },
 }
 
 /**
@@ -168,7 +170,7 @@ export const MinhaConta: React.FC = () => {
     )
   }
 
-  const status = assinatura?.status || 'ativa'
+  const status = assinatura?.trial_encerrado ? 'trial_encerrado' : (assinatura?.status || 'ativa')
   const cfg = statusConfig[status] || statusConfig.ativa
   const StatusIcon = cfg.icon
 
@@ -251,6 +253,14 @@ export const MinhaConta: React.FC = () => {
               Sua assinatura está suspensa por falta de pagamento. Regularize para retomar o acesso.
             </div>
           )}
+          {status === 'trial_encerrado' && (
+            <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg text-sm text-amber-800 dark:text-amber-300">
+              <Clock className="w-4 h-4 inline mr-1" />
+              O seu teste grátis terminou
+              {assinatura?.trial_expira_em && ` em ${new Date(assinatura.trial_expira_em).toLocaleDateString('pt-BR')}`}.
+              {' '}Tudo o que você cadastrou continua guardado — escolha um plano para voltar a usar.
+            </div>
+          )}
           {(status === 'expirada' || status === 'cancelada') && (
             <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-sm text-red-700 dark:text-red-400">
               <XCircle className="w-4 h-4 inline mr-1" />
@@ -261,7 +271,7 @@ export const MinhaConta: React.FC = () => {
 
           <div className="flex flex-wrap gap-3 pt-2" data-tour="conta-plano">
             <Button onClick={() => navigate('/planos')} className="flex items-center gap-2">
-              {status === 'ativa' ? 'Trocar plano' : 'Ver planos'}
+              {status === 'ativa' ? 'Trocar plano' : status === 'trial_encerrado' ? 'Escolher meu plano' : 'Ver planos'}
               <ExternalLink className="w-4 h-4" />
             </Button>
 

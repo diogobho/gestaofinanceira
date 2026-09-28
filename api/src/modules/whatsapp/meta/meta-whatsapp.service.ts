@@ -454,6 +454,15 @@ export async function listarTemplates(limite = 50, cred?: CredenciaisMeta): Prom
   }
 }
 
+export interface BotaoTemplate {
+  tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER';
+  texto: string;
+  /** Só URL: endereço fixo (sem variável — o CRM não preenche botão com variável). */
+  url?: string;
+  /** Só PHONE_NUMBER: com DDI, ex. +5511999999999. */
+  telefone?: string;
+}
+
 export interface NovoTemplate {
   nome: string;
   categoria: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
@@ -461,6 +470,80 @@ export interface NovoTemplate {
   corpo: string;
   /** Um valor de exemplo por variável `{{n}}` do corpo. */
   exemplos?: string[];
+  /** Cabeçalho de TEXTO (até 60 caracteres, no máximo uma variável `{{1}}`). */
+  cabecalho?: string;
+  exemploCabecalho?: string;
+  /** Rodapé (até 60 caracteres, sem variável). */
+  rodape?: string;
+  botoes?: BotaoTemplate[];
+}
+
+/**
+ * Confere o que a Meta recusaria com uma frase genérica ("Invalid parameter"),
+ * e devolve a frase que diz o quê. Limites da documentação de modelos.
+ */
+export function problemaNoTemplate(novo: NovoTemplate): string | null {
+  if (!/^[a-z0-9_]{1,512}$/.test(novo.nome)) return 'O nome só aceita letras minúsculas, números e _';
+  if (novo.corpo.length > 1024) return 'O corpo pode ter no máximo 1024 caracteres';
+  const cab = (novo.cabecalho ?? '').trim();
+  if (cab) {
+    if (cab.length > 60) return 'O cabeçalho pode ter no máximo 60 caracteres';
+    const vars = cab.match(/\{\{\s*\d+\s*\}\}/g) ?? [];
+    if (vars.length > 1) return 'O cabeçalho aceita no máximo uma variável';
+    if (vars.length === 1 && !(novo.exemploCabecalho ?? '').trim()) {
+      return 'Informe um exemplo para a variável do cabeçalho';
+    }
+  }
+  const rod = (novo.rodape ?? '').trim();
+  if (rod.length > 60) return 'O rodapé pode ter no máximo 60 caracteres';
+  if (/\{\{/.test(rod)) return 'O rodapé não aceita variável';
+
+  const botoes = novo.botoes ?? [];
+  if (botoes.length > 10) return 'No máximo 10 botões';
+  if (botoes.filter((b) => b.tipo === 'URL').length > 2) return 'No máximo 2 botões de link';
+  if (botoes.filter((b) => b.tipo === 'PHONE_NUMBER').length > 1) return 'No máximo 1 botão de ligação';
+  for (const b of botoes) {
+    if (!b.texto?.trim()) return 'Todo botão precisa de texto';
+    if (b.texto.trim().length > 25) return `O botão "${b.texto}" passa de 25 caracteres`;
+    if (b.tipo === 'URL' && !/^https:\/\/\S+$/.test(b.url ?? '')) return `O botão "${b.texto}" precisa de um link https://`;
+    if (b.tipo === 'URL' && /\{\{/.test(b.url ?? '')) return 'Link com variável ainda não é suportado pelo CRM';
+    if (b.tipo === 'PHONE_NUMBER' && !/^\+\d{10,15}$/.test(b.telefone ?? '')) {
+      return `O botão "${b.texto}" precisa de um telefone com DDI, ex. +5511999999999`;
+    }
+  }
+  return null;
+}
+
+/** Os componentes no formato da Meta. Resposta rápida vem antes dos botões de ação: a Meta exige os dois grupos separados. */
+export function componentesDoTemplate(novo: NovoTemplate, exemplosCorpo: string[]): any[] {
+  const componentes: any[] = [];
+  const cab = (novo.cabecalho ?? '').trim();
+  if (cab) {
+    const header: any = { type: 'HEADER', format: 'TEXT', text: cab };
+    if (/\{\{/.test(cab)) header.example = { header_text: [String(novo.exemploCabecalho).trim()] };
+    componentes.push(header);
+  }
+  const body: any = { type: 'BODY', text: novo.corpo };
+  if (exemplosCorpo.length > 0) body.example = { body_text: [exemplosCorpo] };
+  componentes.push(body);
+  const rod = (novo.rodape ?? '').trim();
+  if (rod) componentes.push({ type: 'FOOTER', text: rod });
+
+  const botoes = novo.botoes ?? [];
+  const ordenados = [...botoes.filter((b) => b.tipo === 'QUICK_REPLY'), ...botoes.filter((b) => b.tipo !== 'QUICK_REPLY')];
+  if (ordenados.length) {
+    componentes.push({
+      type: 'BUTTONS',
+      buttons: ordenados.map((b) =>
+        b.tipo === 'URL'
+          ? { type: 'URL', text: b.texto.trim(), url: b.url }
+          : b.tipo === 'PHONE_NUMBER'
+            ? { type: 'PHONE_NUMBER', text: b.texto.trim(), phone_number: b.telefone }
+            : { type: 'QUICK_REPLY', text: b.texto.trim() }
+      ),
+    });
+  }
+  return componentes;
 }
 
 /** Quantas variáveis `{{n}}` distintas o corpo declara. */
@@ -493,11 +576,8 @@ export async function criarTemplate(novo: NovoTemplate, cred?: CredenciaisMeta) 
     );
   }
 
-  const body: any = {
-    type: 'BODY',
-    text: novo.corpo,
-  };
-  if (variaveis > 0) body.example = { body_text: [exemplos] };
+  const problema = problemaNoTemplate(novo);
+  if (problema) throw new Error(problema);
 
   try {
     const { data } = await axios.post(
@@ -506,11 +586,100 @@ export async function criarTemplate(novo: NovoTemplate, cred?: CredenciaisMeta) 
         name: novo.nome,
         language: novo.idioma,
         category: novo.categoria,
-        components: [body],
+        components: componentesDoTemplate(novo, variaveis > 0 ? exemplos : []),
       },
       { headers: { Authorization: `Bearer ${token(cred)}`, 'Content-Type': 'application/json' } }
     );
     return data;
+  } catch (err) {
+    throw erroMeta(err);
+  }
+}
+
+/**
+ * Exclui um modelo da WABA. Com `id` sai só aquele idioma; sem ele, a Meta apaga o
+ * nome em todos os idiomas. O nome fica bloqueado por 30 dias depois de excluído —
+ * recriar com o mesmo nome nesse prazo é recusado pela Meta.
+ */
+export async function excluirTemplate(nome: string, id: string | undefined, cred?: CredenciaisMeta) {
+  try {
+    const { data } = await axios.delete(`${BASE_URL}/${wabaId(cred)}/message_templates`, {
+      params: { name: nome, ...(id ? { hsm_id: id } : {}), access_token: token(cred) },
+      timeout: 15000,
+    });
+    return data;
+  } catch (err) {
+    throw erroMeta(err);
+  }
+}
+
+// ============================================================
+// Saúde do número (o que limita o envio, dito pela própria Meta)
+// ============================================================
+
+export interface SaudeNumero {
+  numero: string | null;
+  nomeExibido: string | null;
+  statusNome: string | null;
+  nomeNovo: string | null;
+  statusNomeNovo: string | null;
+  qualidade: string | null;
+  /** TIER_250, TIER_1K, TIER_10K, TIER_100K, TIER_UNLIMITED — contatos novos por 24h. */
+  limite: string | null;
+  verificacao: string | null;
+  status: string | null;
+  modo: string | null;
+  /** AVAILABLE / LIMITED / BLOCKED — o resumo da Meta para "posso enviar?". */
+  podeEnviar: string | null;
+  /** Os motivos, por nível (número, conta, portfólio, app), já sem o que não é de mensagem. */
+  pendencias: { nivel: string; podeEnviar: string; motivo: string; solucao: string | null }[];
+}
+
+// Erros de chamada de voz por SIP: o CRM não usa chamadas, e eles aparecem em todo número.
+const ERROS_FORA_DO_ESCOPO = new Set([138024, 138025]);
+const NIVEL: Record<string, string> = { PHONE_NUMBER: 'Número', WABA: 'Conta do WhatsApp', BUSINESS: 'Portfólio', APP: 'App' };
+
+export async function consultarSaude(cred?: CredenciaisMeta): Promise<SaudeNumero> {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/${phoneId(cred)}`, {
+      params: {
+        fields:
+          'display_phone_number,verified_name,name_status,new_display_name,new_name_status,quality_rating,' +
+          'messaging_limit_tier,code_verification_status,status,account_mode,health_status',
+        access_token: token(cred),
+      },
+      timeout: 15000,
+    });
+    const pendencias: SaudeNumero['pendencias'] = [];
+    for (const e of data?.health_status?.entities ?? []) {
+      const nivel = NIVEL[e.entity_type] ?? e.entity_type;
+      for (const erro of e.errors ?? []) {
+        if (ERROS_FORA_DO_ESCOPO.has(Number(erro.error_code))) continue;
+        pendencias.push({
+          nivel,
+          podeEnviar: e.can_send_message,
+          motivo: erro.error_description,
+          solucao: erro.possible_solution ?? null,
+        });
+      }
+      for (const info of e.additional_info ?? []) {
+        pendencias.push({ nivel, podeEnviar: e.can_send_message, motivo: info, solucao: null });
+      }
+    }
+    return {
+      numero: data.display_phone_number ?? null,
+      nomeExibido: data.verified_name ?? null,
+      statusNome: data.name_status ?? null,
+      nomeNovo: data.new_display_name ?? null,
+      statusNomeNovo: data.new_name_status ?? null,
+      qualidade: data.quality_rating ?? null,
+      limite: data.messaging_limit_tier ?? null,
+      verificacao: data.code_verification_status ?? null,
+      status: data.status ?? null,
+      modo: data.account_mode ?? null,
+      podeEnviar: data.health_status?.can_send_message ?? null,
+      pendencias,
+    };
   } catch (err) {
     throw erroMeta(err);
   }

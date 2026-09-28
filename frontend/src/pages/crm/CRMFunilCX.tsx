@@ -511,7 +511,7 @@ export default function CRMFunilCX() {
                 comum ele é o que mais causa bloqueio. O botão fica no lugar, apagado,
                 explicando — quem não pode precisa saber por quê. */}
             {funil && (
-              <BotaoDoPlano capacidade="disparo_whatsapp">
+              <BotaoDoPlano capacidade="disparo_whatsapp" exigeOficial>
                 <button
                   data-tour="cx-disparar"
                   onClick={() => setShowDisparoModal(true)}

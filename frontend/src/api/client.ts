@@ -29,6 +29,17 @@ api.interceptors.response.use(
       window.location.href = '/gestao/login'
     }
 
+    // Conta sem acesso (trial vencido, suspensa, aguardando pagamento): a API recusa
+    // tudo fora da Minha Conta e da escolha de plano.
+    // Sem toast (seria um por chamada da tela que estava aberta) — leva à Minha
+    // Conta, onde o Layout mostra o aviso e o caminho para ativar.
+    if (error.response?.status === 402 && ['TRIAL_ENCERRADO', 'CONTA_BLOQUEADA'].includes(error.response?.data?.code)) {
+      if (!/\/(minha-conta|planos)(\/|$)/.test(window.location.pathname)) {
+        window.location.href = '/gestao/minha-conta'
+      }
+      return Promise.reject(error)
+    }
+
     // Chamadas de sondagem (ex.: "esse usuário pode ver tal aba?") passam
     // `silenciarErro` e tratam a falha sozinhas — um toast ali só assustaria.
     const silencioso = Boolean((error.config as any)?.silenciarErro)

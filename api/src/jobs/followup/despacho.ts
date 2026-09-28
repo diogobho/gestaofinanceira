@@ -11,9 +11,8 @@ import { leadsService } from '../../modules/crm/leads/leads.service';
 import { aplicarVariaveisLead } from '../../modules/crm/_shared/agendamento';
 import { leadFalouRecentemente, contatoJaEscreveuAlgumaVez } from '../../modules/crm/_shared/conversa';
 import { ResultadoDespacho } from './motor';
-import { contaAtivaDoUsuario } from '../../modules/whatsapp/canal/contas';
-import { estadoJanela, mensagemJanelaFechada } from '../../modules/whatsapp/canal/janela';
-import { erroNoFormatoDaInstancia } from '../../modules/whatsapp/canal/instancia';
+import { contaAtivaDoUsuario, enviaPeloOficial } from '../../modules/whatsapp/canal/contas';
+import { estadoJanela } from '../../modules/whatsapp/canal/janela';
 import { marcarOrigemErro } from '../../shared/erros';
 import { temCapacidade } from '../../shared/capacidades';
 
@@ -49,18 +48,9 @@ async function viaModeloSeJanelaFechada(
     const passos = r.rows[0]?.followup_config?.passos;
     modelo = Array.isArray(passos) ? passos[followup.passo_ordem]?.modelo_whatsapp : null;
   }
-  if (!modelo?.nome) {
-    throw marcarOrigemErro(
-      erroNoFormatoDaInstancia(
-        422,
-        mensagemJanelaFechada(janela) +
-          (followup.origem === 'estagio'
-            ? ' Escolha um modelo de reserva neste passo da cadência para ele sair mesmo assim.'
-            : '')
-      ),
-      'whatsapp'
-    );
-  }
+  // Sem modelo o passo não tem como sair, mas é configuração, não destino: vira
+  // `conflito_config` (reagendável) no motor, e sai assim que ganhar a reserva.
+  if (!modelo?.nome) return 'sem_modelo';
 
   const leadRow = (await query(
     `SELECT l.*, u.nome AS responsavel_nome FROM leads l LEFT JOIN usuarios u ON u.id = l.responsavel_id WHERE l.id = $1`,
@@ -96,9 +86,14 @@ export async function despachar(followup: any): Promise<ResultadoDespacho> {
   // disparo: bloquear só o botão de disparar deixaria o mesmo envio sair daqui,
   // um lead por vez. A checagem é feita ANTES dos dois ramos porque a regra é do
   // plano, não do tipo de follow-up.
-  if (!(await temCapacidade(followup.empresa_id, 'conversa_fria'))
-      && !(await contatoJaEscreveuAlgumaVez(followup.lead_id, followup.contato_whatsapp_id))) {
-    return 'sem_capacidade';
+  //
+  // E a regra é também do CANAL de quem envia (28/09/2026): no Enterprise, quem ainda
+  // está no QR fala só com quem já escreveu. Pela empresa, os chips QR da Panteras
+  // mandaram 693 primeiros contatos em 30 dias — o risco que o plano existe para tirar.
+  if (!(await contatoJaEscreveuAlgumaVez(followup.lead_id, followup.contato_whatsapp_id))) {
+    if (!(await temCapacidade(followup.empresa_id, 'conversa_fria'))) return 'sem_capacidade';
+    const remetente = followup.remetente_id ?? followup.usuario_id;
+    if (!(await enviaPeloOficial(remetente))) return 'so_oficial';
   }
   return followup.tipo === 'manual' ? despacharManual(followup) : despacharIA(followup);
 }

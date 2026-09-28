@@ -5,7 +5,8 @@ import { contatosService } from '../contatos/contatos.service';
 import { aplicarVariaveisLead } from '../_shared/agendamento';
 import { comDDIParaEnvio } from '../_shared/telefone';
 import { instancia, destinoCloud } from '../../whatsapp/canal/instancia';
-import { ehPortaVirtual, contaPorPorta, ContaCloud } from '../../whatsapp/canal/contas';
+import { ehPortaVirtual, contaPorPorta, ContaCloud, enviaPeloOficial, MSG_PRIMEIRO_CONTATO_SO_OFICIAL } from '../../whatsapp/canal/contas';
+import { CATALOGO, temCapacidade } from '../../../shared/capacidades';
 import { acharModelo, enviarModelo, ModeloCRM } from '../../whatsapp/canal/modelos';
 
 export interface DisparoLead {
@@ -682,6 +683,11 @@ export const disparosService = {
 
     const disparo = disparoResult.rows[0];
     if (!disparo) return;
+
+    // Agendado antes de a regra existir (ou antes de o plano/canal mudar): confere
+    // na hora de sair. O erro vira o motivo do disparo, no mesmo lugar da tela.
+    if (!(await temCapacidade(empresaId, 'disparo_whatsapp'))) throw new Error(CATALOGO.disparo_whatsapp.motivo);
+    if (!(await enviaPeloOficial(usuarioId))) throw new Error(MSG_PRIMEIRO_CONTATO_SO_OFICIAL);
 
     const config = disparo.configuracao_json || {};
     let leads = await _buscarLeadsPorConfig(empresaId, config);

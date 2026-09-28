@@ -583,6 +583,35 @@ Tudo depois que a janela devolve `code`, `waba_id` e `phone_number_id`:
 > mesmo que faz o webhook conferir assinatura: enquanto faltar, um POST forjado vira
 > mensagem no card de um cliente.
 
+### A tela do número oficial do cliente (25/09/2026)
+
+`NumeroOficialPainel.tsx` virou três abas (`?aba=visao|modelos|perfil`), tudo com as
+credenciais da conta do usuário (`contaAtivaDoUsuario` → `credenciaisDa`), nunca as nossas:
+
+| Aba | O quê | Rotas |
+|---|---|---|
+| Visão geral | `health_status` da Meta: limite (TIER_250…), pendências por nível (número, WABA, portfólio), status do nome | `GET /whatsapp/canal/oficial/saude` |
+| Modelos | todos os status, motivo da recusa, **criar** (cabeçalho de texto, corpo com `{{n}}`, rodapé, botões resposta/link fixo/ligar) e **excluir** | `POST`/`DELETE /whatsapp/canal/modelos[/:nome]` (`modelos_meta`) |
+| Perfil | foto, recado, descrição, endereço, e-mail, 2 sites, categoria | `GET`/`PUT /whatsapp/canal/oficial/perfil`, `POST .../perfil/foto` |
+
+- **"Desconectar do CRM" não apaga nada na Meta** — só `desligarConta`. Quem pode:
+  o dono do número; o administrador (master/creator) com `conta_id` de um operador;
+  o número da empresa inteira (`usuario_id` nulo), só `super_admin` — `contaGerenciavel`
+  em `oficial.controller.ts`.
+- **Só se cria o que o CRM consegue enviar.** Cabeçalho de imagem e link com variável
+  ficam fora de propósito: aprovados, cairiam como "não suportado" em `modelos.ts`.
+  `problemaNoTemplate` barra antes da Meta o que ela recusaria com "Invalid parameter"
+  (teste em `tests/modelos-meta.test.ts`); resposta rápida vai antes dos botões de ação.
+- Erros de chamada por SIP (138024/138025) saem da lista de pendências: aparecem em todo
+  número e o CRM não usa chamadas.
+- **Seis modelos prontos no Criar modelo** (`oficial/modelosProntos.ts`, 25/09/2026): abordagem,
+  convite, reativação, material, lembrete de reunião e retomada de atendimento — carregam o
+  formulário e o cliente ajusta. Conta nova sem modelo aprovado só responde quem escreveu, e
+  folha em branco é onde nasce a recusa (UTILITY para vender). O teste passa os seis pelo
+  `problemaNoTemplate`. Textos e razões: `docs/MODELOS_ABORDAGEM_META.md`.
+- A WABA do cliente **não** responde `primary_funding_id` ao nosso token (exige BSP) —
+  forma de pagamento não é consultável; a tela aponta para o WhatsApp Manager.
+
 O painel `/gestao/whatsapp/meta` continua sendo **só nosso** e continua cadastrando à
 mão número que já esteja na WABA da DuoFuturo (`origem = 'manual'`). São caminhos
 diferentes para coisas diferentes — um conecta a conta do cliente, o outro administra
@@ -617,10 +646,14 @@ material de boas-vindas a quem pediu no cadastro — ver "Boas-vindas de conta n
 > a WABA de cada CLIENTE via Embedded Signup, e nada disso existe no código ainda.
 > Estado, próximos passos e armadilhas: `docs/META_TECH_PROVIDER.md`.
 >
-> **`META_APP_SECRET` não está no `.env`, e por isso o webhook aceita POST sem
-> assinatura** (`assinaturaValida` libera e avisa uma vez no log quando o secret
-> falta). O webhook grava conversa no CRM do Suporte — um POST forjado viraria
-> mensagem no card de um cliente. Preencher o secret é o item mais barato da Fase 0.
+> **`META_APP_SECRET` está no `.env` desde 19/09/2026** e o webhook confere a
+> assinatura (conferido com mensagem real em 25/09). Se um dia faltar,
+> `assinaturaValida` libera e avisa uma vez no log — e um POST forjado viraria
+> mensagem no card de um cliente.
+>
+> **Embedded Signup em produção desde 25/09/2026** — primeira conexão real: +55 85
+> 9205-1233 (conta 2, empresa 5, usuário 22). O que travou a primeira abertura foi
+> *Login com o SDK do JavaScript* desligado no painel do app (ver `docs/META_TECH_PROVIDER.md`).
 
 - **Cloud API não tem QR Code.** No Baileys o QR pareia um *device* a uma sessão que
   vive no nosso servidor; aqui o número vive no servidor da Meta e o que temos é um
@@ -865,6 +898,37 @@ dashboards e na tela do Duo. Estado de tela novo que deva sobreviver ao F5 usa
   decodificado como UTF-8 e, se inválido, Latin-1; xlsx/xls seguem binários. O multer
   grava sem extensão, por isso a detecção é pelo cabeçalho (PK / D0CF).
 - A planilha é apagada depois de importar: origem perdida só volta com o arquivo.
+
+## Página de Grupos do WhatsApp (migration 088, 28/09/2026)
+
+`/gestao/grupos` (menu **Grupos**, capacidade `grupos_whatsapp`, permissão `whatsapp`):
+**Mensagens** para vários grupos (agora / agendada / repetindo em dias+hora de Brasília,
+com anexo e "marcar todos"), **Boas-vindas** a quem entra e **Meus grupos**. Referência de
+produto: SendFlow. API em `modules/grupos/` (montada em `/api/grupos` **e**
+`/api/gestao/grupos` — o nginx tira o `/gestao`), regras puras em `agenda.ts` com teste,
+job `jobs/grupos-scheduler.ts` (a cada minuto, instância 0), tela em `pages/grupos/`.
+
+- **Só QR Code.** A Groups API da Meta exige Conta Comercial Oficial (selo verde) e para em
+  **8 participantes**, entrando só por link. O nº da Débora tem `is_official_business_account:
+  false` (conferido em 28/09). Quem está no oficial vê um aviso, não a tela.
+- **Toda execução é do job.** "Enviar agora" só põe `proxima_execucao = now()` — sai em até
+  1 minuto. Uma rodada por chip de cada vez (`ocupados`), grupos um a um com
+  `intervalo_segundos` entre eles; chip fora do ar vira falha para o resto da rodada, com o
+  motivo. Histórico em `grupos_mensagens_envios`.
+- **A trava da fila é "ainda vencida", nunca igualdade com o horário lido**: o Postgres guarda
+  microssegundos e o `Date` do JS milissegundos — `proxima_execucao = $2` nunca casava com um
+  `now()` e a mensagem ficava parada (achado no teste).
+- **Boas-vindas só dentro do grupo**, nunca no privado: DM para quem acabou de entrar é
+  primeiro contato por QR (a regra de 28/09). Fila durável `grupos_boas_vindas_fila` no lugar
+  do `setTimeout`; todos que entraram na janela viram **uma** mensagem marcando todos
+  (`montarBoasVindas`). Vale só a boas-vindas do dono da porta que viu a entrada.
+- **A instância agora avisa a entrada** (`group-participants.update` → `event:
+  'group_participants'` no webhook de mensagem, tratado antes de qualquer lógica de conversa).
+  Antes nada avisava, e o `automacoes_grupo` antigo chamava um `/send-message` que não existe:
+  a boas-vindas nunca funcionou. `/send` e `/send-media` aceitam `mencionarTodos`/`mentions`;
+  `/groups` devolve `announce` e `souAdmin` (grupo só-admins sem ser admin é recusado — a tela
+  trava a escolha).
+- Mídia vem pelo mesmo upload da cadência e está em `SQL_PROTEGIDOS` da cota de mídia.
 
 ## Importar participantes de grupo (CRM → Contatos → Grupos, 15/09/2026)
 
@@ -1302,9 +1366,9 @@ não "faça upgrade".
   empresa é mudar o plano dela. Aplicada às empresas **33 e 45** (Starter usando CRM,
   medido em 20/09).
 - **O guard vai DENTRO do router, abaixo do `authMiddleware`.** O `checkSubscription`
-  de `server.ts:96` é global e montado **antes** de qualquer autenticação: `req.user`
-  chega vazio e ele libera todo mundo (é por isso que trial vencido não bloqueia nada).
-  Plano só se verifica com usuário resolvido.
+  de `server.ts` é global e montado **antes** de qualquer autenticação: `req.user`
+  chega vazio. Desde 25/09/2026 ele lê o token sozinho, mas só para barrar trial
+  vencido — plano se verifica com usuário resolvido, dentro do router.
 - **Falha ao LER a capacidade deixa passar.** Um hiccup do banco não pode derrubar o
   CRM inteiro; quem nega de verdade nega com dado na mão.
 - **No menu o item some; dentro da tela o botão fica e explica.** São coisas
@@ -1324,6 +1388,34 @@ não "faça upgrade".
   estava na fila.
 - O Enterprise tem `whatsapp_qr` **de propósito** — a migração para a Cloud API é por
   usuário, e grupo e sincronização de contatos só existem no QR.
+
+### Primeiro contato: o plano E o canal de quem envia (28/09/2026)
+
+Disparo e cadência fria eram checados só pelo **plano da empresa**. No Enterprise só quem
+conectou o número oficial fala por ele — o resto da equipe segue no QR —, e os chips QR da
+Panteras mandaram **693 primeiros contatos em 30 dias** (413 de disparo). Era exatamente o
+risco que a separação dos planos existe para tirar. Agora:
+
+- `enviaPeloOficial(usuarioId)` (`canal/contas.ts`) responde **pela porta** (virtual + conta
+  ativa), que é o que o envio usa para escolher o canal — não por `contaAtivaDoUsuario`, que
+  cai na conta da empresa e diria "sim" a quem ainda está no QR.
+- **Disparo:** `soPeloOficial` em `disparos.routes.ts` (preview, criar, editar agendado) → 403
+  `SO_PELO_OFICIAL`, inclusive para super_admin (o risco é do chip). O agendado confere plano e
+  canal de novo na hora de sair. `BotaoDoPlano exigeOficial` explica na tela e aponta para
+  `/whatsapp`, não para `/planos`.
+- **Cadência:** `despachar` → `so_oficial` quando o contato nunca escreveu e o responsável está
+  no QR; vira `conflito_config` (reagendável) com o motivo.
+- **Sem modelo de reserva** no oficial com a janela fechada virou `sem_modelo` →
+  `conflito_config`. Era `destino_invalido` (definitivo): 96 passos da Débora sumiram em 2
+  minutos quando ela conectou o número (25/09). Não foram reenfileirados: 86 eram sobras de
+  agosto de uma cadência pausada em 24/09 (funil 24, estágio 209) e 8 eram D+1/D+4 com 10
+  dias de atraso.
+- Reserva `retomada_conversa_parada` (`[PrimeiroNome]`, `[PrimeiroNomeResponsavel]`,
+  "o Leadership Club") gravada em todos os passos dos estágios ativos do **funil 39**, exceto
+  Ganho — é onde estão os leads da Débora com cadência ligada. Backup da config anterior só na
+  sessão; o funil 24 está pausado e ficou sem reserva.
+- `verificar_capacidades.js` (seção 2) reprova primeiro contato automático por chip QR nas
+  últimas 24h.
 
 > Capacidade nova entra em **três** lugares: a migration, `shared/capacidades.ts` e
 > `frontend/src/utils/capacidades.ts`. O teste prende os dois primeiros contra a
@@ -1535,13 +1627,6 @@ E-mail para o dono da conta (`creator`, com `master` de reserva) cujo teste term
   `suporte@duofuturo.tech`), **não** `DUOFUTURO_REMETENTE_EMAIL` — este é
   `master@gestao.com` desde 13/09 e mandaria o cliente para a caixa errada.
 
-> **O aviso não bloqueia nada, e o bloqueio ainda não existe.** Trial vencido segue
-> usando o sistema: `useAssinatura` trata `trial` como ativo sem olhar data, `isAtiva`
-> só olha `plano_ativo_ate` (NULL em trial), não há job que vire o status para
-> `expirada`, e o `checkSubscription` da API está montado **antes** do `authRequired`
-> — `req.user` chega vazio e ele libera todo mundo. O texto do e-mail foi escrito sem
-> prometer corte de acesso por causa disso.
-
 **Todo cadastro vira lead no CRM da DuoFuturo** (14/09/2026,
 `modules/onboarding/lead-cadastro.ts`): conta suporte@duofuturo.tech (empresa 32),
 funil **Vendas CRM** (57), estágio **Entrada** (322), responsável 57, origem
@@ -1562,6 +1647,49 @@ funil e o funil contra a empresa, senão não cria nada.
   cadência ali, ela passa a disparar para todo cliente novo pela instância do
   responsável.
 - Conta de teste criada pelo /register também vira lead: apague junto na limpeza.
+
+### Conta sem acesso: trial vencido, suspensa, aguardando pagamento (25/09/2026)
+
+Até esta data o teste grátis nunca acabava: `useAssinatura` tratava `trial` como ativo
+sem olhar a data, e o `checkSubscription` (montado antes do `authRequired`) recebia
+`req.user` vazio e liberava todo mundo. Dez contas usavam o sistema com o trial vencido.
+
+- **A regra mora num lugar só:** `bloqueioDaEmpresa()` em `assinaturas.service.ts`
+  devolve `trial_encerrado` (status `trial` e `trial_expira_em`, naive em UTC, antes de
+  `now() AT TIME ZONE 'UTC'` — `SQL_TRIAL_ENCERRADO`), `suspensa`, `aguardando_pagamento`
+  ou `null`. Os três têm saída pelo pagamento. O trial **não** vira `expirada`.
+- **API:** o `checkSubscription` lê o próprio token e responde **402**
+  (`TRIAL_ENCERRADO` ou `CONTA_BLOQUEADA`) a tudo fora de `/auth`, `/planos`,
+  `/assinaturas` e webhooks. Cache de 20s por empresa; `esquecerBloqueio` é chamado em
+  assinar, suspender, ativar e no webhook do Asaas, e `/assinaturas/minha` consulta
+  fresco — as outras instâncias do cluster alcançam em até 20s.
+- **Cancelada e expirada ficam fora da API**, bloqueadas só pela tela (`SubscriptionExpired`),
+  como antes: a empresa 1 (institucional) está `cancelada` e vive de cortesia (083).
+- **Tela:** `/assinaturas/minha` devolve `bloqueio`; o `Layout` espera a assinatura na
+  primeira carga, redireciona tudo para `/minha-conta` (só ela e `/planos` abrem, sem
+  menu nem Duo) e mostra `AvisoContaBloqueada` — um texto por motivo, uma vez por sessão.
+  Depois de assinar, `Planos` recarrega a página inteira (`irParaMinhaConta`): o Layout
+  lê a assinatura uma vez por carga, e quem pagou com cartão (que já nasce `ativa`)
+  ficaria preso até o F5.
+- **Trial vencido vira `suspensa`** de hora em hora (`jobs/trial-suspensao-scheduler.ts`,
+  minuto 5, instância 0; à mão: `node api/scripts/suspender_trials_vencidos.js
+  [--aplicar]`), com `cancelamento_motivo = 'Teste grátis encerrado'`
+  (`MOTIVO_TRIAL_ENCERRADO`). É esse motivo que mantém o aviso "seu teste grátis
+  terminou" em vez de "conta pausada". O guard não depende do job: trial com data
+  passada já é barrado antes da virada. Primeira aplicação: 10 empresas (33, 37, 39–46).
+- **Liberar sem pagamento:** `/gestao/admin` (super_admin) → **Ativar ∞** na empresa
+  (`status = 'ativa'`, sem vencimento). Serve para trial vencido e suspensa.
+- **O que continua rodando:** webhooks (as mensagens seguem sendo gravadas — o aviso
+  promete isso) e os jobs de follow-up/agente da empresa, que não passam pelo guard.
+- **Panteras (empresa 5) suspensa em 25/09/2026** a pedido do dono, que desbloqueia pelo
+  `/gestao/admin`. Antes: `ativa`, Enterprise, sem vencimento, com assinatura no Asaas
+  (`sub_bjqx815p5uh5acjz`).
+
+> **A casa de quem entra é `rotaInicial(user)`** (`utils/roles.ts`), não `/dashboard`.
+> Usuário comum sem a permissão Dashboard ia de `/dashboard` para `/` (o `PrivateRoute`)
+> e de `/` de volta para `/dashboard` — laço antigo, que ficou caro quando o `Layout`
+> passou a buscar a assinatura a cada montagem: ~1.400 requisições/min de um navegador
+> só (Jéssica, Panteras, 25/09/2026). Redirecionamento por permissão nunca vai para `/`.
 
 ### Caiu no lixo eletrônico do Outlook — e a autenticação estava certa (13/09/2026)
 
@@ -1652,6 +1780,25 @@ depois do envio — ela depende do que o registro devolve (PIX, link do boleto).
   separada dele: são consentimentos diferentes, e juntar os dois numa caixa só não
   é consentimento de nada. Com ele marcado, o registro devolve `whatsappUrl` e a
   confirmação mostra o botão "Receber no WhatsApp".
+
+## Esqueci minha senha (migration 087, 28/09/2026)
+
+Até esta data não existia: quem esquecia a senha dependia da equipe. Login →
+**Esqueci minha senha** (`/gestao/esqueci-senha`) → e-mail com link de 1 hora →
+`/gestao/redefinir-senha?token=…`. Tudo em `api/src/modules/auth/redefinir-senha.ts`
+e `frontend/src/pages/auth/RecuperarSenha.tsx`; testes em `tests/redefinir-senha.test.ts`.
+
+- **Sai pelo remetente institucional** (`remetenteDuoFuturo`, SMTP da empresa 1), no
+  molde das boas-vindas. Não pelo da empresa do cliente: ela pode não ter SMTP.
+- **A resposta ao pedido é sempre a mesma** e o e-mail sai sem `await` — nem o texto
+  nem o tempo de resposta dizem se o e-mail é de cliente. Mesmo com limite estourado.
+- **O banco guarda só o SHA-256 do token.** Uso único por `UPDATE ... WHERE usado_em IS
+  NULL RETURNING` (3 instâncias no cluster); link novo aposenta os anteriores.
+- Limite: 3 pedidos por usuário e 10 por IP na última hora. Usuário `ativo = false` não
+  recebe nada. E-mail comparado sem caixa (`lower`), o login não.
+- `/redefinir-senha` **não** redireciona quem está logado: o link pode abrir num
+  navegador com outra sessão, e a troca é da conta do link.
+- **O JWT não é revogado**: sessão já aberta continua até o fim das 8h.
 
 ## Suporte por ticket (`modules/suporte/`, migration 068)
 

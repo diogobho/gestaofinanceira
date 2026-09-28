@@ -107,6 +107,24 @@ async function travasDeBan() {
      WHERE status = 'pendente' AND erro_categoria = 'conflito_config'`);
   if (fu.rows[0].n > 0) no(`${fu.rows[0].n} follow-up pendente com conflito_config — deveria estar falhado`);
   else ok('nenhum follow-up preso em conflito_config');
+
+  // Primeiro contato AUTOMÁTICO saindo por chip QR (28/09/2026). A regra é do canal
+  // de quem envia, não só do plano: no Enterprise, quem está no QR não dispara nem
+  // faz cadência fria. Antes dela, os chips QR da Panteras mandavam ~700 por mês.
+  const qr = await query(`
+    SELECT u.id, u.nome, u.empresa_id, count(*)::int AS n
+      FROM historico_mensagens h
+      JOIN usuarios u ON u.id = h.usuario_id
+     WHERE h.direcao = 'saida' AND h.origem IN ('disparo', 'followup')
+       AND h.grupo_whatsapp_id IS NULL
+       AND h.created_at > now() - interval '24 hours'
+       AND coalesce(u.whatsapp_porta, 0) < 49000
+       AND NOT EXISTS (SELECT 1 FROM historico_mensagens e
+                        WHERE e.contato_whatsapp_id = h.contato_whatsapp_id AND e.direcao = 'entrada'
+                          AND e.grupo_whatsapp_id IS NULL AND e.created_at < h.created_at)
+     GROUP BY 1, 2, 3 ORDER BY n DESC`);
+  if (qr.rows.length) qr.rows.forEach((r) => no(`#${r.empresa_id} ${r.nome}: ${r.n} primeiro(s) contato(s) automático(s) pelo QR nas últimas 24h`));
+  else ok('nenhum primeiro contato automático saiu por chip QR nas últimas 24h');
 }
 
 /**

@@ -5,7 +5,7 @@ import { instancia } from './instancia';
 import { estadoJanela } from './janela';
 import { listarModelos, invalidarCacheModelos } from './modelos';
 import { credenciaisDa } from './contas';
-import { criarTemplate, contarVariaveis } from '../meta/meta-whatsapp.service';
+import { criarTemplate, contarVariaveis, excluirTemplate, BotaoTemplate } from '../meta/meta-whatsapp.service';
 
 /**
  * O que a tela precisa saber sobre o canal de WhatsApp de QUEM ESTÁ LOGADO: se é o
@@ -88,8 +88,24 @@ export const canalController = {
     }
 
     try {
+      const botoes: BotaoTemplate[] = (Array.isArray(req.body?.botoes) ? req.body.botoes : []).map((b: any) => ({
+        tipo: ['URL', 'PHONE_NUMBER'].includes(String(b?.tipo)) ? b.tipo : 'QUICK_REPLY',
+        texto: String(b?.texto ?? ''),
+        url: b?.url ? String(b.url).trim() : undefined,
+        telefone: b?.telefone ? String(b.telefone).replace(/[^\d+]/g, '') : undefined,
+      }));
       const criado = await criarTemplate(
-        { nome, corpo, categoria: categoria as any, idioma: String(req.body?.idioma || 'pt_BR'), exemplos },
+        {
+          nome,
+          corpo,
+          categoria: categoria as any,
+          idioma: String(req.body?.idioma || 'pt_BR'),
+          exemplos,
+          cabecalho: req.body?.cabecalho ? String(req.body.cabecalho) : undefined,
+          exemploCabecalho: req.body?.exemploCabecalho ? String(req.body.exemploCabecalho) : undefined,
+          rodape: req.body?.rodape ? String(req.body.rodape) : undefined,
+          botoes,
+        },
         credenciaisDa(conta)
       );
       invalidarCacheModelos(conta);
@@ -97,6 +113,25 @@ export const canalController = {
       return res.status(201).json({ modelo: criado, status: criado?.status ?? 'PENDING' });
     } catch (err: any) {
       return res.status(422).json({ message: err?.message || 'A Meta recusou o modelo' });
+    }
+  },
+
+  /**
+   * Exclui um modelo da WABA do usuário. Cadência e disparo que o usem passam a
+   * falhar com "modelo não existe" — a tela avisa antes de confirmar.
+   */
+  async excluirModelo(req: Request, res: Response) {
+    const empresaId = (req as any).user?.empresa_id;
+    const conta = await contaAtivaDoUsuario((req as any).user?.userId, empresaId);
+    if (!conta) return res.status(409).json({ message: 'Você não tem número oficial conectado.' });
+    const nome = String(req.params.nome || '').trim();
+    if (!/^[a-z0-9_]+$/.test(nome)) return res.status(400).json({ message: 'Nome de modelo inválido' });
+    try {
+      await excluirTemplate(nome, req.query.id ? String(req.query.id) : undefined, credenciaisDa(conta));
+      invalidarCacheModelos(conta);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(422).json({ message: err?.message || 'A Meta não excluiu o modelo' });
     }
   },
 

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { capacidadesDaEmpresa } from '../../shared/capacidades';
 import { AuthRequest } from '../../middlewares/auth.middleware';
-import { assinaturasService } from './assinaturas.service';
+import { assinaturasService, bloqueioDaEmpresa } from './assinaturas.service';
 import { isAdminEmpresa } from '../../shared/roles';
 
 export const assinaturasController = {
@@ -36,7 +36,16 @@ export const assinaturasController = {
       // (o `empresa_id` dele é da empresa 1 e o guard de rota já o libera antes).
       const capacidades = [...(await capacidadesDaEmpresa(empresaId))];
 
-      res.json({ assinatura, capacidades });
+      // A tela decide o bloqueio por este campo, e não recalculando a data: a regra
+      // (e o fuso do `trial_expira_em`) mora num lugar só, o mesmo do guard da API.
+      const bloqueio = assinatura ? await bloqueioDaEmpresa(empresaId, { fresco: true }) : null;
+
+      res.json({
+        assinatura: assinatura
+          ? { ...assinatura, bloqueio, trial_encerrado: bloqueio === 'trial_encerrado' }
+          : assinatura,
+        capacidades,
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

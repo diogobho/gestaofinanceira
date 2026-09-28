@@ -18,6 +18,7 @@ import {
   Mail, MailOpen, PartyPopper,
   CreditCard, Wallet,
   HeartHandshake, Handshake,
+  UsersRound,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -43,6 +44,7 @@ const navigationItems = [
   { name: 'Parcelas',     href: '/parcelas',           icon: DollarSign,      iconHover: BadgeDollarSign,   permissao: 'parcelas',  tour: 'nav-parcelas'       },
   { name: 'Sessões',      href: '/sessoes',            icon: Calendar,        iconHover: CalendarCheck,     permissao: 'sessoes',   tour: 'nav-sessoes'        },
   { name: 'WhatsApp',     href: '/whatsapp',           icon: MessageSquare,   iconHover: MessageSquareText, permissao: 'whatsapp',  capacidade: 'whatsapp_qr' as const,  tour: 'nav-whatsapp'       },
+  { name: 'Grupos',       href: '/grupos',             icon: UsersRound,      iconHover: UsersRound,        permissao: 'whatsapp',  capacidade: 'grupos_whatsapp' as const, tour: 'nav-grupos'     },
   // Varinha mágica (fada-madrinha): no hover ela "lança o feitiço" e viram faíscas
   { name: 'Agente IA',     href: '/agente-duo', icon: WandSparkles,    iconHover: Sparkles,          permissao: 'agente',    tour: 'nav-agente'         },
   // Sem `permissao`: pedir ajuda não depende de papel nem de módulo liberado.

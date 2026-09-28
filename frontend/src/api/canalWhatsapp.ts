@@ -34,6 +34,52 @@ export interface ModeloWhatsApp {
   variavelCabecalho: string | null
   suportado: boolean
   motivoNaoSuportado: string | null
+  motivoRecusa: string | null
+}
+
+export interface BotaoModelo {
+  tipo: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER'
+  texto: string
+  url?: string
+  telefone?: string
+}
+
+export interface NovoModelo {
+  nome: string
+  categoria: 'MARKETING' | 'UTILITY'
+  idioma: string
+  corpo: string
+  exemplos: string[]
+  cabecalho?: string
+  exemploCabecalho?: string
+  rodape?: string
+  botoes: BotaoModelo[]
+}
+
+/** O que a Meta diz sobre o número (`health_status` + limites). */
+export interface SaudeNumero {
+  numero: string | null
+  nomeExibido: string | null
+  statusNome: string | null
+  nomeNovo: string | null
+  statusNomeNovo: string | null
+  qualidade: string | null
+  limite: string | null
+  verificacao: string | null
+  status: string | null
+  modo: string | null
+  podeEnviar: string | null
+  pendencias: { nivel: string; podeEnviar: string; motivo: string; solucao: string | null }[]
+}
+
+export interface PerfilComercial {
+  about?: string
+  address?: string
+  description?: string
+  email?: string
+  websites?: string[]
+  vertical?: string
+  profile_picture_url?: string
 }
 
 export interface JanelaWhatsApp {
@@ -88,7 +134,30 @@ export const canalWhatsappApi = {
   conectarOficial: async (dados: { code: string; waba_id: string; phone_number_id: string; usuario_id?: number }) =>
     (await api.post('/whatsapp/canal/oficial/conectar', dados)).data,
 
-  desconectarOficial: async () => (await api.post('/whatsapp/canal/oficial/desconectar')).data,
+  desconectarOficial: async (contaId?: number) =>
+    (await api.post('/whatsapp/canal/oficial/desconectar', contaId ? { conta_id: contaId } : {})).data,
+
+  getSaude: async (): Promise<{ saude: SaudeNumero; wabaId: string }> =>
+    (await api.get('/whatsapp/canal/oficial/saude')).data,
+
+  getPerfil: async (): Promise<{ perfil: PerfilComercial; podeEditar: boolean }> =>
+    (await api.get('/whatsapp/canal/oficial/perfil')).data,
+
+  salvarPerfil: async (perfil: Omit<PerfilComercial, 'profile_picture_url'>) =>
+    (await api.put('/whatsapp/canal/oficial/perfil', perfil)).data,
+
+  trocarFoto: async (arquivo: File) => {
+    const form = new FormData()
+    form.append('foto', arquivo)
+    return (
+      await api.post('/whatsapp/canal/oficial/perfil/foto', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+    ).data
+  },
+
+  criarModelo: async (modelo: NovoModelo) => (await api.post('/whatsapp/canal/modelos', modelo)).data,
+
+  excluirModelo: async (nome: string, id?: string) =>
+    (await api.delete(`/whatsapp/canal/modelos/${encodeURIComponent(nome)}`, { params: id ? { id } : {} })).data,
 
   getModelos: async (forcar = false): Promise<ModeloWhatsApp[]> =>
     (await api.get('/whatsapp/canal/modelos', { params: forcar ? { forcar: 1 } : {} })).data.modelos ?? [],

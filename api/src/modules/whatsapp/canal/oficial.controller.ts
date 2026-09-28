@@ -8,8 +8,18 @@ import {
   salvarConta,
   ligarConta,
   desligarConta,
+  contaAtivaDoUsuario,
+  credenciaisDa,
+  ContaCloud,
 } from './contas';
 import { instancia } from './instancia';
+import {
+  consultarSaude,
+  lerPerfilComercial,
+  atualizarPerfilComercial,
+  trocarFotoPerfil,
+} from '../meta/meta-whatsapp.service';
+import { isAdminEmpresa, isSuperAdmin } from '../../../shared/roles';
 
 /**
  * Conectar o número oficial do CLIENTE — a ponta que faltava do canal oficial.
@@ -38,6 +48,48 @@ function alvoPermitido(req: Request): { ok: boolean; usuarioId: number } {
   const admin = ['master', 'creator'].includes(String((req as any).user?.tipo_usuario))
     || (req as any).user?.nivel === 'super_admin';
   return { ok: pedido === eu || admin, usuarioId: pedido };
+}
+
+/**
+ * O número que ESTA requisição pode administrar (perfil, desconexão).
+ *
+ * - sem `conta_id`: o número do próprio usuário;
+ * - com `conta_id`: um número da empresa dele — de outro operador só se ele for
+ *   administrador (master/creator);
+ * - o número da empresa inteira (`usuario_id` nulo) só o `super_admin` mexe:
+ *   desligá-lo tira o canal de todo mundo, e é o caso da conta institucional.
+ */
+async function contaGerenciavel(req: Request): Promise<{ conta: ContaCloud | null; erro?: string; status?: number }> {
+  const user = (req as any).user;
+  const eu = Number(user?.userId ?? user?.id);
+  const empresaId = Number(user?.empresa_id);
+  const pedido = Number(req.body?.conta_id ?? req.query?.conta_id) || null;
+
+  if (!pedido) {
+    const minha = await contaDoUsuario(eu);
+    if (minha) return { conta: minha };
+    const daEmpresa = await contaDaEmpresa(empresaId);
+    if (daEmpresa && isSuperAdmin(user)) return { conta: daEmpresa };
+    return {
+      conta: null,
+      status: daEmpresa ? 403 : 404,
+      erro: daEmpresa
+        ? 'Este é o número da empresa inteira — só a DuoFuturo altera.'
+        : 'Você não tem número oficial conectado.',
+    };
+  }
+
+  const conta = (await contasDaEmpresa(empresaId)).find((c) => c.id === pedido) ?? null;
+  if (!conta) return { conta: null, status: 404, erro: 'Número oficial não encontrado nesta empresa.' };
+  if (conta.usuario_id === eu) return { conta };
+  if (conta.usuario_id === null) {
+    return isSuperAdmin(user)
+      ? { conta }
+      : { conta: null, status: 403, erro: 'Este é o número da empresa inteira — só a DuoFuturo altera.' };
+  }
+  return isAdminEmpresa(user)
+    ? { conta }
+    : { conta: null, status: 403, erro: 'Só o dono do número ou um administrador da empresa altera.' };
 }
 
 export const oficialController = {
@@ -157,20 +209,87 @@ export const oficialController = {
   },
 
   /**
-   * Volta ao QR Code. Desliga só o número DO USUÁRIO — o número da empresa
-   * inteira é desligado pela DuoFuturo, no painel, porque derruba o canal de todos.
+   * Desvincula o número do CRM e devolve o operador ao QR Code. **Não apaga nada na
+   * Meta**: o número continua na conta do WhatsApp do cliente, e conectar de novo
+   * pela janela o traz de volta. O administrador desconecta o de um operador
+   * mandando `conta_id`; o número da empresa inteira é só da DuoFuturo.
    */
   async desconectar(req: Request, res: Response) {
-    const usuarioId = Number((req as any).user?.userId ?? (req as any).user?.id);
-    const minha = await contaDoUsuario(usuarioId);
-    if (!minha) {
-      return res.status(404).json({ message: 'Você não tem número oficial próprio conectado.' });
-    }
+    const { conta, erro, status } = await contaGerenciavel(req);
+    if (!conta) return res.status(status ?? 404).json({ message: erro });
     try {
-      await desligarConta(minha.id);
+      await desligarConta(conta.id);
+      console.log(
+        `[Cloud API] número oficial DESCONECTADO do CRM — conta #${conta.id}, empresa #${conta.empresa_id}, ` +
+          `por usuário #${(req as any).user?.userId}`
+      );
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(400).json({ message: err?.message || 'Não foi possível desconectar' });
+    }
+  },
+
+  /**
+   * O que limita o envio, dito pela própria Meta (`health_status`): limite de
+   * contatos novos por dia, qualidade, nome em análise, portfólio sem verificação.
+   * Só leitura — aberto a quem fala pelo número.
+   */
+  async saude(req: Request, res: Response) {
+    const user = (req as any).user;
+    const conta = await contaAtivaDoUsuario(user?.userId, user?.empresa_id);
+    if (!conta) return res.status(404).json({ message: 'Você não tem número oficial conectado.' });
+    try {
+      return res.json({ saude: await consultarSaude(credenciaisDa(conta)), wabaId: conta.waba_id });
+    } catch (err: any) {
+      return res.status(502).json({ message: `A Meta não respondeu: ${err.message}` });
+    }
+  },
+
+  async getPerfil(req: Request, res: Response) {
+    const user = (req as any).user;
+    const conta = await contaAtivaDoUsuario(user?.userId, user?.empresa_id);
+    if (!conta) return res.status(404).json({ message: 'Você não tem número oficial conectado.' });
+    const pode = await contaGerenciavel(req);
+    try {
+      return res.json({ perfil: await lerPerfilComercial(credenciaisDa(conta)), podeEditar: !!pode.conta });
+    } catch (err: any) {
+      return res.status(502).json({ message: `A Meta não respondeu: ${err.message}` });
+    }
+  },
+
+  async putPerfil(req: Request, res: Response) {
+    const { conta, erro, status } = await contaGerenciavel(req);
+    if (!conta) return res.status(status ?? 404).json({ message: erro });
+    const b = req.body ?? {};
+    const campos: any = {};
+    // Limites da Meta: sobre 139, descrição 512, endereço 256, e-mail 128, até 2 sites.
+    if (b.about !== undefined) campos.about = String(b.about).slice(0, 139);
+    if (b.description !== undefined) campos.description = String(b.description).slice(0, 512);
+    if (b.address !== undefined) campos.address = String(b.address).slice(0, 256);
+    if (b.email !== undefined) campos.email = String(b.email).slice(0, 128);
+    if (Array.isArray(b.websites)) campos.websites = b.websites.map(String).filter(Boolean).slice(0, 2);
+    if (b.vertical) campos.vertical = String(b.vertical);
+    try {
+      await atualizarPerfilComercial(campos, credenciaisDa(conta));
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message });
+    }
+  },
+
+  async postFotoPerfil(req: Request, res: Response) {
+    const { conta, erro, status } = await contaGerenciavel(req);
+    if (!conta) return res.status(status ?? 404).json({ message: erro });
+    const arquivo = (req as any).file as { buffer: Buffer; mimetype: string; size: number } | undefined;
+    if (!arquivo) return res.status(400).json({ message: 'Envie a imagem' });
+    if (arquivo.mimetype !== 'image/jpeg' && arquivo.mimetype !== 'image/png') {
+      return res.status(400).json({ message: 'A foto do perfil precisa ser JPG ou PNG' });
+    }
+    try {
+      await trocarFotoPerfil(arquivo.buffer, arquivo.mimetype, credenciaisDa(conta));
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message });
     }
   },
 

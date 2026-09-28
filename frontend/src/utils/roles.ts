@@ -42,3 +42,32 @@ export const rotuloTipo = (u?: RoleCarrier | null): string => {
   if (u?.tipo_usuario === 'master') return 'Master'
   return 'Usuário'
 }
+
+interface PermissoesCarrier extends RoleCarrier {
+  permissoes?: object | null
+}
+
+// Ordem do menu: a primeira tela liberada é a casa de quem não tem o Dashboard.
+const TELAS_POR_PERMISSAO: [string, string][] = [
+  ['dashboard', '/dashboard'],
+  ['crm', '/crm'],
+  ['clientes', '/clientes'],
+  ['receitas', '/receitas'],
+  ['despesas', '/despesas'],
+  ['parcelas', '/parcelas'],
+  ['sessoes', '/sessoes'],
+  ['whatsapp', '/whatsapp'],
+]
+
+/**
+ * Para onde vai quem entra (ou cai numa tela sem permissão). Era sempre `/dashboard`,
+ * e o `PrivateRoute` devolvia para `/` quem não tinha essa permissão — que mandava de
+ * volta para `/dashboard`: laço infinito (25/09/2026, usuária comum da Panteras sem
+ * Dashboard, ~1.400 requisições por minuto). Sem nenhuma tela liberada sobra o
+ * Suporte, que não depende de permissão.
+ */
+export const rotaInicial = (u?: PermissoesCarrier | null): string => {
+  if (!u || isAdminEmpresa(u)) return '/dashboard'
+  const p = (u.permissoes || {}) as Record<string, boolean | undefined>
+  return TELAS_POR_PERMISSAO.find(([chave]) => p[chave] !== false)?.[1] ?? '/suporte'
+}

@@ -25,6 +25,22 @@ export const authApi = {
     await api.put('/auth/senha', payload)
   },
 
+  /** Resposta sempre igual, exista a conta ou não. */
+  esqueciSenha: async (email: string): Promise<{ message: string }> => {
+    const { data } = await api.post('/auth/esqueci-senha', { email })
+    return data
+  },
+
+  conferirLinkSenha: async (token: string): Promise<{ valido: boolean; email?: string }> => {
+    const { data } = await api.get(`/auth/redefinir-senha/${encodeURIComponent(token)}`)
+    return data
+  },
+
+  redefinirSenha: async (token: string, novaSenha: string): Promise<{ message: string }> => {
+    const { data } = await api.post('/auth/redefinir-senha', { token, novaSenha })
+    return data
+  },
+
   registrar: async (payload: {
     nome_empresa: string;
     nome_usuario: string;

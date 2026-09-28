@@ -1,10 +1,12 @@
 import React from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { rotaInicial } from '@/utils/roles'
 import { PrivateRoute } from './PrivateRoute'
 import { Layout } from '@/components/layout'
 import { Login } from '@/pages/auth/Login'
 import { Register } from '@/pages/auth/Register'
+import { EsqueciSenha, RedefinirSenha } from '@/pages/auth/RecuperarSenha'
 import { DashboardComAbas } from '@/pages/dashboard/DashboardComAbas'
 import { LandingPage } from '@/pages/landing/LandingPage'
 import { ClientsList } from '@/pages/clientes/ClientsList'
@@ -23,24 +25,33 @@ import { Suporte } from '@/pages/suporte/Suporte'
 import { EmailConfig } from '@/pages/configuracoes/EmailConfig'
 import { Planos } from '@/pages/planos/Planos'
 import { MinhaConta } from '@/pages/minha-conta/MinhaConta'
+import { Grupos } from '@/pages/grupos/Grupos'
 
 const AppRoutes: React.FC = () => {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
+  const casa = rotaInicial(user)
 
   return (
     <Routes>
       <Route
         path="/"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />}
+        element={isAuthenticated ? <Navigate to={casa} replace /> : <LandingPage />}
       />
       <Route
         path="/login"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />}
+        element={isAuthenticated ? <Navigate to={casa} replace /> : <Login />}
       />
       <Route
         path="/register"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Register />}
+        element={isAuthenticated ? <Navigate to={casa} replace /> : <Register />}
       />
+      <Route
+        path="/esqueci-senha"
+        element={isAuthenticated ? <Navigate to={casa} replace /> : <EsqueciSenha />}
+      />
+      {/* Sem redirecionar quem está logado: o link do e-mail pode abrir num
+          navegador com outra sessão aberta, e a troca é da conta do link. */}
+      <Route path="/redefinir-senha" element={<RedefinirSenha />} />
 
       <Route
         element={
@@ -103,6 +114,14 @@ const AppRoutes: React.FC = () => {
           element={
             <PrivateRoute requiredPermission="whatsapp" requiredCapacidade="whatsapp_qr">
               <WhatsAppConfig />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/grupos"
+          element={
+            <PrivateRoute requiredPermission="whatsapp" requiredCapacidade="grupos_whatsapp">
+              <Grupos />
             </PrivateRoute>
           }
         />
@@ -199,7 +218,7 @@ const AppRoutes: React.FC = () => {
         />
       </Route>
 
-      <Route path="*" element={<Navigate to={isAuthenticated ? '/dashboard' : '/'} replace />} />
+      <Route path="*" element={<Navigate to={isAuthenticated ? casa : '/'} replace />} />
     </Routes>
   )
 }

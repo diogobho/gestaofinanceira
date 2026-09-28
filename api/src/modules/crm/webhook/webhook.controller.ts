@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { registrarEntradas } from '../../grupos/grupos.service';
 import { query } from '../../../config/database';
 import { adicionarJobAgente } from '../../agente-ia/agente-ia.queue';
 import { automacoesGrupoService as automacoesService } from '../../automacoes/automacoes-grupo.service';
@@ -585,6 +586,13 @@ export const webhookController = {
       // Reação (#188, migration 086): atributo da mensagem reagida, nunca um balão.
       // A mensagem é achada pelo id do WhatsApp dentro da empresa do dono da porta —
       // o mesmo recorte que impede a conversa de uma empresa aparecer em outra.
+      // Entrada em grupo (migration 088): vira fila de boas-vindas do dono da porta.
+      // Nada disso é conversa — não toca contato, lead nem histórico.
+      if (req.body.event === 'group_participants') {
+        const n = await registrarEntradas(donoInstancia.id, donoInstancia.empresa_id, String(req.body.groupId || from), req.body.participants || []);
+        return res.json({ success: true, processed: n > 0, enfileirados: n });
+      }
+
       if (req.body.event === 'reaction') {
         const { targetId, emoji } = req.body;
         if (!targetId) return res.json({ success: true, processed: false, reason: 'reacao_sem_alvo' });

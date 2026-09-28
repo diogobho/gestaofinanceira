@@ -380,7 +380,7 @@ export default function CRMKanban() {
             {/* Disparo em massa por WhatsApp é do Enterprise (API Oficial da Meta):
                 num número comum ele é o que mais causa bloqueio. O botão fica no
                 lugar, apagado, explicando — quem não pode precisa saber por quê. */}
-            <BotaoDoPlano capacidade="disparo_whatsapp">
+            <BotaoDoPlano capacidade="disparo_whatsapp" exigeOficial>
               <button
                 data-tour="crm-disparar"
                 onClick={() => setShowDisparoModal(true)}

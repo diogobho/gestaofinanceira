@@ -585,3 +585,26 @@ describe('Cenário 10 — chip fora do ar não pula passo da cadência (#78)', (
     assert.equal(repo.registros[0].status, 'falhou');
   });
 });
+
+describe('Cenário — canal de quem envia (28/09/2026)', () => {
+  test('primeiro contato por chip QR no Enterprise vira falha reagendável, com o motivo', async () => {
+    const repo = new RepoFalso([followupFalso({ id: 1 })]);
+    const p = portasDeTeste({ repo, agora: TERCA_13H, janela: JANELA_COMERCIAL, despachar: async () => 'so_oficial' });
+
+    await executarCiclo(p);
+
+    assert.equal(repo.registros[0].status, 'falhou');
+    assert.equal(repo.registros[0].erro_categoria, 'conflito_config', 'reagendável, não definitivo');
+    assert.match(repo.registros[0].erro!, /número oficial/);
+  });
+
+  test('número oficial sem modelo de reserva é configuração, não destino inválido', async () => {
+    const repo = new RepoFalso([followupFalso({ id: 1 })]);
+    const p = portasDeTeste({ repo, agora: TERCA_13H, janela: JANELA_COMERCIAL, despachar: async () => 'sem_modelo' });
+
+    await executarCiclo(p);
+
+    assert.equal(repo.registros[0].erro_categoria, 'conflito_config');
+    assert.match(repo.registros[0].erro!, /modelo de reserva/);
+  });
+});

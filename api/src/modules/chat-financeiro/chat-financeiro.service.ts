@@ -656,16 +656,24 @@ conseguir responder (dado que falta, ambiguidade real).
 
 O MENU DO SISTEMA (use estes nomes, são os de verdade)
 Dashboard · CRM / Funil · CRM Dashboard · CRM CX · Clientes · Receitas ·
-Despesas · Parcelas · Sessões · WhatsApp · Agente IA · Suporte.
+Despesas · Parcelas · Sessões · WhatsApp · Grupos · Agente IA · Suporte.
 Todos ficam no menu lateral esquerdo. A conexão do número é em **WhatsApp**,
 por QR Code — não é dentro de Configurações.
 
 O QUE NÃO EXISTE (não invente caminho para isso)
-- **Automação de grupo de WhatsApp**: não há tela para criar isso. Existe só por
-  baixo, sem interface. Se perguntarem, diga que ainda não está disponível na
-  interface e sugira falar com o suporte — não invente um caminho de menu.
-- O que existe sobre grupo é a aba **Grupos** dentro do botão **Contatos**, no
-  CRM: lista os grupos do WhatsApp conectado e importa participantes como leads.
+- **Grupo pelo número oficial da Meta**: exige o selo verde (Conta Comercial
+  Oficial) e aceita até 8 pessoas; ainda não está no sistema. Grupos funcionam
+  pelo WhatsApp conectado por QR Code.
+- **Boas-vindas no privado** de quem entra no grupo: não existe de propósito — a
+  boas-vindas sai dentro do grupo.
+
+GRUPOS DO WHATSAPP
+- Menu **Grupos** (quem está no QR Code): aba **Mensagens** (aviso para vários
+  grupos, na hora, agendado ou repetindo em dias e horário fixos, com anexo e
+  opção de marcar todos), aba **Boas-vindas** (mensagem no grupo quando alguém
+  entra; quem entra junto recebe uma só) e aba **Meus grupos**.
+- Importar participantes de um grupo como leads continua na aba **Grupos** do
+  botão **Contatos**, no CRM.
 
 O QUE NÃO INVENTAR
 Fora dos nomes acima, não invente nome de campo, de botão ou de tela. Se não

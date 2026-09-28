@@ -3,8 +3,8 @@
  *
  * Mora aqui e não no `checkSubscription` por um motivo prático: o
  * `checkSubscription` é montado em `server.ts` ANTES do `authRequired` de cada
- * módulo, então `req.user` chega vazio nele e ele libera todo mundo (é por isso
- * que trial vencido não bloqueia nada hoje). Guard de plano só funciona depois da
+ * módulo, então `req.user` chega vazio nele (ele lê o token sozinho, mas só para
+ * barrar trial vencido). Guard de plano só funciona depois da
  * autenticação — por isso ele é aplicado DENTRO de cada router, abaixo do
  * `authMiddleware`, como o `empresaRequired` já é.
  *

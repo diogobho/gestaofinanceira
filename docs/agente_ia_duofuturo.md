@@ -32,21 +32,21 @@ O básico (conta, WhatsApp conectado, funil pronto) fica pronto em menos de 1 di
 Caso real: uma escola de empreendedorismo roda todo o comercial na plataforma. Os leads chegam de anúncios e indicações, a IA qualifica cada um pelo WhatsApp, agenda a reunião com o time e manda os lembretes, e quem silencia entra em cadências de retomada. Milhares de leads, um funil só, sem planilha.
 
 PLANOS E PREÇOS (valores oficiais, pode informar)
-Todos os planos têm 7 dias grátis, sem cartão. Pagamento por cartão, boleto ou Pix. No mensal não há fidelidade nem multa; nos compromissos maiores a mensalidade cai.
+Todos os planos têm 7 dias grátis, sem cartão. Pagamento por cartão, boleto ou Pix. Depois do teste, a assinatura é semestral ou anual; no anual a mensalidade cai. Não existe mais plano mensal nem trimestral — se o cliente pedir, explique que o compromisso mínimo é de 6 meses.
 
 Starter, "para organizar a casa". 2 usuários. Dashboard financeiro com gráficos, receitas, despesas e parcelamentos, categorias personalizadas, assistente de IA financeiro e notificações de cobrança.
-Mensal R$ 79/mês · trimestral R$ 72/mês (R$ 216 por trimestre) · semestral R$ 69/mês (R$ 414 por semestre) · anual R$ 59/mês (R$ 708 por ano).
+Semestral R$ 69/mês (R$ 414 por semestre) · anual R$ 59/mês (R$ 708 por ano).
 
 Profissional, "para atender e organizar o funil", o mais escolhido. 2 usuários inclusos, adicionais de R$ 100/mês (até 10). Tudo do Starter, mais CRM completo com funil Kanban, WhatsApp por QR Code (o número que a empresa já usa), conversa e histórico dentro do card, agente de IA que responde os clientes, follow-up de quem já respondeu, disparos de e-mail para leads, importação de leads por planilha, sessões e agendamentos, e suporte prioritário.
 NÃO tem disparo em massa no WhatsApp: num número comum, é o que mais expõe a bloqueio. Quem precisa prospectar usa o Enterprise, pelo canal oficial da Meta.
-Mensal R$ 219/mês · trimestral R$ 199/mês (R$ 597 por trimestre) · semestral R$ 189/mês (R$ 1.134 por semestre) · anual R$ 169/mês (R$ 2.028 por ano).
+Semestral R$ 189/mês (R$ 1.134 por semestre) · anual R$ 169/mês (R$ 2.028 por ano).
 
 Enterprise, "para prospectar sem risco". 4 usuários inclusos, adicionais de R$ 100/mês (até 30). Tudo do Profissional, mais a API Oficial do WhatsApp (Meta) com número verificado, disparo de WhatsApp em massa, modelos de mensagem aprovados pela Meta, agente de IA proativo (que inicia conversa), WhatsApp exclusivo por usuário, e-mail com o domínio da própria empresa (SMTP personalizado), suporte dedicado e acesso a integrações sob medida (orçadas à parte).
 As mensagens do canal oficial são cobradas pela Meta, direto na conta do cliente, conforme o volume enviado.
-Mensal R$ 397/mês · trimestral R$ 359/mês (R$ 1.077 por trimestre) · semestral R$ 339/mês (R$ 2.034 por semestre) · anual R$ 299/mês (R$ 3.588 por ano).
+Semestral R$ 339/mês (R$ 2.034 por semestre) · anual R$ 299/mês (R$ 3.588 por ano).
 
 Usuário adicional custa R$ 100/mês em qualquer compromisso; o desconto de fidelidade vale para o plano, não para o usuário extra. Dá para aumentar ou reduzir usuários quando quiser, pelo painel.
-Conta de equipe (faça sempre antes de indicar o plano): o Enterprise já inclui 4 usuários, então a partir de 5 pessoas ele sai MAIS BARATO que o Profissional. Equipe de 5: Enterprise R$ 497/mês (R$ 397 + 1 adicional; no anual R$ 399/mês) contra Profissional R$ 519/mês (R$ 219 + 3 adicionais; no anual R$ 469/mês). Equipe de 3: Profissional R$ 319/mês. Equipe de 4: Profissional R$ 419/mês ou Enterprise R$ 397/mês (o Enterprise já é mais barato e mais completo).
+Conta de equipe (faça sempre antes de indicar o plano): o Enterprise já inclui 4 usuários, então a partir de 5 pessoas ele sai MAIS BARATO que o Profissional. Valores no semestral, com o anual entre parênteses. Equipe de 5: Enterprise R$ 439/mês (R$ 339 + 1 adicional; no anual R$ 399/mês) contra Profissional R$ 489/mês (R$ 189 + 3 adicionais; no anual R$ 469/mês). Equipe de 3: Profissional R$ 289/mês (anual R$ 269/mês). Equipe de 4: Profissional R$ 389/mês (anual R$ 369/mês) ou Enterprise R$ 339/mês (anual R$ 299/mês) — o Enterprise já é mais barato e mais completo.
 O que decide entre os dois NÃO é o tamanho da equipe nem a IA — o agente que responde já vem no Profissional. O que decide é se a empresa precisa FALAR PRIMEIRO com quem ainda não a conhece. Se precisa, é Enterprise; se o movimento é atender quem chega, o Profissional resolve.
 Comparação de mercado: uma equipe de 5 pessoas num CRM internacional típico, cobrado por usuário, custa cerca de R$ 680/mês e ainda não tem financeiro nem WhatsApp.
 

@@ -9,8 +9,8 @@ responde quem escreve e não consegue iniciar nada.
 
 1. **Modelo não atravessa conta.** Cada WABA aprova os seus; o nome só existe dentro
    dela. Os modelos da DuoFuturo não valem na conta do cliente — cada cliente cria os
-   dele, em `Agente IA → Modelos` (ou `POST /whatsapp/canal/modelos`), depois de
-   conectar o número.
+   dele, em `WhatsApp → aba Modelos → Criar modelo` (ou `POST /whatsapp/canal/modelos`),
+   depois de conectar o número.
 2. **Aprovação leva de minutos a 24h.** MARKETING é o que mais demora e o que mais
    é recusado. Criar no mesmo dia em que se pretende disparar é apostar.
 3. **Número novo começa no degrau de 250 conversas iniciadas por 24h.** O degrau sobe
@@ -32,6 +32,11 @@ responde quem escreve e não consegue iniciar nada.
 - `{{n}}` sem exemplo. A tela barra antes de chamar a Meta e diz qual falta.
 
 ## Modelos prontos
+
+> Os seis abaixo estão **na tela**, como "Começar de um modelo pronto" no Criar modelo
+> (`frontend/src/pages/whatsapp/oficial/modelosProntos.ts`, que passou a ser a fonte —
+> mudou um texto, mude lá). `tests/modelos-meta.test.ts` passa cada um pelo
+> `problemaNoTemplate`.
 
 Categoria **MARKETING**, idioma `pt_BR`. O que faz o texto ser aprovado *e* funcionar é
 o mesmo: **dizer de onde a pessoa veio na primeira linha.** Abordagem que não se explica

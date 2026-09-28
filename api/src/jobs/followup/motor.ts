@@ -67,7 +67,9 @@ export type ResultadoDespacho =
   | 'config_ausente'   // empresa sem linha em agente_ia_config: não se resolve esperando
   | 'sem_destino'      // lead sem telefone/contato utilizável
   | 'sem_conteudo'     // follow-up sem texto e sem mídia
-  | 'sem_capacidade';  // o plano não inclui falar primeiro com quem nunca escreveu
+  | 'sem_capacidade'   // o plano não inclui falar primeiro com quem nunca escreveu
+  | 'so_oficial'       // o plano inclui, mas o chip do responsável é QR Code
+  | 'sem_modelo';      // número oficial, janela fechada e passo sem modelo de reserva
 
 export interface PortaFollowups {
   buscarPendentes(limite?: number): Promise<any[]>;
@@ -403,6 +405,29 @@ async function processarFilaDoChip(
           'conflito_config');
         resumo.falhados++;
         p.logger.warn(`#${followup.id} (lead #${followup.lead_id}): contato frio e empresa ${ctx.empresaId} sem a capacidade conversa_fria`);
+      } else if (r === 'so_oficial') {
+        // O plano permite, o CANAL não: o primeiro contato é o que a Meta pune num
+        // número comum, e é a linha que separa os planos. No Enterprise quem ainda
+        // está no QR fala só com quem já escreveu, como no Profissional.
+        await p.followups.marcarFalhou(followup.id,
+          'Este contato nunca escreveu para você, e o primeiro contato só sai pelo número oficial '
+          + 'da Meta. O responsável por este lead está no WhatsApp por QR Code: conecte o número '
+          + 'oficial dele ou passe o lead para quem já está no oficial. A cadência volta a valer '
+          + 'para ele assim que o contato responder.',
+          'conflito_config');
+        resumo.falhados++;
+        p.logger.warn(`#${followup.id} (lead #${followup.lead_id}): contato frio e responsável ${ctx.chipId} no QR — primeiro contato só pelo oficial`);
+      } else if (r === 'sem_modelo') {
+        // Configuração, não destino: o mesmo passo sai assim que ganhar um modelo de
+        // reserva. Como `destino_invalido` ele sumia sem volta — foram 96 passos da
+        // Débora em 2 minutos, no dia em que ela conectou o número oficial.
+        await p.followups.marcarFalhou(followup.id,
+          'Este contato não escreveu nas últimas 24h, e fora dessa janela o número oficial só '
+          + 'entrega modelo aprovado pela Meta. Escolha um modelo de reserva neste passo da '
+          + 'cadência e reagende.',
+          'conflito_config');
+        resumo.falhados++;
+        p.logger.warn(`#${followup.id} (lead #${followup.lead_id}): janela de 24h fechada e passo sem modelo de reserva`);
       } else if (r === 'sem_destino' || r === 'sem_conteudo') {
         const motivo = r === 'sem_destino'
           ? 'Lead sem telefone válido para envio no WhatsApp'

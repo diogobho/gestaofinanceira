@@ -209,7 +209,21 @@ pelo Embedded Signup. Nada disso existe no código: o painel de hoje fala só co
 WABA da DuoFuturo, e a `whatsapp_cloud_contas` (migration 074) guarda **uma linha
 só**, a nossa.
 
-A **Fase 0** do plano não dependia da aprovação e continua pendente:
+> **Atualização 25/09/2026 — Fase 0 feita.** `META_APP_ID`, `META_APP_SECRET` e
+> `META_ES_CONFIG_ID` estão no `.env` (secret conferido gerando app token por
+> `client_credentials`); `duofuturo.tech` está em `app_domains`; o webhook do app
+> assina `messages`, `account_update`, `message_template_status_update`,
+> `phone_number_quality_update` e mais seis campos. `META_TOKEN_KEY` não existe no
+> código: `token_enc` e `pin_enc` usam `SMTP_ENCRYPTION_KEY` (`utils/crypto.ts`).
+> O `META_ES_CONFIG_ID` não é legível pela Graph API (erro 100/33 mesmo válido) —
+> só se prova abrindo a janela. A lista abaixo é o estado de 19/09.
+>
+> Primeira abertura real (25/09/2026) parou em **"A opção JSSDK não está ativada"**:
+> em Login do Facebook para Empresas → Configurações, *Login com o SDK do JavaScript*
+> tem que estar **Sim** e `https://duofuturo.tech/` em *Domínios permitidos para o
+> SDK do JavaScript*. `app_domains` preenchido não basta — são campos diferentes.
+
+A **Fase 0** do plano não dependia da aprovação e estava pendente em 19/09:
 
 - `.env` sem `META_APP_ID`, `META_APP_SECRET`, `META_ES_CONFIG_ID` e `META_TOKEN_KEY`;
 - **o webhook aceita POST sem assinatura.** O código já valida

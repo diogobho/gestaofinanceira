@@ -26,6 +26,7 @@ import assinaturasRoutes from './modules/assinaturas/assinaturas.routes';
 import suporteRoutes from './modules/suporte/suporte.routes';
 import midiaRoutes from './modules/midia/midia.routes';
 import automacoesRoutes from './modules/automacoes/automacoes.routes';
+import gruposRoutes from './modules/grupos/grupos.routes';
 import pluggyRoutes from './modules/pluggy/pluggy.routes';
 import pluggyWebhookRoutes from './modules/pluggy/pluggy.webhook.routes';
 import contaazulRoutes from './modules/contaazul/contaazul.routes';
@@ -54,6 +55,8 @@ import './jobs/midia-retencao-scheduler';
 
 // Aviso de fim do teste grátis (1 dia antes, 09:00 de Brasília)
 import './jobs/trial-aviso-scheduler';
+import './jobs/trial-suspensao-scheduler';
+import './jobs/grupos-scheduler';
 
 // Agente IA — worker BullMQ
 import { iniciarWorkerAgente } from './modules/agente-ia/agente-ia.queue';
@@ -179,6 +182,8 @@ app.use('/api', suporteRoutes);
 app.use('/api/gestao', suporteRoutes);
 app.use('/api/automacoes', automacoesRoutes);
 app.use('/api/gestao/automacoes', automacoesRoutes);
+app.use('/api/grupos', gruposRoutes);
+app.use('/api/gestao/grupos', gruposRoutes);
 app.use('/api/pluggy', pluggyRoutes);
 app.use('/api/gestao/pluggy', pluggyRoutes);
 app.use('/api/onboarding', onboardingRoutes);

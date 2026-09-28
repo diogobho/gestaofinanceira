@@ -36,7 +36,8 @@ const SQL_PROTEGIDOS = `
   UNION SELECT (regexp_matches(followup_config::text,   '/uploads/[^"\\s\\\\]+', 'g'))[1] FROM estagios_funil WHERE followup_config IS NOT NULL
   UNION SELECT (regexp_matches(reuniao_lembretes::text, '/uploads/[^"\\s\\\\]+', 'g'))[1] FROM estagios_funil WHERE reuniao_lembretes IS NOT NULL
   UNION SELECT (regexp_matches(config::text,            '/uploads/[^"\\s\\\\]+', 'g'))[1] FROM automacoes WHERE config IS NOT NULL
-  UNION SELECT (regexp_matches(configuracao_json::text, '/uploads/[^"\\s\\\\]+', 'g'))[1] FROM disparos_crm WHERE configuracao_json IS NOT NULL`;
+  UNION SELECT (regexp_matches(configuracao_json::text, '/uploads/[^"\\s\\\\]+', 'g'))[1] FROM disparos_crm WHERE configuracao_json IS NOT NULL
+  UNION SELECT media_url FROM grupos_mensagens WHERE media_url IS NOT NULL`;
 
 export interface RelatorioEmpresa {
   empresa_id: number;

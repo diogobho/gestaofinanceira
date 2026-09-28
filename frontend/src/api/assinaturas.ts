@@ -98,12 +98,19 @@ export function economiaAnual(plano: Plano, ciclo: PlanoCiclo): number {
   return Math.round((referencia - Number(ciclo.preco_mensal)) * 12 * 100) / 100;
 }
 
+/** Estados que só a Minha Conta e a escolha de plano abrem; a saída é pagar. */
+export type BloqueioConta = 'trial_encerrado' | 'suspensa' | 'aguardando_pagamento'
+
 export interface Assinatura {
   id: number;
   empresa_id: number;
   plano_id: number | null;
   status: 'trial' | 'ativa' | 'aguardando_pagamento' | 'suspensa' | 'cancelada' | 'expirada';
   trial_expira_em: string | null;
+  /** Por que a conta está sem acesso (null = liberada) — decidido pela API, a mesma regra do guard. */
+  bloqueio?: BloqueioConta | null;
+  /** Trial com a data vencida (atalho de `bloqueio === 'trial_encerrado'`). */
+  trial_encerrado?: boolean;
   plano_ativo_ate: string | null;
   asaas_customer_id: string | null;
   asaas_subscription_id: string | null;

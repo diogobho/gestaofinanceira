@@ -1,5 +1,5 @@
 import React from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useAuth } from '@/contexts/AuthContext'
@@ -90,6 +90,11 @@ export const Login: React.FC = () => {
                 error={errors.senha?.message}
                 {...register('senha')}
               />
+              <div className="text-right -mt-2">
+                <Link to="/esqueci-senha" className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-200 dark:hover:text-white font-medium">
+                  Esqueci minha senha
+                </Link>
+              </div>
             </div>
 
             {/* No escuro o navy-600 quase some no fundo gray-900 — sobe um tom. */}

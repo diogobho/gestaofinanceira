@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { TOUR_SIDEBAR_EVENT } from '@/contexts/TourContext'
 import { useSwipeable } from 'react-swipeable'
-import { Menu } from 'lucide-react'
+import { LogOut, Menu } from 'lucide-react'
 // Símbolo quadrado (o logo.png original é 1920x1080 e ficaria minúsculo em h-7).
 import iconeApp from '/icons/icon-192.png'
 import { Sidebar } from './Sidebar'
@@ -10,14 +10,27 @@ import { SubscriptionExpired } from '@/components/ui/SubscriptionExpired'
 import { useAssinatura } from '@/hooks/useAssinatura'
 import { useAuth } from '@/contexts/AuthContext'
 import DuoWidget from '@/components/DuoWidget'
+import { AvisoContaBloqueada } from '@/components/assinatura/AvisoContaBloqueada'
 
 const ROTAS_LIVRES = ['/planos', '/minha-conta', '/perfil']
 
 export const Layout: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const { user } = useAuth()
-  const { assinatura, isBloqueado } = useAssinatura()
+  const { user, logout } = useAuth()
+  const { assinatura, isBloqueado, bloqueio, loading: carregandoAssinatura } = useAssinatura()
   const location = useLocation()
+  // Aviso de conta sem acesso: uma vez por sessão e por motivo (sessionStorage pode
+  // faltar — aba anônima, bloqueio de site —, e aí ele só volta a aparecer).
+  const chaveAviso = `aviso_bloqueio_${bloqueio ?? ''}_${user?.empresa_id ?? ''}`
+  const [avisoFechado, setAvisoFechado] = useState<string | null>(null)
+  const avisoAberto = (() => {
+    if (avisoFechado === chaveAviso) return false
+    try { return sessionStorage.getItem(chaveAviso) !== '1' } catch { return true }
+  })()
+  const fecharAviso = React.useCallback(() => {
+    setAvisoFechado(chaveAviso)
+    try { sessionStorage.setItem(chaveAviso, '1') } catch { /* só não lembra */ }
+  }, [chaveAviso])
 
   // O tour guiado abre/fecha a sidebar no mobile via evento (ver TourContext)
   useEffect(() => {
@@ -55,7 +68,46 @@ export const Layout: React.FC = () => {
   const ROTAS_ALTURA_CHEIA = ['/crm', '/crm-cx']
   const alturaCheia = ROTAS_ALTURA_CHEIA.includes(location.pathname)
 
-  // Tela de bloqueio total (trial/plano expirado) — não para super_admin nem rotas livres
+  // Só na primeira carga da sessão: sem a assinatura não dá para saber se a página
+  // pedida pode ser aberta.
+  if (carregandoAssinatura && !assinatura) {
+    return <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-900" aria-busy="true" />
+  }
+
+  // Conta sem acesso (25/09/2026) — trial encerrado, suspensa ou aguardando
+  // pagamento: só a Minha Conta e a escolha de plano. O resto do sistema redireciona
+  // para lá — a API também recusa com 402, então isto é a porta visível, não a única.
+  // Sem menu nem Duo: nada ali levaria a lugar nenhum além de volta para cá.
+  if (bloqueio && user?.nivel !== 'super_admin') {
+    const liberada = ['/minha-conta', '/planos'].some(r => location.pathname.startsWith(r))
+    if (!liberada) return <Navigate to="/minha-conta" replace />
+    return (
+      <div className="flex h-screen flex-col bg-gray-50 dark:bg-gray-900">
+        <header className="flex shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] dark:border-gray-700 dark:bg-gray-800 sm:px-6">
+          <img src={iconeApp} alt="" className="h-7 w-7" />
+          <span className="text-base font-bold text-brand-navy dark:text-white">DuoFuturo</span>
+          <button
+            type="button"
+            onClick={logout}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            <LogOut size={16} /> Sair
+          </button>
+        </header>
+        <div className="flex-1 overflow-auto">
+          <div className="mx-auto w-full max-w-6xl">
+            <Outlet />
+          </div>
+        </div>
+        {avisoAberto && (
+          <AvisoContaBloqueada motivo={bloqueio} nome={user?.nome} terminouEm={assinatura?.trial_expira_em} onFechar={fecharAviso} />
+        )}
+      </div>
+    )
+  }
+
+  // Tela de bloqueio total (cancelada/expirada — os motivos com saída pelo pagamento
+  // já foram tratados acima) — não para super_admin nem rotas livres
   const rotaLivre = ROTAS_LIVRES.some(r => location.pathname.startsWith(r))
   if (isBloqueado && user?.nivel !== 'super_admin' && assinatura && !rotaLivre) {
     return (

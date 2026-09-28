@@ -4,7 +4,6 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { assinaturasApi, Plano, Assinatura, cicloDe, cicloReferencia, ciclosDisponiveis, calcularCobranca, economiaAnual, ROTULO_CICLO, COMPROMISSO_CICLO } from '@/api/assinaturas'
 import type { Ciclo } from '@/api/assinaturas'
-import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -26,7 +25,9 @@ function formatExpiry(value: string) {
 }
 
 export const Planos: React.FC = () => {
-  const navigate = useNavigate()
+  // Carga completa, não navigate: o Layout lê a assinatura uma vez por carga, e quem
+  // estava bloqueado e acabou de pagar com cartão ficaria preso na Minha Conta até o F5.
+  const irParaMinhaConta = () => { window.location.assign('/gestao/minha-conta') }
   const { user } = useAuth()
   const [planos, setPlanos] = useState<Plano[]>([])
   const [assinatura, setAssinatura] = useState<Assinatura | null>(null)
@@ -138,10 +139,10 @@ export const Planos: React.FC = () => {
       } else if (resultado.paymentUrl) {
         toast.success(`Plano ${plano.nome} ativado! Abrindo página de pagamento...`)
         setTimeout(() => window.open(resultado.paymentUrl, '_blank'), 800)
-        navigate('/minha-conta')
+        irParaMinhaConta()
       } else {
         toast.success(`Plano ${plano.nome} ativado com sucesso!`)
-        navigate('/minha-conta')
+        irParaMinhaConta()
       }
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Erro ao assinar plano')
@@ -580,7 +581,7 @@ export const Planos: React.FC = () => {
                 </a>
               )}
               <button
-                onClick={() => { setPixModal(null); navigate('/minha-conta') }}
+                onClick={() => { setPixModal(null); irParaMinhaConta() }}
                 className="flex-1 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors"
               >
                 Já paguei

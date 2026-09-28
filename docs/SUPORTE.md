@@ -283,6 +283,19 @@ recebido em disparo posterior, 1 (Maria Alves) número bom que caiu com chip for
 
 ---
 
+### 23/09/2026 — Anchor (empresa 38) e Panteras (5), 4 chamados
+
+| # | Assunto | Causa real | Desfecho |
+|---|---|---|---|
+| 177 | Mensagem nova não entra na coluna | **defeito nosso**: número desconhecido era descartado antes do auto-lead (Flaviane, 553397058165, 6 msgs em 22/09) | corrigido; mensagens anteriores não voltam |
+| 176 | Erro ao enviar, chips conectados | **não era defeito**: 11 5360-3900 é fixo (`check-number` com controle); ~99 fixos na base | respondido |
+| 176 | Nomes com acento quebrado | **defeito nosso**: CSV UTF-8 lido como Latin-1 | leitura corrigida + 21 nomes reparados (`convert_from(convert_to(nome,'LATIN1'),'UTF8')`) |
+| 175 | Sugestões (origem, filtros, duplicados…) | origem da planilha virava `importacao` — **defeito nosso** | importação corrigida; pedida a planilha para repor as origens |
+| 173 | Aviso de novidades no CRM | sugestão | registrada |
+
+"Duplicados" da Anchor não eram de chip diferente: 10 leads com `55` no lugar do DDD
+(`5555983156183` × `5511983156183`) — a regra por funil está certa.
+
 ## Em aberto
 
 - Chips da Panteras desconectados em 15/09: **3011 (Débora) desde 07/09**, 3015 e 3017
@@ -301,5 +314,6 @@ recebido em disparo posterior, 1 (Maria Alves) número bom que caiu com chip for
 - Config: regra por resposta no estágio de entrada do funil 24 (ofertada ao cliente)
 - Desligar o agente no estágio 209 se o cliente pedir
 - Os 6 vínculos acima, pendentes de conferência
+- Anchor (38): repor a origem dos 873 leads quando a Ive anexar a planilha no #175
 - Receber e-mail de fora (IMAP → ticket) **não** está implementado; a coluna `canal` já
   existe para isso

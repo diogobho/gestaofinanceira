@@ -2,7 +2,7 @@ import React from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Spinner } from '@/components/ui'
-import { isAdminEmpresa } from '@/utils/roles'
+import { isAdminEmpresa, rotaInicial } from '@/utils/roles'
 import { useCapacidades } from '@/hooks/useCapacidades'
 import type { Capacidade } from '@/utils/capacidades'
 
@@ -45,7 +45,7 @@ export const PrivateRoute: React.FC<PrivateRouteProps> = ({
       (userNivel && requiredRole.includes(userNivel))
 
     if (!hasAdminAccess) {
-      return <Navigate to="/" replace />
+      return <Navigate to={rotaInicial(user)} replace />
     }
   }
 
@@ -67,7 +67,7 @@ export const PrivateRoute: React.FC<PrivateRouteProps> = ({
       const permissoes = user?.permissoes || {}
       const hasPermission = permissoes[requiredPermission as keyof typeof permissoes]
       if (hasPermission === false) {
-        return <Navigate to="/" replace />
+        return <Navigate to={rotaInicial(user)} replace />
       }
     }
   }

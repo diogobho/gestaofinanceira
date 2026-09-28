@@ -72,6 +72,26 @@ export async function contaPorPorta(porta: number): Promise<ContaCloud | null> {
   return (await todas()).find((c) => c.porta_virtual === Number(porta)) ?? null;
 }
 
+/**
+ * Este usuário ENVIA pelo número oficial? Pela porta, que é o que o envio usa para
+ * escolher o canal — não pela conta com reserva da empresa, que diria "sim" a quem
+ * ainda está no QR numa empresa com número da empresa inteira.
+ *
+ * É a pergunta das regras de primeiro contato (disparo e cadência fria): no
+ * Enterprise, quem está no QR fala só com quem já escreveu.
+ */
+export async function enviaPeloOficial(usuarioId: number | null | undefined): Promise<boolean> {
+  if (!usuarioId) return false;
+  const r = await query(`SELECT whatsapp_porta FROM usuarios WHERE id = $1`, [usuarioId]);
+  const porta = r.rows[0]?.whatsapp_porta;
+  if (!ehPortaVirtual(porta)) return false;
+  return !!(await contaPorPorta(Number(porta)))?.ativo;
+}
+
+export const MSG_PRIMEIRO_CONTATO_SO_OFICIAL =
+  'O disparo em massa sai só pelo número oficial da Meta, e o seu WhatsApp está conectado por QR Code. '
+  + 'Conecte o seu número oficial em WhatsApp, ou peça a quem já está no oficial para disparar.';
+
 export async function contaPorPhoneNumberId(phoneNumberId: string): Promise<ContaCloud | null> {
   return (await todas()).find((c) => c.phone_number_id === String(phoneNumberId)) ?? null;
 }

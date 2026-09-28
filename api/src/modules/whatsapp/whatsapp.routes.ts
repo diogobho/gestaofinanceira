@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { authMiddleware, masterOnly } from '../../middlewares/auth.middleware';
 import { exigirCapacidade } from '../../middlewares/capacidade.middleware';
 import whatsappController from './whatsapp.controller';
@@ -21,6 +22,16 @@ router.get('/canal/oficial', soComOficial, (req, res) => oficialController.get(r
 router.get('/canal/oficial/contas', soComOficial, (req, res) => oficialController.listar(req, res));
 router.post('/canal/oficial/conectar', soComOficial, (req, res) => oficialController.conectar(req, res));
 router.post('/canal/oficial/desconectar', soComOficial, (req, res) => oficialController.desconectar(req, res));
+router.get('/canal/oficial/saude', soComOficial, (req, res) => oficialController.saude(req, res));
+router.get('/canal/oficial/perfil', soComOficial, (req, res) => oficialController.getPerfil(req, res));
+router.put('/canal/oficial/perfil', soComOficial, (req, res) => oficialController.putPerfil(req, res));
+// Foto do perfil: fica em memória e vai direto para a Meta, nada é gravado em disco.
+router.post(
+  '/canal/oficial/perfil/foto',
+  soComOficial,
+  multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }).single('foto'),
+  (req, res) => oficialController.postFotoPerfil(req, res)
+);
 
 // ...e o resto do módulo exige WhatsApp no plano. `whatsapp_qr` é a chave certa
 // mesmo para quem está no número oficial: o Enterprise tem as DUAS capacidades de
@@ -35,6 +46,11 @@ router.post(
   '/canal/modelos',
   exigirCapacidade('modelos_meta'),
   (req, res) => canalController.criarModelo(req, res).catch((e) => res.status(500).json({ error: e.message }))
+);
+router.delete(
+  '/canal/modelos/:nome',
+  exigirCapacidade('modelos_meta'),
+  (req, res) => canalController.excluirModelo(req, res).catch((e) => res.status(500).json({ error: e.message }))
 );
 router.get('/canal/modelos', (req, res) => canalController.getModelos(req, res).catch((e) => res.status(500).json({ error: e.message })));
 router.get('/canal/janela', (req, res) => canalController.getJanela(req, res).catch((e) => res.status(500).json({ error: e.message })));

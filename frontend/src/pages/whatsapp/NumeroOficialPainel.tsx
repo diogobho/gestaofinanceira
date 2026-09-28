@@ -1,21 +1,35 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { BadgeCheck, CheckCircle, AlertCircle, Clock, FileText, RefreshCw, Cloud, ShieldCheck, MessageSquare } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
+import { BadgeCheck, CheckCircle, AlertCircle, Clock, RefreshCw, Cloud, ShieldCheck, MessageSquare, Unlink } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Spinner } from '@/components/ui/Spinner'
+import { Tabs } from '@/components/ui/Tabs'
 import { useAuth } from '@/contexts/AuthContext'
-import { useCanalWhatsApp, useModelosWhatsApp } from '@/hooks/useCanalWhatsApp'
-import { formatarNumeroBR, type CanalWhatsApp } from '@/api/canalWhatsapp'
+import { useCanalWhatsApp } from '@/hooks/useCanalWhatsApp'
+import { useAbaNaUrl } from '@/hooks/useEstadoNaUrl'
+import { canalWhatsappApi, formatarNumeroBR, type CanalWhatsApp } from '@/api/canalWhatsapp'
+import { SaudeNumero } from './oficial/SaudeNumero'
+import { ModelosOficiais } from './oficial/ModelosOficiais'
+import { PerfilComercial } from './oficial/PerfilComercial'
 
 /**
- * /gestao/whatsapp para empresa no número oficial (WhatsApp Cloud API da Meta).
+ * /gestao/whatsapp para quem fala pelo número oficial (WhatsApp Cloud API da Meta).
  *
- * Não há QR Code, chip nem "desconectar": o número vive nos servidores da Meta e
- * todos os usuários da empresa enviam e recebem por ele. O que o operador precisa
- * entender aqui são as duas regras novas — janela de 24h e modelo aprovado — e ver
- * a saúde do número (qualidade atribuída pela Meta).
+ * Não há QR Code nem chip: o número vive nos servidores da Meta. Três abas:
+ *  - **Visão geral** — status, saúde na Meta (limite, pendências) e as regras novas
+ *    (janela de 24h, modelo aprovado);
+ *  - **Modelos** — criar, acompanhar a análise e excluir;
+ *  - **Perfil** — foto, recado e dados que o cliente vê.
+ *
+ * "Desconectar" desvincula o número do CRM e devolve o usuário ao QR Code — não
+ * apaga nada na Meta. O número da empresa inteira (conta institucional) não tem o
+ * botão: desligá-lo tira o canal de todo mundo, e isso é só da DuoFuturo.
  */
+
+const ABAS = ['visao', 'modelos', 'perfil'] as const
+type Aba = (typeof ABAS)[number]
 
 const QUALIDADE: Record<string, { texto: string; classe: string; dica: string }> = {
   GREEN: { texto: 'Alta', classe: 'bg-emerald-100 text-emerald-800', dica: 'Pouca denúncia e bloqueio: o número pode crescer o limite de envio.' },
@@ -25,12 +39,39 @@ const QUALIDADE: Record<string, { texto: string; classe: string; dica: string }>
 
 export const NumeroOficialPainel: React.FC<{ canal: CanalWhatsApp }> = ({ canal }) => {
   const { user } = useAuth()
+  const queryClient = useQueryClient()
   const { refetch, isFetching } = useCanalWhatsApp()
-  const { data: modelos = [], isLoading: carregandoModelos, refetch: refetchModelos, isFetching: buscandoModelos } =
-    useModelosWhatsApp(true)
+  const [aba, setAba] = useAbaNaUrl<Aba>('aba', 'visao', ABAS)
+  const { data: oficial } = useQuery({
+    queryKey: ['whatsapp', 'canal', 'oficial'],
+    queryFn: canalWhatsappApi.getOficial,
+    staleTime: 60_000,
+    retry: false,
+  })
+  const conta = oficial?.conta
   const qualidade = canal.qualidade ? QUALIDADE[canal.qualidade] : null
-  const aprovados = modelos.filter((m) => m.status === 'APPROVED')
-  const outros = modelos.filter((m) => m.status !== 'APPROVED')
+
+  const desconectar = useMutation({
+    mutationFn: () => canalWhatsappApi.desconectarOficial(),
+    onSuccess: () => {
+      toast.success('Número desvinculado do CRM')
+      queryClient.invalidateQueries({ queryKey: ['whatsapp'] })
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Não foi possível desconectar'),
+  })
+
+  const confirmarDesconexao = () => {
+    if (
+      window.confirm(
+        'Desvincular este número do CRM?\n\n' +
+          '• Mensagens para ele deixam de chegar no CRM, e disparos e cadências param de sair por ele.\n' +
+          '• Nada é apagado na Meta: o número continua na sua conta do WhatsApp e pode ser conectado de novo.\n' +
+          '• Você volta para a tela de conexão (QR Code ou número oficial).'
+      )
+    ) {
+      desconectar.mutate()
+    }
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-4 sm:px-6 space-y-6">
@@ -38,7 +79,7 @@ export const NumeroOficialPainel: React.FC<{ canal: CanalWhatsApp }> = ({ canal 
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <MessageSquare className="w-8 h-8 text-green-600" />
-            WhatsApp da Empresa
+            WhatsApp oficial
           </h1>
           <p className="text-gray-600 mt-1">Número oficial da Meta (WhatsApp Business API) — sem QR Code, sem celular ligado.</p>
         </div>
@@ -70,9 +111,11 @@ export const NumeroOficialPainel: React.FC<{ canal: CanalWhatsApp }> = ({ canal 
             </p>
             <p className="text-lg font-mono text-gray-800">{formatarNumeroBR(canal.numero)}</p>
             <p className="text-sm text-gray-600 mt-1">
-              {canal.conectado
-                ? 'Conectado na Meta. Todos os usuários da empresa enviam e recebem por este número.'
-                : `A Meta não respondeu sobre o número${canal.erro ? `: ${canal.erro}` : ''}. Fale com a DuoFuturo.`}
+              {!canal.conectado
+                ? `A Meta não respondeu sobre o número${canal.erro ? `: ${canal.erro}` : ''}. Fale com a DuoFuturo.`
+                : conta?.daEmpresa
+                  ? 'Conectado na Meta. Todos os usuários da empresa enviam e recebem por este número.'
+                  : 'Conectado na Meta. Suas conversas, disparos e cadências saem por este número.'}
             </p>
           </div>
           <div className="flex flex-col items-start sm:items-end gap-2">
@@ -84,6 +127,15 @@ export const NumeroOficialPainel: React.FC<{ canal: CanalWhatsApp }> = ({ canal 
                 Qualidade na Meta: {qualidade.texto}
               </span>
             )}
+            {conta?.meu && (
+              <button
+                onClick={confirmarDesconexao}
+                disabled={desconectar.isPending}
+                className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1"
+              >
+                <Unlink size={12} /> {desconectar.isPending ? 'Desconectando…' : 'Desconectar do CRM'}
+              </button>
+            )}
           </div>
         </div>
         {qualidade && canal.qualidade !== 'GREEN' && (
@@ -91,69 +143,47 @@ export const NumeroOficialPainel: React.FC<{ canal: CanalWhatsApp }> = ({ canal 
         )}
       </Card>
 
-      <div className="grid md:grid-cols-2 gap-4">
-        <Card className="p-5">
-          <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
-            <Clock className="w-5 h-5 text-emerald-600" /> Janela de 24 horas
-          </h2>
-          <ul className="text-sm text-gray-700 space-y-2">
-            <li>Quando o cliente escreve, abre uma janela de <strong>24h</strong>. Cada nova mensagem dele reinicia o relógio.</li>
-            <li>Dentro da janela vale tudo: texto, áudio, foto, documento, resposta do agente de IA.</li>
-            <li>Fora dela a Meta só entrega <strong>modelo aprovado</strong>. O chat do card avisa e mostra o botão “Enviar modelo”.</li>
-            <li>Follow-up com a janela fechada sai pelo <strong>modelo de reserva</strong> do passo da cadência; sem ele, fica marcado como falha com o motivo.</li>
-          </ul>
-        </Card>
-        <Card className="p-5">
-          <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
-            <ShieldCheck className="w-5 h-5 text-emerald-600" /> O que muda em relação ao QR Code
-          </h2>
-          <ul className="text-sm text-gray-700 space-y-2">
-            <li>Sem risco de o chip cair ou ser banido por uso de aparelho não oficial.</li>
-            <li>Você vê quando a mensagem foi <strong>entregue</strong> (✓✓) e <strong>lida</strong> (✓✓ azul), e o motivo quando não é entregue.</li>
-            <li>Quem escreve pela primeira vez vira contato na hora — não depende da agenda de um celular.</li>
-            <li>Não envia para grupos, e o disparo para quem não escreveu nas últimas 24h usa modelo aprovado (cobrado pela Meta por mensagem).</li>
-          </ul>
-        </Card>
-      </div>
+      <Tabs
+        active={aba}
+        onChange={(k) => setAba(k as Aba)}
+        tabs={[
+          { key: 'visao', label: 'Visão geral' },
+          { key: 'modelos', label: 'Modelos de mensagem' },
+          { key: 'perfil', label: 'Perfil do WhatsApp' },
+        ]}
+      />
 
-      <Card className="p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold text-gray-900 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-emerald-600" /> Modelos aprovados
-          </h2>
-          <button onClick={() => refetchModelos()} className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
-            <RefreshCw size={12} className={buscandoModelos ? 'animate-spin' : ''} /> atualizar
-          </button>
-        </div>
-        {carregandoModelos ? (
-          <div className="py-6 flex justify-center"><Spinner /></div>
-        ) : aprovados.length === 0 ? (
-          <p className="text-sm text-gray-600">Nenhum modelo aprovado ainda. Sem modelo, só dá para responder quem escreveu nas últimas 24h.</p>
-        ) : (
-          <div className="grid sm:grid-cols-2 gap-3">
-            {aprovados.map((m) => (
-              <div key={m.id} className="border rounded-lg p-3">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="font-mono text-sm text-gray-900 truncate">{m.nome}</span>
-                  <span className="text-[11px] text-gray-500 shrink-0">
-                    {m.idioma} · {m.categoria === 'MARKETING' ? 'marketing' : m.categoria === 'UTILITY' ? 'utilidade' : m.categoria.toLowerCase()}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-4">{m.corpo}</p>
-                {!m.suportado && <p className="text-[11px] text-amber-700 mt-1">{m.motivoNaoSuportado}</p>}
-              </div>
-            ))}
+      {aba === 'visao' && (
+        <>
+          <SaudeNumero />
+          <div className="grid md:grid-cols-2 gap-4">
+            <Card className="p-5">
+              <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
+                <Clock className="w-5 h-5 text-emerald-600" /> Janela de 24 horas
+              </h2>
+              <ul className="text-sm text-gray-700 space-y-2">
+                <li>Quando o cliente escreve, abre uma janela de <strong>24h</strong>. Cada nova mensagem dele reinicia o relógio.</li>
+                <li>Dentro da janela vale tudo: texto, áudio, foto, documento, resposta do agente de IA.</li>
+                <li>Fora dela a Meta só entrega <strong>modelo aprovado</strong>. O chat do card avisa e mostra o botão “Enviar modelo”.</li>
+                <li>Follow-up com a janela fechada sai pelo <strong>modelo de reserva</strong> do passo da cadência; sem ele, fica marcado como falha com o motivo.</li>
+              </ul>
+            </Card>
+            <Card className="p-5">
+              <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" /> O que muda em relação ao QR Code
+              </h2>
+              <ul className="text-sm text-gray-700 space-y-2">
+                <li>Sem risco de o chip cair ou ser banido por uso de aparelho não oficial.</li>
+                <li>Você vê quando a mensagem foi <strong>entregue</strong> (✓✓) e <strong>lida</strong> (✓✓ azul), e o motivo quando não é entregue.</li>
+                <li>Quem escreve pela primeira vez vira contato na hora — não depende da agenda de um celular.</li>
+                <li>Não envia para grupos, e o disparo para quem não escreveu nas últimas 24h usa modelo aprovado (cobrado pela Meta por mensagem).</li>
+              </ul>
+            </Card>
           </div>
-        )}
-        {outros.length > 0 && (
-          <p className="mt-3 text-xs text-gray-500">
-            Em análise ou recusados pela Meta: {outros.map((m) => `${m.nome} (${m.status.toLowerCase()})`).join(', ')}
-          </p>
-        )}
-        <p className="mt-3 text-xs text-gray-500">
-          Modelos novos são criados e enviados para aprovação da Meta{user?.nivel === 'super_admin' ? ' no painel da Cloud API' : ' pela DuoFuturo'}.
-        </p>
-      </Card>
+        </>
+      )}
+      {aba === 'modelos' && <ModelosOficiais />}
+      {aba === 'perfil' && <PerfilComercial />}
     </div>
   )
 }

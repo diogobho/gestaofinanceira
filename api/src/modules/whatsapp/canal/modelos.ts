@@ -32,6 +32,8 @@ export interface ModeloCRM {
   variavelCabecalho: string | null;
   suportado: boolean;
   motivoNaoSuportado: string | null;
+  /** Por que a Meta recusou (`rejected_reason`), quando recusou. */
+  motivoRecusa: string | null;
 }
 
 const cache = new Map<string, { em: number; modelos: ModeloCRM[] }>();
@@ -82,6 +84,7 @@ function paraCRM(t: TemplateMeta): ModeloCRM {
     variavelCabecalho: varsHeader[0] ?? null,
     suportado: !motivo && t.status === 'APPROVED',
     motivoNaoSuportado: t.status !== 'APPROVED' ? `Status na Meta: ${t.status}` : motivo,
+    motivoRecusa: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : null,
   };
 }
 

@@ -125,6 +125,88 @@ const SQL_CICLOS = `
      WHERE c.plano_id = p.id AND c.ativo = true
   ), '[]'::json) AS ciclos`;
 
+/**
+ * Trial vencido: status ainda `trial` e `trial_expira_em` no passado.
+ *
+ * `trial_expira_em` é `timestamp` naive guardando o instante em UTC (ver
+ * aviso-trial.ts) — por isso a comparação é com `now() AT TIME ZONE 'UTC'`, e não
+ * com `now()`, que o Postgres converteria pelo fuso da sessão. Trial sem data não
+ * vence. O status NÃO é trocado para `expirada`: o trial continua sendo trial, só
+ * que encerrado — e voltar a `ativa` é o pagamento, pelo webhook do Asaas, como
+ * sempre.
+ */
+export const SQL_TRIAL_ENCERRADO =
+  `status = 'trial' AND trial_expira_em IS NOT NULL AND trial_expira_em < (now() AT TIME ZONE 'UTC')`;
+
+/**
+ * Motivo gravado quando o trial vencido vira `suspensa`. É por ele que o bloqueio
+ * continua sendo apresentado como "o teste terminou" (e não "conta pausada"): para
+ * quem só testou, a mensagem certa é escolher o plano, não regularizar pagamento.
+ */
+export const MOTIVO_TRIAL_ENCERRADO = 'Teste grátis encerrado';
+
+/**
+ * Suspende todo trial vencido (25/09/2026). O dono quer ver no /admin quem está
+ * sem acesso, e `trial` com data passada não diz isso. Idempotente: o WHERE só pega
+ * quem ainda está em `trial`. Roda de hora em hora (jobs/trial-suspensao-scheduler)
+ * e pode rodar à mão (`node api/scripts/suspender_trials_vencidos.js`).
+ */
+export async function suspenderTrialsVencidos(): Promise<{ empresa_id: number; nome: string }[]> {
+  const r = await query(
+    `UPDATE assinaturas a
+        SET status = 'suspensa', cancelamento_motivo = $1, updated_at = now()
+       FROM empresas e
+      WHERE e.id = a.empresa_id
+        AND a.empresa_id IN (SELECT empresa_id FROM assinaturas WHERE ${SQL_TRIAL_ENCERRADO})
+      RETURNING a.empresa_id, e.nome`,
+    [MOTIVO_TRIAL_ENCERRADO]
+  );
+  for (const row of r.rows) esquecerBloqueio(row.empresa_id);
+  return r.rows;
+}
+
+/**
+ * Por que a conta está sem acesso — ou `null` quando está liberada.
+ *
+ * São três estados, e os três têm saída pelo pagamento: trial encerrado e suspensa
+ * escolhem o plano e pagam; aguardando_pagamento só espera o Asaas confirmar
+ * (cartão já nasce `ativa`, PIX e boleto viram `ativa` pelo webhook).
+ *
+ * Cancelada e expirada ficam FORA de propósito: a conta institucional (empresa 1)
+ * está `cancelada` e vive de cortesia (migration 083). Ligar esses dois aqui a
+ * derrubaria junto — a tela continua bloqueando os dois, como sempre fez.
+ */
+export type BloqueioConta = 'trial_encerrado' | 'suspensa' | 'aguardando_pagamento';
+
+// O guard roda em TODA requisição autenticada: cache curto por empresa tira a
+// consulta do caminho quente. São 3 instâncias no cluster, e só a que processou o
+// pagamento esquece o valor na hora — as outras em até 20s.
+const cacheBloqueio = new Map<number, { em: number; bloqueio: BloqueioConta | null }>();
+const TTL_BLOQUEIO_MS = 20_000;
+
+export function esquecerBloqueio(empresaId: number): void {
+  cacheBloqueio.delete(empresaId);
+}
+
+// `fresco` pula o cache e o renova: é o que a Minha Conta usa, então quem acabou de
+// pagar e recarrega a tela é liberado na hora (naquela instância do cluster).
+export async function bloqueioDaEmpresa(empresaId: number, opcoes: { fresco?: boolean } = {}): Promise<BloqueioConta | null> {
+  const guardado = cacheBloqueio.get(empresaId);
+  if (!opcoes.fresco && guardado && Date.now() - guardado.em < TTL_BLOQUEIO_MS) return guardado.bloqueio;
+  const r = await query(
+    `SELECT CASE
+              WHEN ${SQL_TRIAL_ENCERRADO} THEN 'trial_encerrado'
+              WHEN status = 'suspensa' AND cancelamento_motivo = $2 THEN 'trial_encerrado'
+              WHEN status IN ('suspensa', 'aguardando_pagamento') THEN status
+            END AS bloqueio
+       FROM assinaturas WHERE empresa_id = $1`,
+    [empresaId, MOTIVO_TRIAL_ENCERRADO]
+  );
+  const bloqueio = (r.rows[0]?.bloqueio ?? null) as BloqueioConta | null;
+  cacheBloqueio.set(empresaId, { em: Date.now(), bloqueio });
+  return bloqueio;
+}
+
 export const assinaturasService = {
   async getPlanos(): Promise<Plano[]> {
     const res = await query(`
@@ -473,6 +555,7 @@ export const assinaturasService = {
         plano_ativo_ate = $6, usuarios_contratados = $8, usuarios_cortesia = 0,
         ciclo = $9, updated_at = now()
     `, [params.empresaId, params.planoId, customerId, subscription.id, nextDueDate, planoAtivate, statusInicial, usuarios, ciclo.ciclo]);
+    esquecerBloqueio(params.empresaId);
 
     const novaAssinatura = await this.getAssinaturaByEmpresa(params.empresaId);
 
@@ -508,6 +591,7 @@ export const assinaturasService = {
       SET status = 'suspensa', cancelamento_motivo = $2, updated_at = now()
       WHERE empresa_id = $1
     `, [empresaId, motivo || null]);
+    esquecerBloqueio(empresaId);
   },
 
   /** Ativar empresa indefinidamente (sem vencimento) — apenas super_admin */
@@ -518,6 +602,7 @@ export const assinaturasService = {
       ON CONFLICT (empresa_id) DO UPDATE SET
         status = 'ativa', plano_ativo_ate = NULL, updated_at = now()
     `, [empresaId]);
+    esquecerBloqueio(empresaId);
   },
 
   /** Cancelar assinatura */
@@ -556,6 +641,8 @@ export const assinaturasService = {
     if (!res.rows[0]) return;
 
     const assinatura = res.rows[0];
+    // Pagamento confirmado libera na hora (nesta instância); as outras, pelo TTL.
+    esquecerBloqueio(assinatura.empresa_id);
 
     switch (event) {
       case 'PAYMENT_CONFIRMED':
