@@ -152,7 +152,7 @@ export default function KanbanFilters({ filtros, onChange, usuarios = [], estagi
               <div>
                 <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
                   <Users size={16} />
-                  Responsavel
+                  Responsável
                 </label>
                 <select
                   value={filtros.responsavel_id || ''}

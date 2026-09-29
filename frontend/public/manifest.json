@@ -1,8 +1,9 @@
 {
-  "name": "DuoFuturo - Gestão Financeira",
-  "short_name": "DuoFuturo",
-  "description": "Sistema completo de gestão financeira com controle de receitas, despesas e clientes",
-  "start_url": "/gestao/",
+  "name": "Duo — Sistema de gestão inteligente financeiro e CRM",
+  "short_name": "Duo",
+  "description": "Duo, o sistema de gestão inteligente financeiro e CRM da DuoFuturo",
+  "start_url": "/gestao/login",
+  "scope": "/gestao/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#13264C",
@@ -44,7 +45,7 @@
       "name": "Dashboard",
       "short_name": "Dashboard",
       "description": "Ver visão geral financeira",
-      "url": "/gestao/",
+      "url": "/gestao/dashboard",
       "icons": [
         {
           "src": "/gestao/icons/icon-192.png",

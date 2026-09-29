@@ -545,6 +545,7 @@ export default function CRMFunilCX() {
             {/* Novo cliente CX */}
             <button
               data-tour="cx-novo"
+              title="Novo cliente"
               onClick={() => {
                 setSelectedEstagioId(colunas[0]?.id)
                 setShowLeadFormModal(true)

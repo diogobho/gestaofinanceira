@@ -360,6 +360,7 @@ export default function CRMKanban() {
 
             <button
               data-tour="crm-contatos"
+              title="Contatos do WhatsApp"
               onClick={() => setShowContatosModal(true)}
               className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 md:py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm"
             >
@@ -409,6 +410,7 @@ export default function CRMKanban() {
 
             <button
               data-tour="crm-novo-lead"
+              title="Novo lead"
               onClick={() => {
                 setSelectedEstagioId(colunas[0]?.id)
                 setShowLeadFormModal(true)

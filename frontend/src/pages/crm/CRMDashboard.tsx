@@ -693,7 +693,7 @@ export default function CRMDashboard() {
         <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
           <div className="flex items-center gap-2">
             <Calendar size={20} className="text-amber-500" />
-            <span className="font-medium text-amber-700">{metricas.periodoAtivo ? 'Tarefas no Periodo' : 'Tarefas para Hoje'}</span>
+            <span className="font-medium text-amber-700">{metricas.periodoAtivo ? 'Tarefas no período' : 'Tarefas para Hoje'}</span>
           </div>
           <p className="text-3xl font-bold text-amber-700 mt-2">{metricas.tarefasHoje}</p>
         </div>
@@ -727,7 +727,7 @@ export default function CRMDashboard() {
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-amber-600">{followupMetricas.pendentes_hoje}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{followupMetricas?.periodo_ativo ? 'No periodo' : 'Para hoje'}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{followupMetricas?.periodo_ativo ? 'No período' : 'Para hoje'}</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-green-600">{followupMetricas.enviados_hoje}</p>
@@ -889,7 +889,7 @@ export default function CRMDashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-2 px-3 font-medium text-gray-600">{granularidade === 'ano' ? 'Ano' : granularidade === 'mes' ? 'Mes' : 'Periodo'}</th>
+                  <th className="text-left py-2 px-3 font-medium text-gray-600">{granularidade === 'ano' ? 'Ano' : granularidade === 'mes' ? 'Mês' : 'Período'}</th>
                   <th className="text-center py-2 px-3 font-medium text-gray-600">Criados</th>
                   <th className="text-center py-2 px-3 font-medium text-green-600">Ganhos</th>
                   <th className="text-center py-2 px-3 font-medium text-red-600">Perdidos</th>

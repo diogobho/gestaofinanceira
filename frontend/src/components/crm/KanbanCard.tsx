@@ -252,7 +252,7 @@ export default function KanbanCard({ lead, index, onClick }: KanbanCardProps) {
                   title="Agente ativo mas lead sem contato WhatsApp vinculado — não recebe nem envia mensagens"
                 >
                   <AlertCircle size={11} />
-                  IA ativa · sem WA
+                  IA ativa · sem conversa
                 </span>
               )}
               {agenteAtivo && lead.contato_whatsapp_id && (

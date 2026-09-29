@@ -358,7 +358,7 @@ const handleArquivar = async () => {
   }
 
   const handleDeletar = async () => {
-    if (confirm('Tem certeza que deseja deletar este lead? Esta acao nao pode ser desfeita.')) {
+    if (confirm('Tem certeza que deseja deletar este lead? Esta ação não pode ser desfeita.')) {
       await deleteLead.mutateAsync(lead.id)
       onClose()
     }
@@ -483,7 +483,7 @@ const handleArquivar = async () => {
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            Informacoes
+            Informações
           </button>
           <button
             onClick={() => setActiveTab('tarefas')}
@@ -508,7 +508,7 @@ const handleArquivar = async () => {
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            Anotacoes
+            Anotações
             {(lead.total_anotacoes || 0) > 0 && (
               <span className="ml-1 px-1.5 py-0.5 bg-gray-100 text-gray-700 text-xs rounded-full font-bold min-w-[20px] text-center">
                 {lead.total_anotacoes}
@@ -572,7 +572,9 @@ const handleArquivar = async () => {
                 {lead.telefone && (
                   <div className="flex items-center gap-2 text-sm">
                     <Phone size={16} className="text-gray-400" />
-                    <span className="text-gray-600">{lead.telefone}</span>
+                    <a href={`tel:+${lead.telefone.replace(/\D/g, '')}`} className="text-gray-600 hover:underline">
+                      {lead.telefone.replace(/^55/, '').replace(/(\d{2})(\d{4,5})(\d{4})$/, '($1) $2-$3')}
+                    </a>
                   </div>
                 )}
                 {lead.email && (
@@ -597,13 +599,13 @@ const handleArquivar = async () => {
 
               {/* Detalhes do negocio */}
               <div className="border-t pt-4">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Detalhes do Negocio</h3>
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Detalhes do negócio</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  {lead.valor_potencial && (
+                  {Number(lead.valor_potencial) > 0 && (
                     <div className="flex items-center gap-2 text-sm">
                       <DollarSign size={16} className="text-green-500" />
                       <span className="font-medium text-green-600">
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(lead.valor_potencial)}
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(lead.valor_potencial))}
                       </span>
                     </div>
                   )}
@@ -622,6 +624,7 @@ const handleArquivar = async () => {
                       const corHex = origemAtual?.cor
                       return (
                         <select
+                          aria-label="Origem do lead" title="Origem do lead"
                           value={leadOrigem}
                           onChange={(e) => {
                             const nova = e.target.value as LeadOrigem
@@ -634,7 +637,7 @@ const handleArquivar = async () => {
                           }`}
                         >
                           {leadOrigem && !origens.some(o => o.nome === leadOrigem) && (
-                            <option value={leadOrigem}>{leadOrigem}</option>
+                            <option value={leadOrigem}>{leadOrigem === 'manual' ? 'Cadastro manual' : leadOrigem}</option>
                           )}
                           {origens.map((o) => (
                             <option key={o.id} value={o.nome}>{o.nome}</option>
@@ -654,6 +657,7 @@ const handleArquivar = async () => {
                     <div className="flex items-center gap-2 text-sm">
                       <User size={16} className="text-gray-400" />
                       <select
+                        aria-label="Responsável pelo lead" title="Responsável pelo lead"
                         value={lead.responsavel_id || ''}
                         onChange={(e) => {
                           // "Sem responsável" vem como '' — mandar null, não 0
@@ -673,7 +677,7 @@ const handleArquivar = async () => {
                       </select>
                     </div>
                   )}
-                  {lead.probabilidade && (
+                  {Number(lead.probabilidade) > 0 && (
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-gray-400">Probabilidade:</span>
                       <span className="font-medium">{lead.probabilidade}%</span>
@@ -683,7 +687,8 @@ const handleArquivar = async () => {
                     <div className="flex items-center gap-2 text-sm">
                       <Calendar size={16} className="text-gray-400" />
                       <span className="text-gray-600">
-                        {new Intl.DateTimeFormat('pt-BR').format(new Date(lead.data_previsao_fechamento))}
+                        {/* DATE chega como meia-noite UTC: new Date() no Brasil voltaria um dia */}
+                        {String(lead.data_previsao_fechamento).slice(0, 10).split('-').reverse().join('/')}
                       </span>
                     </div>
                   )}
@@ -763,8 +768,8 @@ const handleArquivar = async () => {
                         onChange={(e) => setTarefaTipo(e.target.value as TarefaTipo)}
                         className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                       >
-                        <option value="ligacao">Ligacao</option>
-                        <option value="reuniao">Reuniao</option>
+                        <option value="ligacao">Ligação</option>
+                        <option value="reuniao">Reunião</option>
                         <option value="email">Email</option>
                         <option value="follow_up">Follow-up</option>
                         <option value="proposta">Proposta</option>
@@ -787,11 +792,11 @@ const handleArquivar = async () => {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600 mb-1 block">Titulo</label>
+                    <label className="text-xs font-medium text-gray-600 mb-1 block">Título</label>
                     <input
                       value={tarefaTitulo}
                       onChange={(e) => setTarefaTitulo(e.target.value)}
-                      placeholder="Ex: Ligar para confirmar reuniao"
+                      placeholder="Ex: Ligar para confirmar reunião"
                       className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
                   </div>
@@ -805,7 +810,7 @@ const handleArquivar = async () => {
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600 mb-1 block">Descricao (opcional)</label>
+                    <label className="text-xs font-medium text-gray-600 mb-1 block">Descrição (opcional)</label>
                     <textarea
                       value={tarefaDescricao}
                       onChange={(e) => setTarefaDescricao(e.target.value)}

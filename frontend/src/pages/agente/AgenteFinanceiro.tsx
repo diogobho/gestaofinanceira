@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import {
   Send, Trash2, Bot, User, Loader2, WandSparkles,
-  Key, Eye, EyeOff, Save, Cpu, Info,
+  Key, Eye, EyeOff, Save, Info,
   Zap, GitBranch, Clock, Mic,
   Search, Edit2, List, FileText,
   CheckSquare, CheckCircle, XCircle, CalendarCheck,
@@ -369,18 +369,18 @@ function ChatDuoToggle() {
   const ativo = config?.ativo ?? true
 
   return (
-    <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-200" data-tour="agcfg-sexta-feira">
+    <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-200 dark:bg-indigo-500/10 dark:border-indigo-500/40" data-tour="agcfg-sexta-feira">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="font-medium text-indigo-900 flex items-center gap-1.5">
+          <p className="font-medium text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
             <Bot size={15} className="text-indigo-600" />
             Duo ativo
           </p>
-          <p className="text-xs text-indigo-700/80 mt-0.5">
-            Liga ou desliga a assistente da aba <strong>Assistente</strong> (chat interno desta página)
+          <p className="text-xs text-indigo-700/80 dark:text-indigo-300/80 mt-0.5">
+            Liga ou desliga a assistente da aba <strong>Duo</strong> (o chat interno desta página)
           </p>
           {!ativo && (
-            <p className="text-xs text-indigo-800 mt-1.5">
+            <p className="text-xs text-indigo-800 dark:text-indigo-200 mt-1.5">
               Desligada: o chat para de responder para todos os usuários da empresa. Não afeta o
               agente do WhatsApp nem os follow-ups do CRM.
             </p>
@@ -429,9 +429,14 @@ function ConfigurarAgente() {
   const { data: config, isLoading } = useAgenteIAConfig()
   const updateConfig = useAgenteIAUpdateConfig()
 
+  // O que está salvo, para saber se há alteração pendente. O "Duo ativo" logo acima
+  // grava na hora; o resto só com o botão — sem este aviso, ligar o agente e sair da
+  // página parecia ter funcionado.
+  const [salvo, setSalvo] = useState('')
+
   useEffect(() => {
     if (config) {
-      setForm({
+      const inicial: Partial<AgenteIAConfig> = {
         ativo: config.ativo,
         provider: config.provider || 'claude',
         api_key: config.api_key_configurada ? '••••••••••••••••••••••••' : '',
@@ -446,9 +451,15 @@ function ConfigurarAgente() {
         usuarios_habilitados: config.usuarios_habilitados || [],
         delay_segundos: config.delay_segundos ?? 0,
         pode_ficar_em_silencio: !!config.pode_ficar_em_silencio,
-      })
+      }
+      setForm(inicial)
+      setSalvo(JSON.stringify(inicial))
     }
   }, [config])
+  const pendente = salvo !== '' && JSON.stringify(form) !== salvo
+  const semChave = form.provider === 'gemini'
+    ? !config?.gemini_api_key_configurada && !form.gemini_api_key
+    : !config?.api_key_configurada && !form.api_key
 
   const handleSave = () => {
     const payload: Partial<AgenteIAConfig> = { ...form }
@@ -470,21 +481,6 @@ function ConfigurarAgente() {
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-5">
-      {/* Sub-tabs (só Configurações — a aba "Acesso" foi removida por não ter efeito real) */}
-      <div className="flex border-b">
-        {[
-          { key: 'config', label: 'Configurações', icon: Cpu },
-        ].map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 border-primary-600 text-primary-600"
-          >
-            <Icon size={15} />
-            {label}
-          </button>
-        ))}
-      </div>
-
       <>
           {/* Guia dos três níveis de instrução (empresa, estágio do funil, passo da
               cadência). Arquivo estático em frontend/public/, servido em /gestao/. */}
@@ -557,6 +553,11 @@ function ConfigurarAgente() {
               <p className="text-xs text-gray-500 mt-0.5">
                 Liga ou desliga o agente globalmente para toda a empresa (não afeta o Duo acima)
               </p>
+              {form.ativo && semChave && (
+                <p className="text-xs text-red-700 dark:text-red-400 mt-1.5">
+                  Falta a chave da {form.provider === 'gemini' ? 'Google (Gemini)' : 'Anthropic'} logo abaixo — sem ela o agente fica ligado mas não responde ninguém.
+                </p>
+              )}
               {!form.ativo && (
                 <p className="text-xs text-amber-700 dark:text-amber-400 mt-1.5">
                   Desligado: follow-ups de IA ficam em espera na fila (não são perdidos) e o agente
@@ -587,10 +588,11 @@ function ConfigurarAgente() {
                     set('provider', p.value)
                     set('modelo', p.value === 'claude' ? 'claude-sonnet-4-6' : 'gemini-2.5-flash')
                   }}
+                  aria-pressed={form.provider === p.value}
                   className={`flex-1 text-left px-3 py-2.5 border rounded-lg text-sm transition-colors ${
                     form.provider === p.value
-                      ? 'border-primary-500 bg-primary-50 text-primary-700'
-                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                      ? 'border-primary-500 bg-primary-50 text-primary-700 ring-1 ring-primary-500 dark:bg-primary-500/15 dark:!text-white dark:border-primary-400 dark:ring-primary-400'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-gray-700 dark:text-gray-300'
                   }`}
                 >
                   <div className="font-medium">{p.label}</div>
@@ -633,11 +635,15 @@ function ConfigurarAgente() {
           )}
 
           {/* API Key Gemini */}
-          {form.provider === 'gemini' && (
+          {/* A transcrição de áudio é SEMPRE pelo Gemini (webhook → transcreverEEnfileirar),
+              inclusive com o Claude respondendo. Esconder o campo no Claude deixava o agente
+              surdo sem ninguém saber — foi o caso da empresa 32. */}
+          {(
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 <Key size={14} className="inline mr-1.5 text-gray-400" />
-                API Key do Google Gemini
+                {form.provider === 'gemini' ? 'API Key do Google Gemini' : 'Chave do Gemini para entender áudio'}
+                {form.provider !== 'gemini' && <span className="ml-1.5 text-xs font-normal text-gray-400">(opcional)</span>}
               </label>
               <div className="relative">
                 <input
@@ -659,6 +665,7 @@ function ConfigurarAgente() {
                 <p className="text-xs text-green-600 mt-1">✓ Chave configurada — deixe em branco para manter a atual</p>
               )}
               <p className="text-xs text-gray-400 mt-1">
+                {form.provider !== 'gemini' && <>O áudio que o cliente manda é transcrito pelo Gemini antes de chegar ao Claude. Sem esta chave, o agente ignora áudio. </>}
                 Obtenha em <span className="font-mono">aistudio.google.com</span>
               </p>
             </div>
@@ -712,14 +719,14 @@ function ConfigurarAgente() {
               placeholder="Ex: academia de dança, clínica de estética, escola de inglês..."
               className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
             />
-            <p className="text-xs text-gray-400 mt-1">Isso vai para o system prompt para contextualizar o agente</p>
+            <p className="text-xs text-gray-400 mt-1">Uma linha basta: o agente usa isso para entender de que negócio está falando.</p>
           </div>
 
           {/* System prompt extra */}
           <div data-tour="agcfg-instrucoes">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Instruções adicionais
-              <span className="ml-1.5 text-xs font-normal text-gray-400">(system prompt)</span>
+              Instruções para o agente
+              <span className="ml-1.5 text-xs font-normal text-gray-400">(valem para toda conversa)</span>
             </label>
             <textarea
               value={form.system_prompt_extra || ''}
@@ -734,8 +741,8 @@ function ConfigurarAgente() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Histórico de contexto
-                <span className="ml-1 text-xs text-gray-400">mensagens</span>
+                Mensagens que ele relê
+                <span className="ml-1 text-xs text-gray-400">(3 a 20)</span>
               </label>
               <input
                 type="number"
@@ -745,12 +752,12 @@ function ConfigurarAgente() {
                 onChange={e => set('contexto_mensagens', parseInt(e.target.value))}
                 className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
               />
-              <p className="text-xs text-gray-400 mt-1">Mensagens anteriores enviadas ao modelo</p>
+              <p className="text-xs text-gray-400 mt-1">Quantas mensagens anteriores da conversa ele lê antes de responder.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Tamanho máximo da resposta
-                <span className="ml-1 text-xs text-gray-400">tokens</span>
+                <span className="ml-1 text-xs text-gray-400">(tokens)</span>
               </label>
               <input
                 type="number"
@@ -761,20 +768,21 @@ function ConfigurarAgente() {
                 onChange={e => set('max_tokens', parseInt(e.target.value))}
                 className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
               />
+              <p className="text-xs text-gray-400 mt-1">1.000 tokens ≈ 750 palavras. O padrão (1024) sobra para WhatsApp.</p>
             </div>
           </div>
 
           {/* Delay de resposta */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Delay antes de responder
+              Espera antes de responder
             </label>
             <select
               value={form.delay_segundos ?? 0}
               onChange={e => set('delay_segundos', parseInt(e.target.value))}
               className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
             >
-              <option value={0}>Sem delay (responde imediatamente)</option>
+              <option value={0}>Não espera (responde na hora)</option>
               <option value={5}>5 segundos</option>
               <option value={10}>10 segundos</option>
               <option value={15}>15 segundos</option>
@@ -784,7 +792,7 @@ function ConfigurarAgente() {
               <option value={300}>5 minutos</option>
             </select>
             <p className="text-xs text-gray-400 mt-1">
-              Tempo de espera após receber a mensagem antes de processar. Útil para parecer mais natural.
+              Quanto tempo ele aguarda depois da mensagem chegar. Ajuda a parecer gente — e junta numa resposta só quem manda várias mensagens seguidas.
             </p>
           </div>
 
@@ -811,20 +819,26 @@ function ConfigurarAgente() {
           <div className="flex gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
             <Info size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-amber-700">
-              O agente responde automaticamente apenas mensagens de <strong>texto</strong>. Arquivos de áudio, imagens e documentos são armazenados mas não processados pela IA.
+              O agente lê <strong>texto</strong> e entende <strong>áudio</strong> quando há chave do Gemini. Imagens e documentos ficam na conversa, mas a IA não os abre.
             </p>
           </div>
       </>
 
-      {/* Botão salvar */}
-      <div className="flex justify-end pt-2 pb-6">
+      {/* Botão salvar — preso ao pé da área de rolagem: o formulário é longo e o
+          primeiro controle (ligar o agente) fica a três telas do botão. */}
+      <div className={`-mx-4 px-4 py-3 flex items-center justify-end gap-3 border-t ${
+        pendente ? 'sticky bottom-0 bg-amber-50 border-amber-200 dark:bg-gray-900 dark:border-amber-500/40' : 'border-transparent'
+      }`}>
+        {pendente && (
+          <span className="text-sm text-amber-800 dark:text-amber-300 mr-auto" role="status">Alterações não salvas</span>
+        )}
         <button
           onClick={handleSave}
-          disabled={updateConfig.isPending}
+          disabled={updateConfig.isPending || !pendente}
           className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
         >
           <Save size={15} />
-          {updateConfig.isPending ? 'Salvando...' : 'Salvar configurações'}
+          {updateConfig.isPending ? 'Salvando...' : pendente ? 'Salvar configurações' : 'Tudo salvo'}
         </button>
       </div>
     </div>

@@ -88,13 +88,13 @@ export default function FunilFormModal({ isOpen, onClose, funil, defaultTipo = '
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Descricao
+              Descrição
             </label>
             <textarea
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
               rows={3}
-              placeholder="Descricao do funil (opcional)"
+              placeholder="Descrição do funil (opcional)"
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
             />
           </div>

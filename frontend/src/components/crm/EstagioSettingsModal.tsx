@@ -176,13 +176,13 @@ export default function EstagioSettingsModal({
           {/* Nome */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Nome do Estagio *
+              Nome do estágio *
             </label>
             <input
               type="text"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
-              placeholder="Ex: Negociacao, Proposta Enviada..."
+              placeholder="Ex: Negociação, Proposta Enviada..."
               className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
             />
           </div>
@@ -215,7 +215,7 @@ export default function EstagioSettingsModal({
           {/* Tipo especial */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">
-              Tipo de Estagio
+              Tipo de estágio
             </label>
             <div className="flex gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -228,7 +228,7 @@ export default function EstagioSettingsModal({
                   }}
                   className="w-4 h-4 rounded text-green-600 focus:ring-green-500"
                 />
-                <span className="text-sm text-gray-700">Estagio de Ganho</span>
+                <span className="text-sm text-gray-700">Estágio de ganho</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -240,7 +240,7 @@ export default function EstagioSettingsModal({
                   }}
                   className="w-4 h-4 rounded text-red-600 focus:ring-red-500"
                 />
-                <span className="text-sm text-gray-700">Estagio de Perda</span>
+                <span className="text-sm text-gray-700">Estágio de perda</span>
               </label>
             </div>
             <p className="text-xs text-gray-500">

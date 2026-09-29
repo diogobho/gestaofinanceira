@@ -27,6 +27,11 @@ import { Planos } from '@/pages/planos/Planos'
 import { MinhaConta } from '@/pages/minha-conta/MinhaConta'
 import { Grupos } from '@/pages/grupos/Grupos'
 
+// Aberto pelo ícone da tela inicial (PWA): no iPhone o app instalado tem armazenamento
+// próprio, separado do Safari — chega sem sessão, e a raiz mostrava a landing de vendas.
+const abertoComoApp = () =>
+  window.matchMedia?.('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true
+
 const AppRoutes: React.FC = () => {
   const { isAuthenticated, user } = useAuth()
   const casa = rotaInicial(user)
@@ -35,7 +40,7 @@ const AppRoutes: React.FC = () => {
     <Routes>
       <Route
         path="/"
-        element={isAuthenticated ? <Navigate to={casa} replace /> : <LandingPage />}
+        element={isAuthenticated ? <Navigate to={casa} replace /> : abertoComoApp() ? <Navigate to="/login" replace /> : <LandingPage />}
       />
       <Route
         path="/login"
@@ -218,7 +223,7 @@ const AppRoutes: React.FC = () => {
         />
       </Route>
 
-      <Route path="*" element={<Navigate to={isAuthenticated ? casa : '/'} replace />} />
+      <Route path="*" element={<Navigate to={isAuthenticated ? casa : abertoComoApp() ? '/login' : '/'} replace />} />
     </Routes>
   )
 }

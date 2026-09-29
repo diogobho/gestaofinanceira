@@ -49,7 +49,7 @@ export default function MediaPreview({ mensagem }: MediaPreviewProps) {
         <div className="min-w-[200px]">
           <audio controls className="w-full max-w-[280px]" preload="none">
             <source src={url} type={mensagem.media_mimetype || 'audio/ogg'} />
-            Seu navegador nao suporta audio.
+            Seu navegador não suporta áudio.
           </audio>
         </div>
       )
