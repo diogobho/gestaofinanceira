@@ -21,6 +21,7 @@ export type Capacidade =
   | 'disparo_email' | 'grupos_whatsapp'
   | 'whatsapp_oficial' | 'disparo_whatsapp' | 'conversa_fria'
   | 'agente_proativo' | 'modelos_meta' | 'smtp_proprio'
+  | 'grupos_campanhas'
 
 interface ItemCatalogo {
   rotulo: string
@@ -52,6 +53,8 @@ export const CATALOGO: Record<Capacidade, ItemCatalogo> = {
     motivo: 'Os modelos de mensagem são do plano Enterprise, que usa a API Oficial da Meta.' },
   smtp_proprio:     { rotulo: 'SMTP próprio',                planoMinimo: 'Enterprise',
     motivo: 'Enviar e-mail com o seu domínio é do plano Enterprise.' },
+  grupos_campanhas: { rotulo: 'Campanhas de grupo',          planoMinimo: 'Enterprise',
+    motivo: 'As campanhas de grupo (link único, grupos que abrem sozinhos e quem entra virando lead) são do plano Enterprise.' },
 }
 
 /** Texto curto para `title`/tooltip do controle desabilitado. */

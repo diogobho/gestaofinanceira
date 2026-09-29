@@ -18,7 +18,11 @@ export const MensagemGrupoModal: React.FC<{
   grupos: GrupoWhatsApp[]
   editando?: MensagemGrupo | null
   preSelecionados?: string[]
-}> = ({ aberto, onFechar, grupos, editando, preSelecionados }) => {
+  /** Mensagem de campanha (089): vai para todos os grupos ativos dela, sem escolher. */
+  campanha?: { id: number; nome: string; grupos: number } | null
+}> = ({ aberto, onFechar, grupos, editando, preSelecionados, campanha }) => {
+  const campanhaId = campanha?.id ?? editando?.campanha_id ?? null
+  const nomeCampanha = campanha?.nome ?? editando?.campanha_nome ?? ''
   const qc = useQueryClient()
   const textoRef = useRef<HTMLTextAreaElement>(null)
   const [titulo, setTitulo] = useState(editando?.titulo || '')
@@ -67,7 +71,7 @@ export const MensagemGrupoModal: React.FC<{
   const salvar = useMutation({
     mutationFn: (d: EntradaMensagemGrupo) => editando ? gruposApi.atualizarMensagem(editando.id, d) : gruposApi.criarMensagem(d),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['grupos', 'mensagens'] })
+      qc.invalidateQueries({ queryKey: ['grupos'] })
       toast.success(modo === 'agora' ? 'Mensagem na fila — sai em até 1 minuto' : 'Mensagem salva')
       onFechar()
     },
@@ -79,9 +83,10 @@ export const MensagemGrupoModal: React.FC<{
     // Grupo que saiu da lista (o chip saiu dele) continua na edição com o nome guardado.
     const fora = (editando?.grupos || []).filter(g => selecionados.has(g.id) && !escolhidos.some(e => e.id === g.id))
     salvar.mutate({
+      campanha_id: campanhaId,
       titulo, texto, mencionar_todos: mencionar, intervalo_segundos: intervalo, modo,
       media_url: midia?.url || null, media_mimetype: midia?.mimetype || null, media_filename: midia?.nome || null,
-      grupos: [...escolhidos.map(g => ({ id: g.id, nome: g.nome })), ...fora],
+      grupos: campanhaId ? [] : [...escolhidos.map(g => ({ id: g.id, nome: g.nome })), ...fora],
       agendado_para: modo === 'agendada' && quando ? new Date(quando).toISOString() : null,
       recorrencia: modo === 'recorrente' ? { dias, hora } : null,
     })
@@ -97,6 +102,13 @@ export const MensagemGrupoModal: React.FC<{
         <div className="space-y-5 min-w-0">
           <Input label="Nome (só para você achar depois)" placeholder="Ex.: Aviso da live de quinta" value={titulo} onChange={e => setTitulo(e.target.value)} />
 
+          {campanhaId ? (
+            <div className="rounded-lg border border-primary-200 dark:border-primary-700 bg-primary-50 dark:bg-primary-900/30 p-3 text-sm text-gray-700 dark:text-gray-200">
+              Vai para <strong>todos os grupos ativos da campanha {nomeCampanha}</strong>
+              {campanha ? ` (hoje, ${campanha.grupos})` : ''} — inclusive os que abrirem até a hora do envio. Cada grupo recebe
+              pelo WhatsApp que o administra.
+            </div>
+          ) : (
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Grupos · {selecionados.size} escolhido(s)</span>
@@ -124,6 +136,7 @@ export const MensagemGrupoModal: React.FC<{
               ))}
             </ul>
           </div>
+          )}
 
           <div>
             <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Mensagem</span>
@@ -131,6 +144,10 @@ export const MensagemGrupoModal: React.FC<{
             <textarea ref={textoRef} rows={6} value={texto} onChange={e => setTexto(e.target.value)}
               placeholder="Escreva como escreveria no grupo. *negrito*, _itálico_ e ~riscado~ funcionam."
               className="mt-2 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none" />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Dica: <code className="rounded bg-gray-100 dark:bg-gray-700 px-1">{'{Oi|Olá|E aí}'}</code> sorteia uma das opções em cada grupo,
+              para a mesma mensagem não cair idêntica em todos.
+            </p>
             <div className="mt-2 flex flex-wrap items-center gap-3">
               {midia ? (
                 <span className="inline-flex items-center gap-2 rounded-full bg-gray-100 dark:bg-gray-700 px-3 py-1 text-xs text-gray-700 dark:text-gray-200">
@@ -198,7 +215,7 @@ export const MensagemGrupoModal: React.FC<{
               {INTERVALOS.map(s => <option key={s} value={s}>{s < 60 ? `${s} segundos` : `${s / 60} minuto(s)`}</option>)}
             </select>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              A mesma mensagem caindo em vários grupos no mesmo segundo é o que chama atenção do WhatsApp. Com {selecionados.size || 1} grupo(s), a rodada leva uns {Math.max(0, (selecionados.size - 1) * intervalo / 60).toFixed(0)} min.
+              A mesma mensagem caindo em vários grupos no mesmo segundo é o que chama atenção do WhatsApp. Com {(campanhaId ? campanha?.grupos : selecionados.size) || 1} grupo(s), a rodada leva uns {Math.max(0, (((campanhaId ? campanha?.grupos : selecionados.size) || 1) - 1) * intervalo / 60).toFixed(0)} min.
             </p>
           </div>
         </div>
@@ -223,8 +240,8 @@ export const MensagemGrupoModal: React.FC<{
 
       <ModalFooter>
         <Button variant="secondary" onClick={onFechar}>Cancelar</Button>
-        <Button onClick={enviar} isLoading={salvar.isPending} disabled={enviandoArquivo || selecionados.size === 0}>
-          {modo === 'agora' ? `Enviar para ${selecionados.size} grupo(s)` : 'Salvar'}
+        <Button onClick={enviar} isLoading={salvar.isPending} disabled={enviandoArquivo || (!campanhaId && selecionados.size === 0)}>
+          {modo === 'agora' ? (campanhaId ? 'Enviar para os grupos da campanha' : `Enviar para ${selecionados.size} grupo(s)`) : 'Salvar'}
         </Button>
       </ModalFooter>
     </Modal>

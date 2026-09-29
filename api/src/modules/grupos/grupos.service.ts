@@ -23,6 +23,7 @@ import { instancia } from '../whatsapp/canal/instancia';
 import { ehPortaVirtual } from '../whatsapp/canal/contas';
 import { isAdminEmpresa } from '../../shared/roles';
 import { diasValidos, horaValida, montarBoasVindas, proximaRecorrencia, Entrante } from './agenda';
+import { aplicarVariacoes } from './campanhas-regras';
 
 export const ERRO_OFICIAL =
   'Grupos pela API oficial da Meta exigem Conta Comercial Oficial (o selo verde) e aceitam até 8 participantes. '
@@ -36,21 +37,21 @@ export class ErroGrupos extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
 
-async function portaDo(usuarioId: number): Promise<number | null> {
+export async function portaDo(usuarioId: number): Promise<number | null> {
   const r = await query(`SELECT whatsapp_porta FROM usuarios WHERE id = $1`, [usuarioId]);
   const p = r.rows[0]?.whatsapp_porta;
   return p ? Number(p) : null;
 }
 
 /** Porta QR do usuário, ou erro que a tela mostra como está. */
-async function portaQrDo(usuarioId: number): Promise<number> {
+export async function portaQrDo(usuarioId: number): Promise<number> {
   const porta = await portaDo(usuarioId);
   if (!porta) throw new ErroGrupos('Conecte o seu WhatsApp por QR Code em WhatsApp para usar os grupos.', 409);
   if (ehPortaVirtual(porta)) throw new ErroGrupos(ERRO_OFICIAL, 409);
   return porta;
 }
 
-function erroDaInstancia(e: any): string {
+export function erroDaInstancia(e: any): string {
   const s = e?.response?.status;
   if (s === 503 || e?.code === 'ECONNREFUSED') return 'O WhatsApp deste chip está desconectado. Reconecte em WhatsApp.';
   return e?.response?.data?.details || e?.response?.data?.error || e?.message || 'Falha ao falar com o WhatsApp';
@@ -113,6 +114,8 @@ export interface EntradaMensagem {
   recorrencia?: { dias: number[]; hora: string } | null;
   intervalo_segundos?: number;
   ativa?: boolean;
+  /** Mensagem de campanha (089): vai para os grupos ativos da campanha na hora do envio. */
+  campanha_id?: number | null;
 }
 
 function validar(e: EntradaMensagem, agora = new Date()) {
@@ -121,10 +124,11 @@ function validar(e: EntradaMensagem, agora = new Date()) {
   const texto = String(e.texto || '');
   if (!texto.trim() && !e.media_url) throw new ErroGrupos('Escreva a mensagem ou anexe um arquivo.');
   if (e.media_url && !/^\/uploads\/[\w./-]+$/.test(e.media_url)) throw new ErroGrupos('Arquivo inválido.');
-  const grupos = (e.grupos || [])
+  const campanhaId = Number(e.campanha_id) || null;
+  const grupos = campanhaId ? [] : (e.grupos || [])
     .filter((g) => typeof g?.id === 'string' && g.id.endsWith('@g.us'))
     .map((g) => ({ id: g.id, nome: String(g.nome || '').slice(0, 255) }));
-  if (!grupos.length) throw new ErroGrupos('Escolha pelo menos um grupo.');
+  if (!campanhaId && !grupos.length) throw new ErroGrupos('Escolha pelo menos um grupo.');
   if (grupos.length > MAX_GRUPOS_POR_MENSAGEM) throw new ErroGrupos(`No máximo ${MAX_GRUPOS_POR_MENSAGEM} grupos por mensagem.`);
   const intervalo = Math.min(600, Math.max(5, Math.round(Number(e.intervalo_segundos ?? 20))));
 
@@ -151,7 +155,7 @@ function validar(e: EntradaMensagem, agora = new Date()) {
   }
 
   return {
-    titulo, texto, grupos, intervalo, modo, agendado, recorrencia, proxima,
+    titulo, texto, grupos, intervalo, modo, agendado, recorrencia, proxima, campanhaId,
     media_url: e.media_url || null,
     media_mimetype: e.media_url ? String(e.media_mimetype || 'application/octet-stream').slice(0, 120) : null,
     media_filename: e.media_url ? String(e.media_filename || 'arquivo').slice(0, 255) : null,
@@ -160,10 +164,11 @@ function validar(e: EntradaMensagem, agora = new Date()) {
 }
 
 const SELECT_MENSAGEM = `
-  SELECT m.*, u.nome AS usuario_nome,
+  SELECT m.*, u.nome AS usuario_nome, gc.nome AS campanha_nome,
          (SELECT count(*)::int FROM grupos_mensagens_envios x WHERE x.mensagem_id = m.id AND x.status = 'enviado') AS total_enviados,
          (SELECT count(*)::int FROM grupos_mensagens_envios x WHERE x.mensagem_id = m.id AND x.status = 'falhou') AS total_falhas
-    FROM grupos_mensagens m JOIN usuarios u ON u.id = m.usuario_id`;
+    FROM grupos_mensagens m JOIN usuarios u ON u.id = m.usuario_id
+    LEFT JOIN grupos_campanhas gc ON gc.id = m.campanha_id`;
 
 export async function listarMensagens(u: Usuario) {
   const r = await query(`${SELECT_MENSAGEM} WHERE m.empresa_id = $1 ORDER BY m.ativa DESC, m.proxima_execucao ASC NULLS LAST, m.created_at DESC`, [u.empresa_id]);
@@ -180,23 +185,33 @@ async function minha(u: Usuario, id: number) {
   return m;
 }
 
+/** Campanha da mesma empresa, ou erro. A mensagem de campanha sai pelos chips da campanha. */
+async function campanhaDaEmpresa(u: Usuario, campanhaId: number) {
+  const r = await query(`SELECT id FROM grupos_campanhas WHERE id = $1 AND empresa_id = $2`, [campanhaId, u.empresa_id]);
+  if (!r.rows[0]) throw new ErroGrupos('Campanha não encontrada.', 404);
+}
+
 export async function criarMensagem(u: Usuario, e: EntradaMensagem) {
-  await portaQrDo(u.userId);
   const v = validar(e);
+  // Mensagem de campanha sai pelo chip que administra cada grupo, não pelo de quem criou.
+  if (v.campanhaId) await campanhaDaEmpresa(u, v.campanhaId);
+  else await portaQrDo(u.userId);
   const r = await query(
     `INSERT INTO grupos_mensagens
        (empresa_id, usuario_id, titulo, texto, media_url, media_mimetype, media_filename, mencionar_todos,
-        grupos, modo, agendado_para, recorrencia, proxima_execucao, intervalo_segundos, ativa)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true) RETURNING id`,
+        grupos, modo, agendado_para, recorrencia, proxima_execucao, intervalo_segundos, ativa, campanha_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,$15) RETURNING id`,
     [u.empresa_id, u.userId, v.titulo, v.texto, v.media_url, v.media_mimetype, v.media_filename, v.mencionar_todos,
-     JSON.stringify(v.grupos), v.modo, v.agendado, v.recorrencia ? JSON.stringify(v.recorrencia) : null, v.proxima, v.intervalo]
+     JSON.stringify(v.grupos), v.modo, v.agendado, v.recorrencia ? JSON.stringify(v.recorrencia) : null, v.proxima, v.intervalo,
+     v.campanhaId]
   );
   return r.rows[0];
 }
 
 export async function atualizarMensagem(u: Usuario, id: number, e: EntradaMensagem) {
   const atual = await minha(u, id);
-  const v = validar({ ...e, modo: e.modo === 'agora' ? 'agora' : e.modo });
+  // A campanha de uma mensagem não muda na edição.
+  const v = validar({ ...e, campanha_id: atual.campanha_id, modo: e.modo === 'agora' ? 'agora' : e.modo });
   await query(
     `UPDATE grupos_mensagens SET titulo=$3, texto=$4, media_url=$5, media_mimetype=$6, media_filename=$7,
             mencionar_todos=$8, grupos=$9, modo=$10, agendado_para=$11, recorrencia=$12,
@@ -222,7 +237,7 @@ export async function alternarMensagem(u: Usuario, id: number, ativa: boolean) {
 /** "Enviar agora" de uma mensagem já salva — o job pega em até 1 minuto. */
 export async function enviarAgora(u: Usuario, id: number) {
   const m = await minha(u, id);
-  await portaQrDo(m.usuario_id);
+  if (!m.campanha_id) await portaQrDo(m.usuario_id);
   await query(`UPDATE grupos_mensagens SET proxima_execucao = now(), ativa = true, updated_at = now() WHERE id = $1`, [m.id]);
 }
 
@@ -243,8 +258,10 @@ export async function enviosDa(u: Usuario, id: number) {
 
 const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function enviarParaGrupo(porta: number, m: any, grupoId: string): Promise<string | null> {
+async function enviarParaGrupo(porta: number, m0: any, grupoId: string): Promise<string | null> {
   const api = instancia(porta);
+  // `{Oi|Olá}` sorteia por grupo: a mesma mensagem idêntica em 20 grupos é o padrão de disparo.
+  const m = { ...m0, texto: aplicarVariacoes(m0.texto || '') };
   if (m.media_url) {
     const abs = path.join('/var/www/apps/gestao_financeira', String(m.media_url).replace(/^\//, ''));
     const base64 = (await fs.promises.readFile(abs)).toString('base64');
@@ -269,30 +286,42 @@ async function enviarParaGrupo(porta: number, m: any, grupoId: string): Promise<
  */
 export async function executarRodada(m: any): Promise<{ enviados: number; falhas: number }> {
   const execucao = new Date();
-  const grupos: { id: string; nome?: string }[] = m.grupos || [];
+  // Mensagem de campanha: os grupos ativos da campanha AGORA (inclusive os que abriram
+  // depois de a mensagem ser criada), cada um com o chip que o administra.
+  const grupos: { id: string; nome?: string; usuario_id?: number }[] = m.campanha_id
+    ? (await query(
+        `SELECT grupo_id AS id, nome, usuario_id FROM grupos_campanhas_grupos
+          WHERE campanha_id = $1 AND ativo ORDER BY ordem, id`,
+        [m.campanha_id]
+      )).rows
+    : m.grupos || [];
   let enviados = 0;
   let falhas = 0;
-  let porta: number | null = null;
-  let erroGeral: string | null = null;
-  try {
-    porta = await portaQrDo(m.usuario_id);
-  } catch (e: any) {
-    erroGeral = e.message;
-  }
+  // Porta (ou o erro dela) por chip, resolvida uma vez. Chip fora do ar derruba só os
+  // grupos DAQUELE chip — numa campanha com dois chips, o outro segue.
+  const portas = new Map<number, { porta: number | null; erro: string | null }>();
+  const portaDa = async (usuarioId: number) => {
+    if (!portas.has(usuarioId)) {
+      try { portas.set(usuarioId, { porta: await portaQrDo(usuarioId), erro: null }); }
+      catch (e: any) { portas.set(usuarioId, { porta: null, erro: e.message }); }
+    }
+    return portas.get(usuarioId)!;
+  };
 
   for (let i = 0; i < grupos.length; i++) {
     const g = grupos[i];
+    const chip = await portaDa(g.usuario_id || m.usuario_id);
     let status: 'enviado' | 'falhou' = 'falhou';
-    let erro: string | null = erroGeral;
+    let erro: string | null = chip.erro;
     let messageId: string | null = null;
-    if (!erroGeral && porta) {
+    if (!chip.erro && chip.porta) {
       try {
-        messageId = await enviarParaGrupo(porta, m, g.id);
+        messageId = await enviarParaGrupo(chip.porta, m, g.id);
         status = 'enviado';
         erro = null;
       } catch (e: any) {
         erro = erroDaInstancia(e);
-        if (e?.response?.status === 503 || e?.code === 'ECONNREFUSED') erroGeral = erro;
+        if (e?.response?.status === 503 || e?.code === 'ECONNREFUSED') chip.erro = erro;
       }
     }
     await query(

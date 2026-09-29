@@ -112,11 +112,11 @@ export const BoasVindasModal: React.FC<{
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-gray-700 dark:text-gray-300">Marcar quem entrou</span>
-              <Switch checked={mencionar} onChange={setMencionar} />
+              <Switch checked={mencionar} onChange={setMencionar} labels={{ on: 'Sim', off: 'Não' }} aria-label="Marcar quem entrou" />
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-gray-700 dark:text-gray-300">Ligada</span>
-              <Switch checked={ativa} onChange={setAtiva} />
+              <span className="text-sm text-gray-700 dark:text-gray-300">Situação</span>
+              <Switch checked={ativa} onChange={setAtiva} labels={{ on: 'Ligada', off: 'Desligada' }} aria-label="Boas-vindas ligada" />
             </div>
           </div>
         </div>

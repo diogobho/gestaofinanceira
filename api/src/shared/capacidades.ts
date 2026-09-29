@@ -49,7 +49,8 @@ export type Capacidade =
   | 'conversa_fria'     // primeiro toque em quem nunca escreveu
   | 'agente_proativo'   // o agente inicia conversa
   | 'modelos_meta'      // criar e usar modelos aprovados
-  | 'smtp_proprio';     // e-mail com o domínio do cliente
+  | 'smtp_proprio'      // e-mail com o domínio do cliente
+  | 'grupos_campanhas'; // campanhas de grupo: link único, grupos automáticos, entrada vira lead (089)
 
 interface ItemCatalogo {
   rotulo: string;
@@ -87,6 +88,8 @@ export const CATALOGO: Record<Capacidade, ItemCatalogo> = {
     motivo: 'Os modelos de mensagem são do plano Enterprise, que usa a API Oficial da Meta.' },
   smtp_proprio:     { rotulo: 'SMTP próprio',               planoMinimo: 'Enterprise',
     motivo: 'Enviar e-mail com o seu domínio é do plano Enterprise.' },
+  grupos_campanhas: { rotulo: 'Campanhas de grupo',        planoMinimo: 'Enterprise',
+    motivo: 'As campanhas de grupo (link único, grupos que abrem sozinhos e quem entra virando lead) são do plano Enterprise.' },
 };
 
 export const ehCapacidade = (v: unknown): v is Capacidade =>

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { registrarEntradas } from '../../grupos/grupos.service';
+import { registrarMovimento } from '../../grupos/campanhas.service';
 import { query } from '../../../config/database';
 import { adicionarJobAgente } from '../../agente-ia/agente-ia.queue';
 import { automacoesGrupoService as automacoesService } from '../../automacoes/automacoes-grupo.service';
@@ -588,9 +589,18 @@ export const webhookController = {
       // o mesmo recorte que impede a conversa de uma empresa aparecer em outra.
       // Entrada em grupo (migration 088): vira fila de boas-vindas do dono da porta.
       // Nada disso é conversa — não toca contato, lead nem histórico.
+      // Campanha de grupo (089): entrada e saída contam no painel, e a entrada pode
+      // virar lead. A instância manda 'add' e 'remove'; boas-vindas é só 'add'.
       if (req.body.event === 'group_participants') {
-        const n = await registrarEntradas(donoInstancia.id, donoInstancia.empresa_id, String(req.body.groupId || from), req.body.participants || []);
-        return res.json({ success: true, processed: n > 0, enfileirados: n });
+        const grupoId = String(req.body.groupId || from);
+        const acao = String(req.body.action || 'add');
+        const participantes = req.body.participants || [];
+        const n = acao === 'add'
+          ? await registrarEntradas(donoInstancia.id, donoInstancia.empresa_id, grupoId, participantes)
+          : 0;
+        const naCampanha = await registrarMovimento(donoInstancia.id, donoInstancia.empresa_id, grupoId, acao, participantes)
+          .catch((e: any) => { console.error('[Campanhas] movimento:', e?.message); return 0; });
+        return res.json({ success: true, processed: n > 0 || naCampanha > 0, enfileirados: n, campanha: naCampanha });
       }
 
       if (req.body.event === 'reaction') {

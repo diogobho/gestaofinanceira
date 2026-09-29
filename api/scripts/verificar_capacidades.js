@@ -34,8 +34,8 @@ const CONTRATO = {
   Starter:      { tem: ['financeiro', 'relatorios'],
                   naoTem: ['crm', 'whatsapp_qr', 'disparo_whatsapp', 'conversa_fria', 'whatsapp_oficial'] },
   Profissional: { tem: ['crm', 'whatsapp_qr', 'agente_reativo', 'followup_morno', 'disparo_email', 'grupos_whatsapp'],
-                  naoTem: ['disparo_whatsapp', 'conversa_fria', 'whatsapp_oficial', 'agente_proativo', 'modelos_meta'] },
-  Enterprise:   { tem: ['crm', 'whatsapp_qr', 'whatsapp_oficial', 'disparo_whatsapp', 'conversa_fria', 'modelos_meta', 'agente_proativo'],
+                  naoTem: ['disparo_whatsapp', 'conversa_fria', 'whatsapp_oficial', 'agente_proativo', 'modelos_meta', 'grupos_campanhas'] },
+  Enterprise:   { tem: ['crm', 'whatsapp_qr', 'whatsapp_oficial', 'disparo_whatsapp', 'conversa_fria', 'modelos_meta', 'agente_proativo', 'grupos_campanhas'],
                   naoTem: [] },
 };
 

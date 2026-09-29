@@ -27,6 +27,7 @@ import suporteRoutes from './modules/suporte/suporte.routes';
 import midiaRoutes from './modules/midia/midia.routes';
 import automacoesRoutes from './modules/automacoes/automacoes.routes';
 import gruposRoutes from './modules/grupos/grupos.routes';
+import campanhasLinkRoutes from './modules/grupos/campanhas-link.routes';
 import pluggyRoutes from './modules/pluggy/pluggy.routes';
 import pluggyWebhookRoutes from './modules/pluggy/pluggy.webhook.routes';
 import contaazulRoutes from './modules/contaazul/contaazul.routes';
@@ -182,6 +183,9 @@ app.use('/api', suporteRoutes);
 app.use('/api/gestao', suporteRoutes);
 app.use('/api/automacoes', automacoesRoutes);
 app.use('/api/gestao/automacoes', automacoesRoutes);
+// Link público da campanha de grupo (089), sem login — o nginx publica em /gestao/g/<slug>.
+app.use('/api/grupos-link', campanhasLinkRoutes);
+app.use('/api/gestao/grupos-link', campanhasLinkRoutes);
 app.use('/api/grupos', gruposRoutes);
 app.use('/api/gestao/grupos', gruposRoutes);
 app.use('/api/pluggy', pluggyRoutes);

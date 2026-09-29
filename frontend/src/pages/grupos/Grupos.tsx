@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
-  UsersRound, Send, Plus, Pencil, Trash2, History, HandHeart, Search, ShieldCheck, Lock, BadgeCheck, RefreshCw,
+  UsersRound, Send, Plus, Pencil, Trash2, History, HandHeart, Search, ShieldCheck, Lock, BadgeCheck, RefreshCw, Megaphone,
 } from 'lucide-react'
 import { Badge, Button, Card, EstadoVazio, Input, Modal, Spinner, Switch, Tabs } from '@/components/ui'
 import { useAbaNaUrl } from '@/hooks/useEstadoNaUrl'
@@ -11,6 +11,10 @@ import { gruposApi, type BoasVindas, type GrupoWhatsApp, type MensagemGrupo } fr
 import { MensagemGrupoModal } from './MensagemGrupoModal'
 import { BoasVindasModal } from './BoasVindasModal'
 import { dataHora, descreverQuando, previaWhatsApp } from './util'
+import { CampanhasAba } from './Campanhas'
+import { useAuth } from '@/contexts/AuthContext'
+import { useCapacidades } from '@/hooks/useCapacidades'
+import { CATALOGO } from '@/utils/capacidades'
 
 /*
   Grupos do WhatsApp (migration 088). Três coisas, como o SendFlow: mensagem para
@@ -19,7 +23,7 @@ import { dataHora, descreverQuando, previaWhatsApp } from './util'
   a Meta exige (selo verde, até 8 pessoas) em vez de uma tela que não funcionaria.
 */
 
-const ABAS = ['mensagens', 'boas-vindas', 'grupos'] as const
+const ABAS = ['mensagens', 'boas-vindas', 'campanhas', 'grupos'] as const
 const erroDe = (e: unknown, padrao: string) =>
   (e as { response?: { data?: { message?: string } } })?.response?.data?.message || padrao
 
@@ -40,9 +44,9 @@ const Cabecalho: React.FC<{ numero?: string | null; conectado?: boolean }> = ({ 
 )
 
 const AvisoMeta: React.FC<{ texto?: string }> = ({ texto }) => (
-  <div className="max-w-3xl">
+  <div className="max-w-5xl mx-auto px-4 pt-4 pb-24 sm:px-6 sm:pb-8">
     <Cabecalho />
-    <Card>
+    <Card className="max-w-3xl">
       <div className="flex gap-4">
         <BadgeCheck className="w-10 h-10 text-emerald-600 shrink-0" aria-hidden="true" />
         <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
@@ -65,6 +69,9 @@ const AvisoMeta: React.FC<{ texto?: string }> = ({ texto }) => (
 export const Grupos: React.FC = () => {
   const qc = useQueryClient()
   const [aba, setAba] = useAbaNaUrl('aba', 'mensagens', ABAS)
+  const { user } = useAuth()
+  const { pode } = useCapacidades()
+  const temCampanhas = pode('grupos_campanhas')
   const canal = useQuery({ queryKey: ['grupos', 'canal'], queryFn: gruposApi.canal, staleTime: 60_000 })
   const noQr = canal.data?.provedor === 'baileys'
   const lista = useQuery({ queryKey: ['grupos', 'lista'], queryFn: gruposApi.lista, enabled: noQr && !!canal.data?.conectado, staleTime: 5 * 60_000, retry: false })
@@ -94,7 +101,7 @@ export const Grupos: React.FC = () => {
   if (canal.data?.provedor === 'cloud_api') return <AvisoMeta texto={canal.data.aviso} />
   if (!noQr || !canal.data?.conectado) {
     return (
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-5xl mx-auto px-4 pt-4 pb-24 sm:px-6 sm:pb-8">
         <Cabecalho conectado={noQr ? false : undefined} />
         <EstadoVazio avatar="duo" titulo="Conecte o seu WhatsApp por QR Code"
           descricao="Os grupos que aparecem aqui são os do número conectado. Conecte (ou reconecte) em WhatsApp e volte."
@@ -106,12 +113,14 @@ export const Grupos: React.FC = () => {
   const erroLista = lista.error ? erroDe(lista.error, 'Não foi possível ler os grupos do WhatsApp') : null
 
   return (
-    <div className="max-w-5xl mx-auto">
+    // pb-24 no celular: o botão flutuante do Duo cobria as ações do último card.
+    <div className="max-w-5xl mx-auto px-4 pt-4 pb-24 sm:px-6 sm:pb-8">
       <Cabecalho conectado numero={canal.data.numero} />
 
       <Tabs className="mb-5" active={aba} onChange={(k) => setAba(k as typeof ABAS[number])} tabs={[
         { key: 'mensagens', label: 'Mensagens', icon: <Send className="w-4 h-4" />, badge: mensagens.data?.filter(m => m.ativa && m.proxima_execucao).length || undefined },
         { key: 'boas-vindas', label: 'Boas-vindas', icon: <HandHeart className="w-4 h-4" /> },
+        { key: 'campanhas', label: 'Campanhas', icon: <Megaphone className="w-4 h-4" /> },
         { key: 'grupos', label: 'Meus grupos', icon: <UsersRound className="w-4 h-4" />, badge: grupos.length || undefined },
       ]} />
 
@@ -125,7 +134,7 @@ export const Grupos: React.FC = () => {
       {aba === 'mensagens' && (
         <section aria-label="Mensagens para grupos">
           <div className="mb-4 flex justify-end">
-            <Button onClick={() => setModalMsg({})} disabled={!grupos.length}><Plus className="w-4 h-4 mr-1" /> Nova mensagem</Button>
+            <Button onClick={() => setModalMsg({})} disabled={!grupos.length} title={!grupos.length ? 'Nenhum grupo carregado do WhatsApp' : undefined}><Plus className="w-4 h-4 mr-1" /> Nova mensagem</Button>
           </div>
           {mensagens.isLoading ? <Spinner /> : !mensagens.data?.length ? (
             <EstadoVazio avatar="duo" titulo="Nenhuma mensagem ainda"
@@ -139,11 +148,12 @@ export const Grupos: React.FC = () => {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="font-semibold text-gray-900 dark:text-gray-100">{m.titulo}</h3>
+                          {m.campanha_nome && <Badge variant="success">campanha · {m.campanha_nome}</Badge>}
                           {m.mencionar_todos && <Badge variant="info">marca todos</Badge>}
                           {!m.ativa && <Badge variant="default">pausada</Badge>}
                         </div>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">
-                          {descreverQuando(m)} · {m.grupos.length} grupo(s) · pelo chip de {m.usuario_nome}
+                          {descreverQuando(m)} · {m.campanha_id ? 'todos os grupos da campanha' : `${m.grupos.length} grupo(s) · pelo chip de ${m.usuario_nome}`}
                         </p>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                           {m.ativa && m.proxima_execucao ? <>Próximo envio: <strong className="text-gray-800 dark:text-gray-200">{dataHora(m.proxima_execucao)}</strong></> : m.ultima_execucao ? `Último envio: ${dataHora(m.ultima_execucao)}` : 'Sem envio marcado'}
@@ -153,7 +163,8 @@ export const Grupos: React.FC = () => {
                       </div>
                       <div className="flex flex-wrap items-center gap-2 shrink-0">
                         {m.modo !== 'agora' && (
-                          <Switch checked={m.ativa} onChange={(v) => acao.mutate(() => gruposApi.alternarMensagem(m.id, v))} title={m.ativa ? 'Pausar' : 'Retomar'} />
+                          <Switch checked={m.ativa} labels={{ on: 'Ativa', off: 'Pausada' }} aria-label={`Envio de "${m.titulo}"`}
+                            onChange={(v) => acao.mutate(() => gruposApi.alternarMensagem(m.id, v))} title={m.ativa ? 'Pausar' : 'Retomar'} />
                         )}
                         <Button size="sm" variant="secondary" title="Enviar agora"
                           onClick={() => acao.mutate(async () => { await gruposApi.enviarAgora(m.id); toast.success('Na fila — sai em até 1 minuto') })}>
@@ -179,7 +190,7 @@ export const Grupos: React.FC = () => {
         <section aria-label="Boas-vindas">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-gray-600 dark:text-gray-400">Quando alguém entra no grupo, o chip manda uma mensagem no próprio grupo. Quem entra junto recebe uma só.</p>
-            <Button onClick={() => setModalBv({})} disabled={!grupos.length} className="shrink-0"><Plus className="w-4 h-4 mr-1" /> Nova boas-vindas</Button>
+            <Button onClick={() => setModalBv({})} disabled={!grupos.length} title={!grupos.length ? 'Nenhum grupo carregado do WhatsApp' : undefined} className="shrink-0"><Plus className="w-4 h-4 mr-1" /> Nova boas-vindas</Button>
           </div>
           {boasVindas.isLoading ? <Spinner /> : !boasVindas.data?.length ? (
             <EstadoVazio avatar="duo" titulo="Nenhuma boas-vindas configurada" descricao="Quem entra no grupo pelo link é recebido com o seu texto, na hora ou alguns minutos depois." />
@@ -192,17 +203,17 @@ export const Grupos: React.FC = () => {
                       <div className="min-w-0">
                         <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">{b.grupo_nome || b.grupo_whatsapp_id}</h3>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {b.delay_segundos ? `${Math.round(b.delay_segundos / 60)} min depois` : 'Na hora'} · {b.total_disparos} pessoa(s) recebida(s)
+                          {b.delay_segundos ? `${Math.round(b.delay_segundos / 60)} min depois` : 'Na hora'} · recebida por {b.total_disparos} {b.total_disparos === 1 ? 'pessoa' : 'pessoas'}
                           {b.ultimo_disparo_at ? ` · última ${dataHora(b.ultimo_disparo_at)}` : ''}
                         </p>
                       </div>
-                      <Switch checked={b.ativa} title={b.ativa ? 'Desligar' : 'Ligar'}
+                      <Switch checked={b.ativa} labels={{ on: 'Ligada', off: 'Desligada' }} aria-label={`Boas-vindas de ${b.grupo_nome || 'grupo'}`} title={b.ativa ? 'Desligar' : 'Ligar'}
                         onChange={(v) => acao.mutate(() => gruposApi.atualizarBoasVindas(b.id, { mensagem: b.mensagem, delay_segundos: b.delay_segundos, mencionar: b.mencionar, ativa: v }))} />
                     </div>
                     <p className="mt-2 text-sm text-gray-700 dark:text-gray-300 line-clamp-3 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: previaWhatsApp(b.mensagem) }} />
                     <div className="mt-3 flex gap-2">
                       <Button size="sm" variant="secondary" onClick={() => setModalBv({ editando: b })}><Pencil className="w-4 h-4 mr-1" /> Editar</Button>
-                      <Button size="sm" variant="ghost" onClick={() => { if (confirm('Excluir esta boas-vindas?')) acao.mutate(() => gruposApi.excluirBoasVindas(b.id)) }}>
+                      <Button size="sm" variant="ghost" title="Excluir" onClick={() => { if (confirm('Excluir esta boas-vindas?')) acao.mutate(() => gruposApi.excluirBoasVindas(b.id)) }}>
                         <Trash2 className="w-4 h-4 text-red-600" /><span className="sr-only">Excluir</span>
                       </Button>
                     </div>
@@ -214,17 +225,26 @@ export const Grupos: React.FC = () => {
         </section>
       )}
 
+      {aba === 'campanhas' && (temCampanhas ? (
+        <CampanhasAba grupos={grupos} meuId={user?.id ? Number(user.id) : undefined} mensagens={mensagens.data || []} />
+      ) : (
+        <EstadoVazio avatar="duo" titulo="Campanhas de grupo são do plano Enterprise"
+          descricao={`${CATALOGO.grupos_campanhas.motivo} Um link só para divulgar, grupos que abrem sozinhos quando enchem, o painel de quem entrou e saiu — e quem entra vira lead no CRM.`}
+          acao={<Link to="/planos"><Button>Ver planos</Button></Link>} />
+      ))}
+
       {aba === 'grupos' && (
         <section aria-label="Meus grupos">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex-1"><Input placeholder="Buscar grupo" icon={<Search className="w-4 h-4" />} value={busca} onChange={e => setBusca(e.target.value)} /></div>
             <Button variant="secondary" onClick={() => lista.refetch()} isLoading={lista.isFetching}><RefreshCw className="w-4 h-4 mr-1" /> Atualizar</Button>
           </div>
-          {lista.isLoading ? <Spinner /> : !grupos.length ? (
+          {lista.isLoading ? <Spinner /> : erroLista && !grupos.length ? null : !grupos.length ? (
             <EstadoVazio avatar="duo" titulo="Este número não está em nenhum grupo" descricao="Os grupos aparecem aqui assim que o número conectado participar deles." />
           ) : (
             <Card className="p-0 overflow-hidden">
               <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+                {!gruposFiltrados.length && <li className="px-4 py-6 text-sm text-center text-gray-500 dark:text-gray-400">Nenhum grupo com “{busca.trim()}”.</li>}
                 {gruposFiltrados.map((g: GrupoWhatsApp) => {
                   const bloqueado = g.soAdminsEnviam && !g.souAdmin
                   return (
@@ -269,7 +289,12 @@ const HistoricoEnvios: React.FC<{ mensagem: MensagemGrupo; onFechar: () => void 
   const q = useQuery({ queryKey: ['grupos', 'envios', mensagem.id], queryFn: () => gruposApi.envios(mensagem.id) })
   return (
     <Modal isOpen onClose={onFechar} title={`Envios · ${mensagem.titulo}`} size="lg">
-      {q.isLoading ? <Spinner /> : !q.data?.length ? (
+      {q.isLoading ? <Spinner /> : q.isError ? (
+        <div className="flex items-center justify-between gap-3 text-sm text-red-700 dark:text-red-300">
+          <span>{erroDe(q.error, 'Não foi possível carregar os envios.')}</span>
+          <Button size="sm" variant="secondary" onClick={() => q.refetch()}>Tentar de novo</Button>
+        </div>
+      ) : !q.data?.length ? (
         <p className="text-sm text-gray-600 dark:text-gray-400">Ainda não saiu nenhum envio.</p>
       ) : (
         <ul className="divide-y divide-gray-100 dark:divide-gray-700 max-h-[60vh] overflow-y-auto">

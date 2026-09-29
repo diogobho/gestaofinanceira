@@ -14,18 +14,24 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { CATALOGO, ehCapacidade, recusa, type Capacidade } from '../src/shared/capacidades';
 
-const MIGRATION = join(__dirname, '..', 'migrations', '081_capacidades_por_plano.sql');
+const MIGRATIONS = join(__dirname, '..', 'migrations');
 
-/** As listas que a migration grava, por plano (id → chaves). */
+/**
+ * As listas que as migrations gravam, por plano (id → chaves). A 081 criou as três;
+ * migration posterior que regrava um plano (a 089 deu `grupos_campanhas` ao
+ * Enterprise) vence, na ordem dos arquivos — é o estado que o banco tem.
+ */
 function capacidadesDaMigration(): Record<string, string[]> {
-  const sql = readFileSync(MIGRATION, 'utf8');
   const out: Record<string, string[]> = {};
   const re = /UPDATE planos SET capacidades = '(\[[\s\S]*?\])'::jsonb WHERE id = (\d+);/g;
-  for (const m of sql.matchAll(re)) out[m[2]] = JSON.parse(m[1]);
+  for (const arquivo of readdirSync(MIGRATIONS).filter((f) => /^\d{3}_.*\.sql$/.test(f)).sort()) {
+    const sql = readFileSync(join(MIGRATIONS, arquivo), 'utf8');
+    for (const m of sql.matchAll(re)) out[m[2]] = JSON.parse(m[1]);
+  }
   return out;
 }
 
@@ -78,8 +84,10 @@ describe('a escada dos planos', () => {
   test('o que separa Profissional de Enterprise é quem fala primeiro', () => {
     const m = capacidadesDaMigration();
     const so3 = m['3'].filter((c) => !m['2'].includes(c)).sort();
+    // `grupos_campanhas` (089) entra aqui por produto, não por risco: é o que substitui
+    // o SendFlow para quem já paga por ele, e o básico de grupos segue no Profissional.
     assert.deepEqual(so3, [
-      'agente_proativo', 'conversa_fria', 'disparo_whatsapp',
+      'agente_proativo', 'conversa_fria', 'disparo_whatsapp', 'grupos_campanhas',
       'modelos_meta', 'smtp_proprio', 'whatsapp_oficial',
     ]);
   });

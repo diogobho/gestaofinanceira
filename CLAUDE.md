@@ -753,6 +753,9 @@ do card responde. Desde a migration 084 a conta é **por número** (`empresa_id`
   silêncio — o caso da empresa 32. Com provider `claude` o modelo cai num Gemini fixo: era o
   `gemini-2.0-flash`, desligado pelo Google, e de 09/07 a 15/09/2026 **755 áudios da Panteras**
   voltaram 404 e o agente nunca soube o que foi dito. Hoje é `gemini-2.5-flash`.
+  Até 29/09/2026 a tela **escondia** o campo da chave do Gemini com o Claude escolhido —
+  era impossível ligar áudio no Claude pela interface. Agora ele aparece nos dois
+  provedores ("Chave do Gemini para entender áudio", opcional no Claude).
 - O agente só reage a mensagem que chega **depois** de ligado. Mensagem anterior à
   ativação fica com "agente inativo — mensagem ignorada" no log e não é reprocessada.
 - **Contato duplicado do mesmo dono grava a mensagem duas vezes.** `receberMensagem`
@@ -934,6 +937,36 @@ job `jobs/grupos-scheduler.ts` (a cada minuto, instância 0), tela em `pages/gru
   `/groups` devolve `announce` e `souAdmin` (grupo só-admins sem ser admin é recusado — a tela
   trava a escolha).
 - Mídia vem pelo mesmo upload da cadência e está em `SQL_PROTEGIDOS` da cota de mídia.
+
+### Campanhas de grupo (migration 089, 28/09/2026) — o SendFlow do nosso jeito
+
+Aba **Campanhas** em `/gestao/grupos`, capacidade `grupos_campanhas` (**só Enterprise**; o
+básico de grupos segue no Profissional). Serviço em `modules/grupos/campanhas.service.ts`,
+regras puras em `campanhas-regras.ts` (teste `tests/grupos-campanhas.test.ts`), tela em
+`pages/grupos/Campanhas.tsx`.
+
+- **Link único** `duofuturo.tech/gestao/g/<slug>` — o nginx (`location ^~ /gestao/g/`)
+  repassa para `/api/grupos-link/<slug>`, sem login, que responde **302** para o convite do
+  **primeiro grupo ativo com vaga** (enche um de cada vez, pela ordem). Clique é gravado com
+  `utm_source/medium/campaign`; robô de pré-visualização (WhatsApp, Facebook…) redireciona
+  mas não conta. Sem vaga e sem grupo novo possível: página "lotado", 503.
+- **Grupo novo sozinho** quando nenhum grupo tem folga (10% do limite, teto 20):
+  `abrirGrupo` escolhe o chip da campanha com menos grupos, cria pelo `POST /groups/create`
+  da instância com a **equipe (outros chips) dentro como admin**, descrição (regras) e "só
+  admins enviam". **Máximo 10 grupos novos por chip em 24h.** Trava em
+  `grupos_campanhas.criando_grupo_em` (não advisory lock: pool + cluster), vence em 2 min.
+- **Entrada e saída** vêm do mesmo `group_participants` da boas-vindas — a instância passou
+  a mandar também `remove`. Só conta o evento do chip que **administra o grupo na
+  campanha** (`grupos_campanhas_grupos.usuario_id`). Entrada com `criar_lead` vira lead no
+  funil/etapa/responsável da campanha; duplicata no funil só ganha anotação.
+  Participante `@lid` não resolvido conta no painel mas não vira lead.
+- **Mensagem da campanha** = `grupos_mensagens.campanha_id`: vai para os grupos ativos NA
+  HORA do envio, cada um pelo chip que o administra (chip fora do ar derruba só os grupos
+  dele). `{Oi|Olá}` sorteia por grupo em toda mensagem de grupo (`aplicarVariacoes`).
+- Contagem de participantes relida do chip a cada 10 min (`sincronizarContagens`, no job
+  de grupos) — o evento se perde em restart da instância.
+- **Mexeu em `api-multi-baileys.js`? `pm2 restart` em cada `whatsapp-30xx`** — sem isso
+  `/groups/create`, `/groups/:id/invite` e as saídas não existem na instância no ar.
 
 ## Importar participantes de grupo (CRM → Contatos → Grupos, 15/09/2026)
 
