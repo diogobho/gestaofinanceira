@@ -254,6 +254,24 @@ resto segue `Desafio 52 semanas`. Mesmo funil e estágio (24/208).
   enviava mensagem, mas o webhook do SendFlow não estava ligado àquele grupo. Conferir
   com `grep -o '"groupName":"[^"]*"' logs/out.log | sort | uniq -c`.
 
+#### Workshop, nome pelo WhatsApp e tags (29/09/2026, #195/#196/#218)
+
+- **Workshop tem origem própria**: `/workshop/i` → `Workshop Liberdade Financeira` (no
+  catálogo de Integrações também). Até aqui caía em `Desafio 52 semanas`; os 5 cards
+  nascidos assim (15936, 15937, 15940, 15941, 15950) **não** foram remarcados.
+- **O SendFlow nunca manda nome** (634 eventos lidos). O card nasce com o número, e o
+  webhook de mensagem troca o nome **na primeira mensagem da pessoa**, pelo `pushname`
+  (`_shared/nome.ts`, com teste) — só em card cujo nome não tem letra nenhuma; nome
+  digitado por gente nunca é trocado. Passado: `scripts/nomear_leads_pelo_whatsapp_20260929.js`
+  (315 cards: 214 na empresa 5, 100 na 46, 1 na 32).
+- **O dono por URL continua sem uso**: todos os eventos chegam sem `&dono=`, e as três
+  automações da Panteras usam o mesmo webhook — separar o responsável depende de a Débora
+  dizer quem cuida de cada uma (#195), e provavelmente de um mapa campanha → dono no código.
+- **Tags** (`TagsDoLead.tsx`, no card do lead): a API e a tabela existiam, faltava a tela.
+  A tag é da EMPRESA — criar uma que já existe (sem caixa) devolve a existente —, e
+  `addTag` passou a recusar tag de outra empresa. Criar tag falhava sempre antes disso
+  (`usuario_id` NOT NULL nunca era preenchido).
+
 `form-diagnostico` é chamado pelo app de Diagnóstico (`/var/www/apps/diagnostico`)
 em dois eventos: `iniciado` cria o lead e `concluido` anexa uma anotação com
 score, perfil e plano recomendado no lead existente (achado pelo telefone no

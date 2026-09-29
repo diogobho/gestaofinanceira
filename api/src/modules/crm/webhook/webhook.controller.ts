@@ -6,6 +6,7 @@ import { adicionarJobAgente } from '../../agente-ia/agente-ia.queue';
 import { automacoesGrupoService as automacoesService } from '../../automacoes/automacoes-grupo.service';
 import { leadsService } from '../leads/leads.service';
 import { variantesTelefone, telefonePlausivel, podeSerContatoNovo } from '../_shared/telefone';
+import { nomeDoPush } from '../_shared/nome';
 import { normalizarUtmSource } from '../_shared/utm';
 import { campanhaDoEvento, donoPedidoNaUrl } from '../_shared/sendflow';
 import axios from 'axios';
@@ -833,6 +834,23 @@ export const webhookController = {
              WHERE id = $2 AND (nome_push IS NULL OR nome_push = '')`,
             [pushname, contatoId]
           );
+
+          // Card que nasceu só com o número (SendFlow não manda nome) ganha o nome que
+          // a pessoa usa no WhatsApp na primeira vez que ela escreve. Nome digitado por
+          // gente — qualquer um com letra — nunca é trocado.
+          const nomePush = nomeDoPush(pushname);
+          if (nomePush) {
+            const renomeados = await query(
+              `UPDATE leads SET nome = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE contato_whatsapp_id = $2 AND empresa_id = $3
+                  AND nome !~ '[[:alpha:]]'
+                RETURNING id`,
+              [nomePush, contatoId, empresaId]
+            );
+            for (const l of renomeados.rows) {
+              console.log(`[Webhook] Lead #${l.id} ganhou o nome do WhatsApp: ${nomePush}`);
+            }
+          }
         }
 
         // Inserir no historico de mensagens (com suporte a grupo)

@@ -393,10 +393,10 @@ export const leadsController = {
         return res.status(400).json({ message: 'tag_id é obrigatório' });
       }
 
-      await leadsService.addTag(parseInt(id), tag_id, empresaId, usuarioId);
+      await leadsService.addTag(parseInt(id), Number(tag_id), empresaId, usuarioId);
       res.json({ success: true });
     } catch (error: any) {
-      if (error.message === 'Lead não encontrado') {
+      if (error.message === 'Lead não encontrado' || error.message === 'Tag não encontrada') {
         return res.status(404).json({ message: error.message });
       }
       next(error);

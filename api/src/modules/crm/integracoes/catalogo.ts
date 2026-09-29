@@ -69,7 +69,7 @@ export const CATALOGO: DefinicaoIntegracao[] = [
       'Entrada de pessoas nos grupos de WhatsApp da campanha. No SendFlow a campanha É um grupo, e o evento que interessa é a adição de membro.',
     entrada: 'POST /crm/webhook/sendflow',
     canal: 'webhook',
-    origens: ['Desafio 52 semanas', 'Clube do Livro'],
+    origens: ['Desafio 52 semanas', 'Clube do Livro', 'Workshop Liberdade Financeira'],
     marcador: /\(SendFlow\)\s*$/i,
   },
   {

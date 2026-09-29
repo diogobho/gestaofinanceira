@@ -20,14 +20,21 @@ test('campanhaDoEvento', async (t) => {
     for (const grupo of [
       'Desafio 52 Semanas - Vida Próspera',
       '#03 Já é permitido prosperar! ✨',
-      'Workshop Gratuito Liberdade Financeira',
     ]) {
       assert.deepEqual(campanhaDoEvento('Grupos LEADS', grupo, PADRAO), PADRAO, grupo);
     }
   });
 
+  await t.test('o Workshop tem origem própria', () => {
+    assert.equal(
+      campanhaDoEvento('Grupos LEADS', 'Workshop Gratuito Liberdade Financeira', PADRAO).origem,
+      'Workshop Liberdade Financeira'
+    );
+  });
+
   await t.test('a origem cabe em leads.origem', () => {
     assert.ok(campanhaDoEvento('', 'livro', PADRAO).origem.length <= 50);
+    assert.ok(campanhaDoEvento('', 'workshop', PADRAO).origem.length <= 50);
   });
 });
 

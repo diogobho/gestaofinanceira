@@ -1519,12 +1519,16 @@ export const leadsService = {
     const lead = await this.getById(leadId, empresaId);
     if (!lead) throw new Error('Lead não encontrado');
 
+    // A tag tem que ser da mesma empresa — sem isso, um id qualquer no corpo
+    // penduraria a tag de outra conta no card (e o nome dela apareceria aqui).
+    const tagResult = await query(`SELECT nome FROM tags WHERE id = $1 AND empresa_id = $2`, [tagId, empresaId]);
+    if (!tagResult.rows[0]) throw new Error('Tag não encontrada');
+
     await query(
       `INSERT INTO lead_tags (lead_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [leadId, tagId]
     );
 
-    const tagResult = await query(`SELECT nome FROM tags WHERE id = $1`, [tagId]);
     await this.registrarAtividade(leadId, usuarioId, empresaId, 'tag_adicionada',
       `Tag "${tagResult.rows[0]?.nome}" adicionada`, { tag_id: tagId });
   },

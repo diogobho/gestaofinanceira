@@ -20,9 +20,14 @@ export interface CampanhaSendflow {
  *
  * A origem do Club do Livro é exatamente a dos 46 leads que a Débora cadastrou à
  * mão até 23/09/2026 — grafia diferente partiria o relatório em dois.
+ *
+ * O Workshop entrava como Desafio 52 Semanas até 29/09/2026 (pedido #195 da Débora,
+ * que conta as três campanhas separadas). Os workshops cadastrados à mão têm o tema no
+ * nome ("Workshop Lidere Sua Vida"); este segue o mesmo formato.
  */
 const CAMPANHAS: Array<{ padrao: RegExp; origem: string; campanha: string }> = [
   { padrao: /livro/i, origem: 'Clube do Livro', campanha: 'Clube do Livro' },
+  { padrao: /workshop/i, origem: 'Workshop Liberdade Financeira', campanha: 'Workshop Liberdade Financeira' },
 ];
 
 export function campanhaDoEvento(

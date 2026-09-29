@@ -477,7 +477,6 @@ export const useCreateTag = () => {
     mutationFn: (data: CreateTagDto) => tagsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'tags'] })
-      toast.success('Tag criada!')
     },
   })
 }

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import {
   X, Phone, Mail, Building, DollarSign, Calendar, MessageCircle,
-  Thermometer, Tag as TagIcon, Archive, ArchiveRestore, Trash2, Send, Clock, User,
+  Thermometer, Archive, ArchiveRestore, Trash2, Send, Clock, User,
   Paperclip, Image, FileText, Mic, XCircle, Plus, Check,
   Trash, PhoneCall, Video, MailIcon, RefreshCw, FileSignature, MapPin,
   MoreHorizontal, StickyNote, AlertTriangle, Bell, Globe, Square, Edit2, ArrowRight, ChevronRight, ChevronDown, Reply
@@ -20,6 +20,7 @@ import {
   useOrigensCatalogo, useLead, useLeadReagirMensagem,
 } from '@/hooks/useCRM'
 import GerenciarOrigensModal from './GerenciarOrigensModal'
+import TagsDoLead from './TagsDoLead'
 import ChatBubble, { ChatDateSeparator } from './ChatBubble'
 import { trechoDaMensagem } from '@/utils/mensagemChat'
 import AgenteIALeadToggle from './AgenteIALeadToggle'
@@ -696,25 +697,7 @@ const handleArquivar = async () => {
               </div>
 
               {/* Tags */}
-              {lead.tags && lead.tags.length > 0 && (
-                <div className="border-t pt-4">
-                  <h3 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
-                    <TagIcon size={14} />
-                    Tags
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {lead.tags.map((tag) => (
-                      <span
-                        key={tag.id}
-                        className="px-2 py-1 rounded text-xs font-medium"
-                        style={{ backgroundColor: `${tag.cor}20`, color: tag.cor }}
-                      >
-                        {tag.nome}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <TagsDoLead lead={lead} />
 
               {/* Notas */}
               {lead.notas && (() => {

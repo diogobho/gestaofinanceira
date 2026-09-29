@@ -31,13 +31,14 @@ export const tagsController = {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const empresaId = (req as any).user.empresa_id;
+      const usuarioId = (req as any).user.id;
       const { nome, cor } = req.body;
 
-      if (!nome) {
+      if (!nome || !String(nome).trim()) {
         return res.status(400).json({ message: 'nome é obrigatório' });
       }
 
-      const tag = await tagsService.create(empresaId, { nome, cor });
+      const tag = await tagsService.create(empresaId, usuarioId, { nome, cor });
       res.status(201).json(tag);
     } catch (error: any) {
       if (error.code === '23505') { // Unique violation

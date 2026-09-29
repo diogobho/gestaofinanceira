@@ -296,6 +296,14 @@ recebido em disparo posterior, 1 (Maria Alves) número bom que caiu com chip for
 "Duplicados" da Anchor não eram de chip diferente: 10 leads com `55` no lugar do DDD
 (`5555983156183` × `5511983156183`) — a regra por funil está certa.
 
+### 29/09/2026 — Panteras (empresa 5), 3 sugestões da Débora
+
+| # | Assunto | Causa real | Desfecho |
+|---|---|---|---|
+| 218 | Lead do SendFlow sobe sem nome | o SendFlow só manda o número | nome entra na 1ª mensagem da pessoa; 315 cards nomeados |
+| 196 | Tags nos leads | API existia sem tela (e criar tag quebrava) | tela de tags no card |
+| 195 | Responsável automático no SendFlow | eventos chegam sem dono; mesmo webhook para as 3 automações | pedido à cliente quem cuida de cada uma; Workshop ganhou origem própria |
+
 ## Em aberto
 
 - Chips da Panteras desconectados em 15/09: **3011 (Débora) desde 07/09**, 3015 e 3017
