@@ -51,10 +51,10 @@ export const CriarModeloModal: React.FC<Props> = ({ aberto, onFechar, existentes
   const [exemplos, setExemplos] = useState<Record<string, string>>({})
   const [botoes, setBotoes] = useState<BotaoModelo[]>([])
 
-  const usarPronto = ({ modelo }: ModeloPronto) => {
+  const usarPronto = ({ modelo, botoes: botoesProntos }: ModeloPronto) => {
     setF({ ...vazio, nome: modelo.nome, categoria: modelo.categoria, corpo: modelo.corpo })
     setExemplos(Object.fromEntries(modelo.exemplos.map((e, i) => [String(i + 1), e])))
-    setBotoes([])
+    setBotoes(botoesProntos ?? [])
   }
 
   const vars = useMemo(() => variaveisDe(f.corpo), [f.corpo])

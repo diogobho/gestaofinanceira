@@ -37,7 +37,7 @@ const TIPO_BAILEYS: Record<string, string> = {
   location: 'location',
 };
 
-async function donoDaPorta(conta: ContaCloud): Promise<{ id: number } | null> {
+export async function donoDaPorta(conta: ContaCloud): Promise<{ id: number } | null> {
   const r = await query(
     `SELECT id FROM usuarios WHERE whatsapp_porta = $1 AND ativo = true ORDER BY id LIMIT 1`,
     [conta.porta_virtual]
@@ -46,7 +46,7 @@ async function donoDaPorta(conta: ContaCloud): Promise<{ id: number } | null> {
 }
 
 /** Texto do balão para os tipos que não são mídia. null = não vira mensagem no CRM. */
-function textoDa(msg: any): string | null {
+export function textoDa(msg: any): string | null {
   switch (msg.type) {
     case 'text':
       return msg.text?.body ?? '';
@@ -78,7 +78,7 @@ function textoDa(msg: any): string | null {
  * Garante o contato na empresa antes de entregar a mensagem ao CRM. Devolve o
  * identificador que vai no `from` do payload (JID `@c.us` ou `<BSUID>@bsuid`).
  */
-async function garantirContato(
+export async function garantirContato(
   conta: ContaCloud,
   telefone: string | null,
   bsuid: string | null,
@@ -148,14 +148,28 @@ async function garantirContato(
 }
 
 export async function encaminharMensagemAoCRM(conta: ContaCloud, msg: any, value: any): Promise<void> {
+  return entregarAoCRM(conta, msg, value, false);
+}
+
+/**
+ * Coexistência (095): o que a pessoa manda pelo app WhatsApp Business do celular
+ * chega como `smb_message_echoes` e entra no card como `fromMe` — o mesmo caminho da
+ * mensagem que o operador manda pelo celular conectado por QR. Aqui `from` é o
+ * número da empresa e `to` é o contato.
+ */
+export async function encaminharEcoAoCRM(conta: ContaCloud, eco: any, value: any): Promise<void> {
+  return entregarAoCRM(conta, eco, value, true);
+}
+
+async function entregarAoCRM(conta: ContaCloud, msg: any, value: any, eco: boolean): Promise<void> {
   // Reação não é balão: vai como evento e vira atributo da mensagem reagida (086),
   // o mesmo contrato que o Baileys usa.
   if (msg.type === 'reaction') {
     if (!msg.reaction?.message_id) return;
     await axios.post(URL_WEBHOOK_CRM, {
       event: 'reaction',
-      from: msg.from || msg.from_user_id || '',
-      fromMe: false,
+      from: eco ? (msg.to || msg.to_user_id || '') : (msg.from || msg.from_user_id || ''),
+      fromMe: eco,
       targetId: msg.reaction.message_id,
       emoji: msg.reaction.emoji || '',
       port: conta.porta_virtual,
@@ -170,20 +184,21 @@ export async function encaminharMensagemAoCRM(conta: ContaCloud, msg: any, value
     return;
   }
 
-  const contatoInfo = (value.contacts ?? []).find(
+  // No eco o contato é o destinatário, e a Meta não manda o perfil dele.
+  const contatoInfo = eco ? null : (value.contacts ?? []).find(
     (c: any) => (msg.from && c.wa_id === msg.from) || (msg.from_user_id && c.user_id === msg.from_user_id)
   ) ?? value.contacts?.[0];
-  const telefone: string | null = (msg.from || contatoInfo?.wa_id || '').replace(/\D/g, '') || null;
-  const bsuid: string | null = msg.from_user_id || contatoInfo?.user_id || null;
+  const telefone: string | null = String((eco ? msg.to : msg.from || contatoInfo?.wa_id) || '').replace(/\D/g, '') || null;
+  const bsuid: string | null = (eco ? msg.to_user_id : msg.from_user_id || contatoInfo?.user_id) || null;
   const nome: string | null = contatoInfo?.profile?.name || contatoInfo?.profile?.username || null;
 
-  const from = await garantirContato(conta, telefone, bsuid, nome);
-  if (!from) return;
+  const contato = await garantirContato(conta, telefone, bsuid, nome);
+  if (!contato) return;
 
   const payload: any = {
-    from,
-    to: conta.numero,
-    fromMe: false,
+    from: eco ? `${conta.numero}@c.us` : contato,
+    to: eco ? contato : conta.numero,
+    fromMe: eco,
     isGroup: false,
     messageId: msg.id,
     timestamp: Number(msg.timestamp) || Math.floor(Date.now() / 1000),
@@ -216,11 +231,14 @@ export async function encaminharMensagemAoCRM(conta: ContaCloud, msg: any, value
     if (texto == null) return;
     payload.type = msg.type === 'location' ? 'location' : 'chat';
     payload.body = texto;
+    // Clique em botão de modelo (resposta rápida) ou de mensagem interativa: as
+    // "Respostas por botão" (094) só valem para o clique, nunca para texto digitado.
+    if (!eco && (msg.type === 'button' || (msg.type === 'interactive' && msg.interactive?.button_reply))) payload.botao = true;
   }
 
   // Resposta a anúncio "clique para o WhatsApp": a origem do lead vale ouro para o
   // comercial e só vem nesta mensagem.
-  if (msg.referral?.source_url || msg.referral?.headline) {
+  if (!eco && (msg.referral?.source_url || msg.referral?.headline)) {
     const ref = msg.referral;
     payload.body = `${payload.body ?? ''}\n\n[Veio do anúncio: ${ref.headline || ref.source_type || 'Meta'}${ref.source_url ? ` — ${ref.source_url}` : ''}]`.trim();
   }

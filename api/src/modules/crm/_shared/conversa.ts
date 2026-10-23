@@ -87,3 +87,18 @@ export async function contatoJaEscreveuAlgumaVez(
   );
   return r.rows.length > 0;
 }
+
+/**
+ * Comprador não é contato frio. Quem acabou de pagar na Hotmart espera a mensagem de
+ * boas-vindas — é atendimento de quem já é cliente, não abordagem a um desconhecido,
+ * e não é o primeiro contato que a Meta pune. Sem esta exceção a regra do primeiro
+ * contato só pelo oficial barrava a boas-vindas de todo aluno novo da Escola enquanto
+ * ninguém da equipe estivesse no número oficial (chamado #231, 9 alunos em 28/09–01/10).
+ *
+ * O critério é a origem que o webhook de COMPRA grava (`'Hotmart'`); o carrinho
+ * abandonado entra como `'Abandono carrinho'` e continua sendo primeiro contato.
+ */
+export async function leadEhComprador(leadId: number): Promise<boolean> {
+  const r = await query(`SELECT 1 FROM leads WHERE id = $1 AND origem = 'Hotmart'`, [leadId]);
+  return r.rows.length > 0;
+}

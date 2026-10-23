@@ -1,0 +1,113 @@
+WEBVTT
+
+1
+00:00:00.401 --> 00:00:04.157
+This is Duo, logged in as a real user. In My profile,
+
+2
+00:00:04.157 --> 00:00:08.906
+the Calendar card lets each user connect their own Google Calendar.
+
+3
+00:00:09.355 --> 00:00:12.124
+The user clicks Connect Google Calendar,
+
+4
+00:00:12.124 --> 00:00:15.308
+and Duo starts the standard Google OAuth flow.
+
+5
+00:00:15.758 --> 00:00:19.231
+This is the real Google page, shown in English.
+
+6
+00:00:19.231 --> 00:00:24.181
+The address carries Duo's client ID and the exact scopes requested:
+
+7
+00:00:24.181 --> 00:00:28.393
+openid, email, and calendar dot events. After signing in,
+
+8
+00:00:28.393 --> 00:00:33.122
+the user sees the consent screen and grants calendar dot events.
+
+9
+00:00:34.621 --> 00:00:38.617
+Back in Duo, the card now shows the connected Google account.
+
+10
+00:00:38.617 --> 00:00:41.368
+From here on, everything happens for real,
+
+11
+00:00:41.368 --> 00:00:43.595
+in this account's Google Calendar.
+
+12
+00:00:44.045 --> 00:00:45.316
+Now, in the CRM,
+
+13
+00:00:45.316 --> 00:00:49.843
+the user opens a lead and creates a task of type Meeting,
+
+14
+00:00:49.843 --> 00:00:53.338
+with a title, a date, a time and a duration.
+
+15
+00:01:00.781 --> 00:01:05.712
+The form confirms that the meeting goes to the connected Google Calendar.
+
+16
+00:01:05.712 --> 00:01:07.265
+The user clicks Create.
+
+17
+00:01:07.716 --> 00:01:09.531
+Using calendar dot events,
+
+18
+00:01:09.531 --> 00:01:13.161
+Duo created the event in the user's Google Calendar,
+
+19
+00:01:13.161 --> 00:01:14.837
+with a Google Meet link.
+
+20
+00:01:14.837 --> 00:01:19.374
+The panel shows the event read live from the Google Calendar API.
+
+21
+00:01:19.374 --> 00:01:22.725
+The task in Duo now shows the Join meeting link.
+
+22
+00:01:24.226 --> 00:01:28.892
+If the meeting is rescheduled in Duo, here from ten to eleven o'clock,
+
+23
+00:01:28.892 --> 00:01:31.959
+Duo updates the same event in Google Calendar.
+
+24
+00:01:39.253 --> 00:01:42.791
+And if the meeting is canceled, by deleting the task,
+
+25
+00:01:42.791 --> 00:01:45.662
+Duo deletes the event from Google Calendar.
+
+26
+00:01:50.459 --> 00:01:51.744
+Duo only creates,
+
+27
+00:01:51.744 --> 00:01:56.580
+updates and deletes the events of meetings scheduled in its CRM.
+
+28
+00:01:56.580 --> 00:01:58.696
+It never reads other events.

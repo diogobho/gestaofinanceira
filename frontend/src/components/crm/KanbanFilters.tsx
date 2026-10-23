@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
-import { Filter, X, ChevronDown, Users, Thermometer, Clock, MessageSquare, Phone, UserX, Tag, Layers } from 'lucide-react'
+import { Filter, X, ChevronDown, Users, Thermometer, Clock, MessageSquare, Phone, UserX, Tag, Tags, Layers } from 'lucide-react'
 import type { FiltrosLead } from '@/api/crm'
-import { useOrigens } from '@/hooks/useCRM'
+import { useOrigens, useTags } from '@/hooks/useCRM'
 
 interface KanbanFiltersProps {
   filtros: FiltrosLead
@@ -16,6 +16,15 @@ export default function KanbanFilters({ filtros, onChange, usuarios = [], estagi
   const [panelPos, setPanelPos] = useState({ top: 0, right: 0 })
   const buttonRef = useRef<HTMLButtonElement>(null)
   const { data: origens = [] } = useOrigens(funilId)
+  const { data: tags = [] } = useTags()
+  const tagsMarcadas = (filtros.tags || '').split(',').filter(Boolean).map(Number)
+
+  const alternarTag = (id: number) => {
+    const proximas = tagsMarcadas.includes(id)
+      ? tagsMarcadas.filter(t => t !== id)
+      : [...tagsMarcadas, id]
+    onChange({ ...filtros, tags: proximas.length ? proximas.join(',') : undefined })
+  }
 
   const hasActiveFilters = Object.values(filtros).some(v => v !== undefined && v !== false)
 
@@ -284,6 +293,39 @@ export default function KanbanFilters({ filtros, onChange, usuarios = [], estagi
                   "Sem Nome Real" = lead cujo nome é apenas o número do contato
                 </p>
               </div>
+
+              {/* Tags — marcar várias mostra o lead que tiver QUALQUER uma */}
+              {tags.length > 0 && (
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                    <Tags size={16} />
+                    Tags
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {tags.map(t => {
+                      const ativa = tagsMarcadas.includes(t.id)
+                      const cor = t.cor || '#3B82F6'
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => alternarTag(t.id)}
+                          aria-pressed={ativa}
+                          className="px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
+                          style={ativa
+                            ? { backgroundColor: cor, borderColor: cor, color: '#fff' }
+                            : { backgroundColor: `${cor}14`, borderColor: `${cor}55`, color: cor }}
+                        >
+                          {t.nome}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {tagsMarcadas.length > 1 && (
+                    <p className="text-xs text-gray-400 mt-1">Mostra o lead que tiver qualquer uma das tags marcadas.</p>
+                  )}
+                </div>
+              )}
 
               {/* Origem */}
               {origens.length > 0 && (

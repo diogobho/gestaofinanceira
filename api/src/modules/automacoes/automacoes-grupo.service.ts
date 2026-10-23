@@ -189,46 +189,12 @@ export const automacoesGrupoService = {
     participanteNome: string | null,
     empresaId: number
   ): Promise<void> {
-    const automacoes = await query(
-      `SELECT ag.*, u.whatsapp_porta
-       FROM automacoes_grupo ag
-       INNER JOIN usuarios u ON u.id = ag.usuario_id
-       WHERE ag.empresa_id = $1
-         AND ag.grupo_whatsapp_id = $2
-         AND ag.ativa = true`,
-      [empresaId, grupoId]
-    );
-
-    if (automacoes.rows.length === 0) return;
-
-    const numero = participanteJid.replace(/@.*$/, '');
-    const primeiroNome = participanteNome?.split(' ')[0] || 'pessoal';
-
-    for (const auto of automacoes.rows) {
-      const delay = (auto.delay_segundos || 0) * 1000;
-
-      setTimeout(async () => {
-        try {
-          const mensagemFinal = auto.mensagem
-            .replace(/\{\{nome\}\}/gi, participanteNome || 'pessoal')
-            .replace(/\{\{primeiro_nome\}\}/gi, primeiroNome)
-            .replace(/\{\{nome_grupo\}\}/gi, auto.grupo_nome || 'grupo');
-
-          const destino = auto.enviar_para === 'grupo' ? grupoId : participanteJid;
-
-          await instancia(auto.whatsapp_porta).post(`/send-message`,
-            { to: destino, message: mensagemFinal },
-            { timeout: 15000 }
-          );
-
-          await this.registrarDisparo(auto.id, numero, participanteNome, mensagemFinal, true);
-          console.log(`[Automacao #${auto.id}] Mensagem enviada para ${numero}`);
-        } catch (err: any) {
-          console.error(`[Automacao #${auto.id}] Falha no envio:`, err.message);
-          await this.registrarDisparo(auto.id, numero, participanteNome, auto.mensagem, false, err.message);
-        }
-      }, delay);
-    }
+    // Desligado em 30/09/2026. Quem manda a boas-vindas é a fila de `grupos.service`
+    // (`registrarEntradas` → `processarBoasVindas`), no grupo ou no privado, com as travas
+    // anti-bloqueio. Este caminho usava a mesma linha de `automacoes_grupo` e chamava
+    // `/send-message`, que a instância não tem — nunca enviou nada; consertá-lo mandaria
+    // a mesma boas-vindas duas vezes.
+    void grupoId; void participanteJid; void participanteNome; void empresaId;
   }
 };
 

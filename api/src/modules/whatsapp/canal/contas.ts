@@ -43,6 +43,15 @@ export interface ContaCloud {
   /** 'manual' (cadastrado pela DuoFuturo) ou 'embedded_signup' (o cliente autorizou). */
   origem: string;
   conectado_em: string | null;
+  /** O número segue no app WhatsApp Business do celular (095). */
+  coexistencia: boolean;
+  sync_pedido_em: string | null;
+  sync_erro: string | null;
+  historico_status: 'importando' | 'concluido' | 'recusado' | null;
+  historico_progresso: number | null;
+  historico_mensagens: number;
+  /** Maior progresso visto em cada fase do histórico: { "0": 100, "1": 64, ... } */
+  historico_fases: Record<string, number>;
 }
 
 /** Faixa das portas virtuais (CHECK da 074). As instâncias Baileys vivem em 3010–3200. */
@@ -86,6 +95,24 @@ export async function enviaPeloOficial(usuarioId: number | null | undefined): Pr
   const porta = r.rows[0]?.whatsapp_porta;
   if (!ehPortaVirtual(porta)) return false;
   return !!(await contaPorPorta(Number(porta)))?.ativo;
+}
+
+/**
+ * PROVISÓRIO (16/10/2026): usuários que disparam em massa pelo QR mesmo sem o oficial.
+ * A Meta recusou a coexistência da Jéssica e da Hellen (Panteras) e a equipe parou de
+ * prospectar. Vale SÓ para o disparo em massa — a cadência fria continua só no oficial.
+ * Lista no `api/.env` (`DISPARO_QR_LIBERADO_USUARIOS=45,46,56`); esvaziar e reiniciar
+ * a API desfaz.
+ */
+export function disparoQrLiberado(usuarioId: number | null | undefined): boolean {
+  if (!usuarioId) return false;
+  return String(process.env.DISPARO_QR_LIBERADO_USUARIOS || '')
+    .split(',').map((s) => Number(s.trim())).includes(Number(usuarioId));
+}
+
+/** Pode disparar em massa: está no oficial, ou está na liberação provisória do QR. */
+export async function podeDispararEmMassa(usuarioId: number | null | undefined): Promise<boolean> {
+  return disparoQrLiberado(usuarioId) || enviaPeloOficial(usuarioId);
 }
 
 export const MSG_PRIMEIRO_CONTATO_SO_OFICIAL =
@@ -134,6 +161,21 @@ export async function contaAtivaDoUsuario(
     if (propria?.ativo) return propria;
   }
   return empresaId ? contaAtivaDaEmpresa(Number(empresaId)) : null;
+}
+
+/**
+ * Conta cujos modelos o usuário vê e edita no fluxo do funil: a dele; senão a da empresa
+ * inteira; senão, se a empresa tem UM número oficial ativo (o da Débora na Panteras), esse.
+ * Sem isso, quem monta a cadência e não é dono do número não via modelo nenhum.
+ */
+export async function contaDeModelos(
+  usuarioId: number | null | undefined,
+  empresaId: number | null | undefined
+): Promise<ContaCloud | null> {
+  const direta = await contaAtivaDoUsuario(usuarioId, empresaId);
+  if (direta || !empresaId) return direta;
+  const ativas = (await contasDaEmpresa(Number(empresaId))).filter((c) => c.ativo);
+  return ativas.length === 1 ? ativas[0] : null;
 }
 
 /**
@@ -194,7 +236,10 @@ export async function salvarConta(dados: {
   /** Token do cliente (Embedded Signup). Ausente = System User da DuoFuturo. */
   token?: string | null;
   pin?: string | null;
-  origem?: 'manual' | 'embedded_signup';
+  /** 'portfolio_empresa' = criado pela API na WABA da empresa (097), sem janela. */
+  origem?: 'manual' | 'embedded_signup' | 'portfolio_empresa';
+  /** O número segue no app WhatsApp Business do celular (095). */
+  coexistencia?: boolean;
 }): Promise<ContaCloud> {
   const cred: CredenciaisMeta = {
     phoneNumberId: dados.phoneNumberId,
@@ -206,13 +251,26 @@ export async function salvarConta(dados: {
   const tokenEnc = dados.token ? encrypt(dados.token) : null;
   const pinEnc = dados.pin ? encrypt(dados.pin) : null;
 
+  // Um número por operador (idx_wa_cloud_conta_por_usuario). Desconectar só desliga a
+  // linha — ela fica com o usuário. Quem desconectou e agora liga OUTRO número
+  // esbarrava no índice e ouvia "já está conectado a outra conta", sem saída pela tela.
+  // A linha desligada de outro número é descartada; a ligada é recusada antes daqui
+  // (oficialController.conectar), porque trocar no meio tiraria o canal de quem fala.
+  if (dados.usuarioId) {
+    await query(
+      `DELETE FROM whatsapp_cloud_contas
+        WHERE usuario_id = $1 AND phone_number_id <> $2 AND ativo = false`,
+      [dados.usuarioId, dados.phoneNumberId]
+    );
+  }
+
   const r = await query(
     `INSERT INTO whatsapp_cloud_contas
        (empresa_id, usuario_id, phone_number_id, waba_id, numero, nome_exibicao, porta_virtual,
-        business_id, token_enc, pin_enc, origem, qualidade, conectado_em)
+        business_id, token_enc, pin_enc, origem, qualidade, conectado_em, coexistencia)
      VALUES ($1, $2, $3, $4, $5, $6,
              (SELECT GREATEST(COALESCE(MAX(porta_virtual), $7 - 1) + 1, $7) FROM whatsapp_cloud_contas),
-             $8, $9, $10, $11, $12, now())
+             $8, $9, $10, $11, $12, now(), $13)
      ON CONFLICT (phone_number_id) DO UPDATE
         SET empresa_id = EXCLUDED.empresa_id,
             usuario_id = EXCLUDED.usuario_id,
@@ -227,6 +285,16 @@ export async function salvarConta(dados: {
             origem = EXCLUDED.origem,
             qualidade = EXCLUDED.qualidade,
             conectado_em = now(),
+            -- Reconectar é uma conexão nova: o modo vale o desta vez, e o pedido de
+            -- sincronização (uma por conexão) volta a ser possível.
+            -- O painel manual (origem 'manual') não mexe nisso.
+            coexistencia = CASE WHEN EXCLUDED.origem = 'manual' THEN whatsapp_cloud_contas.coexistencia ELSE EXCLUDED.coexistencia END,
+            sync_pedido_em = CASE WHEN EXCLUDED.origem = 'manual' THEN whatsapp_cloud_contas.sync_pedido_em END,
+            sync_erro = CASE WHEN EXCLUDED.origem = 'manual' THEN whatsapp_cloud_contas.sync_erro END,
+            historico_status = CASE WHEN EXCLUDED.origem = 'manual' THEN whatsapp_cloud_contas.historico_status END,
+            historico_progresso = CASE WHEN EXCLUDED.origem = 'manual' THEN whatsapp_cloud_contas.historico_progresso END,
+            historico_mensagens = CASE WHEN EXCLUDED.origem = 'manual' THEN whatsapp_cloud_contas.historico_mensagens ELSE 0 END,
+            historico_fases = CASE WHEN EXCLUDED.origem = 'manual' THEN whatsapp_cloud_contas.historico_fases ELSE '{}'::jsonb END,
             updated_at = now()
      RETURNING *`,
     [
@@ -242,6 +310,7 @@ export async function salvarConta(dados: {
       pinEnc,
       dados.origem ?? 'manual',
       (numero as any).quality_rating ?? null,
+      dados.coexistencia ?? false,
     ]
   );
   limparCacheContas();
@@ -315,12 +384,24 @@ export async function desligarConta(contaId: number): Promise<ContaCloud> {
       [conta.porta_virtual]
     );
     for (const u of usuarios.rows) {
-      const porta = anteriores[String(u.id)] ?? null;
-      // A porta antiga pode ter sido dada a outro usuário nesse meio-tempo.
+      let porta = anteriores[String(u.id)] ?? null;
+      // A porta antiga pode ter sido dada a outro usuário (ou ao chip de Grupos dele) nesse meio-tempo.
       const ocupada = porta
-        ? (await cliente.query(`SELECT 1 FROM usuarios WHERE whatsapp_porta = $1 AND id <> $2`, [porta, u.id])).rowCount
+        ? (await cliente.query(
+            `SELECT 1 FROM usuarios WHERE whatsapp_porta = $1 AND id <> $2
+             UNION ALL SELECT 1 FROM whatsapp_chip_grupos WHERE porta = $1 AND usuario_id <> $2`,
+            [porta, u.id])).rowCount
         : 0;
-      await cliente.query(`UPDATE usuarios SET whatsapp_porta = $2 WHERE id = $1`, [u.id, ocupada ? null : porta]);
+      if (ocupada) porta = null;
+      // Chip de Grupos (101): fora do oficial, o QR volta a ser o WhatsApp da pessoa. Sem
+      // porta antiga, o chip vira a principal; a mesma porta nas duas, também.
+      const chip = await cliente.query(`SELECT porta FROM whatsapp_chip_grupos WHERE usuario_id = $1`, [u.id]);
+      const portaChip = chip.rows[0] ? Number(chip.rows[0].porta) : null;
+      if (portaChip && (!porta || porta === portaChip)) {
+        porta = portaChip;
+        await cliente.query(`DELETE FROM whatsapp_chip_grupos WHERE usuario_id = $1`, [u.id]);
+      }
+      await cliente.query(`UPDATE usuarios SET whatsapp_porta = $2 WHERE id = $1`, [u.id, porta]);
     }
     const r = await cliente.query(
       `UPDATE whatsapp_cloud_contas SET ativo = false, updated_at = now() WHERE id = $1 RETURNING *`,

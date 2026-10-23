@@ -3,6 +3,7 @@ import { Search, X, CheckCircle2, Clock, AlertTriangle } from 'lucide-react'
 import { Card } from '@/components/ui'
 import { formatCurrency, formatDate } from '@/utils'
 import { usePaletaViz } from '../contaazul/paleta'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
 import {
   AGRUPAMENTOS_DESPESA,
   AGRUPAMENTOS_RECEITA,
@@ -132,7 +133,12 @@ const SituacaoLinha: React.FC<{ l: Lancamento; tipo: Props['tipo'] }> = ({ l, ti
 
 export const DetalhamentoLancamentos: React.FC<Props> = ({ tipo, lancamentos, periodo }) => {
   const paleta = usePaletaViz()
-  const t = TEXTOS[tipo]
+  const { Cliente, clientes } = useTermoCliente()
+  const base = TEXTOS[tipo]
+  const t = {
+    ...base,
+    agrupamentos: base.agrupamentos.map((a) => (a.chave === 'cliente' ? { ...a, rotulo: Cliente, plural: clientes } : a)),
+  }
   const cor = tipo === 'receita' ? paleta.receber : paleta.pagar
 
   const [situacao, setSituacao] = useState<Situacao>('pago')

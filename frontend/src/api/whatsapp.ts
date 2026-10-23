@@ -25,6 +25,8 @@ export interface WhatsAppUsuarioEmpresa {
   canal?: 'cloud_api' | 'baileys' | 'nenhum';
   /** A empresa tem direito ao número oficial — muda o que o card oferece. */
   podeOficial?: boolean;
+  /** Número oficial do usuário e se ele está no portfólio da empresa na Meta. */
+  oficial?: { numero: string | null; ativo: boolean; naEmpresa: boolean } | null;
   conectado: boolean;
   ultimaConexao?: string;
 }

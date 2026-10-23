@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { contaazulService } from './contaazul.service';
 import { env } from '../../config/env';
+import { concluir as concluirPelaTela } from './contaazul.conexao.service';
 
 const router = Router();
 
@@ -138,6 +139,20 @@ router.get('/callback', async (req: Request, res: Response) => {
          <p class="m">Recomece pelo /authorize para o state carregar a conexão de destino.</p>`,
         '#a4262c')
     );
+  }
+
+  // Aberto pelo botão em Receitas/Despesas: volta para a tela, com o resultado no endereço.
+  if (registro.usuario_id) {
+    try {
+      await contaazulService.trocarCodePorTokens(code, registro.conexao_id);
+      const r = await concluirPelaTela(registro.conexao_id);
+      if (r) return res.redirect(`/gestao/${r.voltar}?contaazul=ok&conta=${encodeURIComponent(r.nome)}`);
+      return res.redirect('/gestao/receitas?contaazul=ok');
+    } catch (err: any) {
+      console.error('[ContaAzul] Falha ao concluir pela tela:', err.message);
+      return res.redirect(`/gestao/receitas?contaazul=erro&motivo=${encodeURIComponent(
+        err.status ? err.message : 'O Conta Azul não completou a conexão. Tente de novo.')}`);
+    }
   }
 
   try {

@@ -21,6 +21,9 @@ import dashboardRoutes from './modules/dashboard/dashboard.routes';
 import crmRoutes from './modules/crm';
 import webhookRoutes from './modules/crm/webhook/webhook.routes';
 import chatFinanceiroRoutes from './modules/chat-financeiro/chat-financeiro.routes';
+import afiliadosRoutes from './modules/afiliados/afiliados.routes';
+import mcpOAuthRoutes from './modules/mcp/oauth';
+import mcpRoutes from './modules/mcp/mcp.routes';
 import configuracoesSmtpRoutes from './modules/configuracoes-smtp/configuracoes-smtp.routes';
 import assinaturasRoutes from './modules/assinaturas/assinaturas.routes';
 import suporteRoutes from './modules/suporte/suporte.routes';
@@ -36,9 +39,14 @@ import metaWhatsappRoutes from './modules/whatsapp/meta/meta-whatsapp.routes';
 import onboardingRoutes from './modules/onboarding/onboarding.routes';
 import { iniciarWorkerPluggy } from './modules/pluggy/pluggy.queue';
 import { checkSubscription } from './middlewares/subscription.middleware';
+import { exigePermissao } from './shared/permissoes';
 import path from 'path';
 
 // Atualizar parcelas atrasadas (diário)
+import monitorSitesRoutes from './modules/monitor-sites/monitor-sites.routes';
+import agendaExternaRoutes from './modules/agenda-externa/agenda-externa.routes';
+import asaasReceitasRoutes from './modules/asaas-receitas/asaas-receitas.routes';
+import contaazulFinanceiroRoutes from './modules/contaazul/contaazul.financeiro.routes';
 import './jobs/atualizar-parcelas-atrasadas';
 
 // Follow-up scheduler
@@ -50,6 +58,8 @@ import './jobs/disparo-scheduler';
 // Lembretes de reunião agendada (-24h/-1h + no-show)
 import './jobs/reuniao-lembretes-scheduler';
 import './jobs/suporte-limpeza-scheduler';
+// Recompensa de indicação abatida na próxima cobrança (113)
+import './jobs/afiliados-desconto-scheduler';
 
 // Cota de mídia do WhatsApp por empresa (1 GB, o arquivo mais antigo sai primeiro)
 import './jobs/midia-retencao-scheduler';
@@ -57,7 +67,14 @@ import './jobs/midia-retencao-scheduler';
 // Aviso de fim do teste grátis (1 dia antes, 09:00 de Brasília)
 import './jobs/trial-aviso-scheduler';
 import './jobs/trial-suspensao-scheduler';
+import './jobs/tags-origem-scheduler';
+import './jobs/cadencia-entrada-scheduler';
 import './jobs/grupos-scheduler';
+import './jobs/modelos-empresa-scheduler';
+import './jobs/monitor-sites-scheduler';
+import './jobs/agenda-externa-scheduler';
+import './jobs/asaas-receitas-scheduler';
+import './jobs/contaazul-importacao-scheduler';
 
 // Agente IA — worker BullMQ
 import { iniciarWorkerAgente } from './modules/agente-ia/agente-ia.queue';
@@ -146,32 +163,32 @@ app.use('/api/gestao/whatsapp/meta', metaWhatsappRoutes);
 
 // Rotas em /api (legado)
 app.use('/api/auth', authRoutes);
-app.use('/api/clientes', clientesRoutes);
-app.use('/api/sessoes', sessoesRoutes);
-app.use('/api/receitas', receitasRoutes);
-app.use('/api/despesas', despesasRoutes);
+app.use('/api/clientes', exigePermissao(['clientes', 'receitas', 'parcelas', 'sessoes', 'dashboard'], ['clientes']), clientesRoutes);
+app.use('/api/sessoes', exigePermissao(['sessoes']), sessoesRoutes);
+app.use('/api/receitas', exigePermissao(['receitas']), receitasRoutes);
+app.use('/api/despesas', exigePermissao(['despesas']), despesasRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/categorias', categoriasRoutes);
-app.use('/api/parcelas', parcelasRoutes);
+app.use('/api/parcelas', exigePermissao(['parcelas', 'dashboard'], ['parcelas']), parcelasRoutes);
 app.use('/api/notificacoes', notificacoesRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp/instancias', whatsappInstanciasRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/dashboard', exigePermissao(['dashboard']), dashboardRoutes);
 app.use('/api/crm', crmRoutes);
 
 // Rotas em /api/gestao (frontend atual)
 app.use('/api/gestao/auth', authRoutes);
-app.use('/api/gestao/clientes', clientesRoutes);
-app.use('/api/gestao/sessoes', sessoesRoutes);
-app.use('/api/gestao/receitas', receitasRoutes);
-app.use('/api/gestao/despesas', despesasRoutes);
+app.use('/api/gestao/clientes', exigePermissao(['clientes', 'receitas', 'parcelas', 'sessoes', 'dashboard'], ['clientes']), clientesRoutes);
+app.use('/api/gestao/sessoes', exigePermissao(['sessoes']), sessoesRoutes);
+app.use('/api/gestao/receitas', exigePermissao(['receitas']), receitasRoutes);
+app.use('/api/gestao/despesas', exigePermissao(['despesas']), despesasRoutes);
 app.use('/api/gestao/usuarios', usuariosRoutes);
 app.use('/api/gestao/categorias', categoriasRoutes);
-app.use('/api/gestao/parcelas', parcelasRoutes);
+app.use('/api/gestao/parcelas', exigePermissao(['parcelas', 'dashboard'], ['parcelas']), parcelasRoutes);
 app.use('/api/gestao/notificacoes', notificacoesRoutes);
 app.use('/api/gestao/whatsapp', whatsappRoutes);
 app.use('/api/gestao/whatsapp/instancias', whatsappInstanciasRoutes);
-app.use('/api/gestao/dashboard', dashboardRoutes);
+app.use('/api/gestao/dashboard', exigePermissao(['dashboard']), dashboardRoutes);
 app.use('/api/gestao/crm', crmRoutes);
 app.use('/api', chatFinanceiroRoutes);
 app.use('/api/gestao', chatFinanceiroRoutes);
@@ -181,6 +198,22 @@ app.use('/api', assinaturasRoutes);
 app.use('/api/gestao', assinaturasRoutes);
 app.use('/api', suporteRoutes);
 app.use('/api/gestao', suporteRoutes);
+app.use('/api', afiliadosRoutes);
+app.use('/api/gestao', afiliadosRoutes);
+// Conector MCP (112): OAuth + servidor. `/.well-known/oauth-*` da raiz chega como /api/.well-known/… pelo nginx.
+app.use('/api', mcpOAuthRoutes);
+app.use('/api/gestao', mcpOAuthRoutes);
+app.use('/api', mcpRoutes);
+app.use('/api/gestao', mcpRoutes);
+app.use('/api/agenda-externa', agendaExternaRoutes);
+app.use('/api/gestao/agenda-externa', agendaExternaRoutes);
+// Receitas do Asaas (105) — o /webhook/:id é aberto e se autentica pelo token da conexão.
+app.use('/api/asaas-receitas', asaasReceitasRoutes);
+app.use('/api/gestao/asaas-receitas', asaasReceitasRoutes);
+app.use('/api/contaazul-financeiro', contaazulFinanceiroRoutes);
+app.use('/api/gestao/contaazul-financeiro', contaazulFinanceiroRoutes);
+app.use('/api/monitor-sites', monitorSitesRoutes);
+app.use('/api/gestao/monitor-sites', monitorSitesRoutes);
 app.use('/api/automacoes', automacoesRoutes);
 app.use('/api/gestao/automacoes', automacoesRoutes);
 // Link público da campanha de grupo (089), sem login — o nginx publica em /gestao/g/<slug>.

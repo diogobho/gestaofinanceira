@@ -1,16 +1,21 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   LifeBuoy, Plus, Send, RefreshCw, Loader2, ArrowLeft, CheckCircle2, User, Headset,
-  Paperclip, Info, Lock, X, AlertTriangle,
+  Paperclip, Info, Lock, X, AlertTriangle, MessagesSquare, Sparkles, PlayCircle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
-import { Button, Card, EstadoVazio, Modal, ModalFooter, Input, Select, Textarea } from '@/components/ui'
+import { Button, Card, EstadoVazio, Modal, ModalFooter, Input, Select, Tabs, Textarea } from '@/components/ui'
+import { useAbaNaUrl } from '@/hooks/useEstadoNaUrl'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   suporteApi, ROTULO_STATUS, ROTULO_CATEGORIA, ROTULO_PRIORIDADE, urlAnexo,
   type Ticket, type TicketMensagem, type StatusTicket, type TicketAnexo,
   type MetricasSuporte,
 } from '@/api/suporte'
+import { ATUALIZACOES } from './atualizacoes'
+import { ListaTutoriais } from './Tutoriais'
+import { LinkVideo } from '@/tutoriais/LinkVideo'
 
 /**
  * Suporte por chamado.
@@ -32,6 +37,11 @@ const CORES_STATUS: Record<StatusTicket, string> = {
   resolvido: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
   fechado: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
 }
+
+const ABAS = ['chamados', 'tutoriais', 'atualizacoes'] as const
+
+/** "Novo" = entrou no ar nos últimos 7 dias. */
+const NOVAS = ATUALIZACOES.filter(a => Date.now() - new Date(`${a.data}T12:00:00`).getTime() < 7 * 86400000).length
 
 const CATEGORIAS = [
   { value: 'duvida', label: 'Dúvida — como faço alguma coisa' },
@@ -149,6 +159,7 @@ function Balao({ m }: { m: TicketMensagem }) {
 }
 
 export const Suporte: React.FC = () => {
+  const [aba, setAba] = useAbaNaUrl('aba', 'chamados', ABAS)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [atendente, setAtendente] = useState(false)
   const [carregando, setCarregando] = useState(true)
@@ -159,6 +170,11 @@ export const Suporte: React.FC = () => {
   const [enviando, setEnviando] = useState(false)
   const [novoAberto, setNovoAberto] = useState(false)
   const [filtroStatus, setFiltroStatus] = useState('todos')
+  // Chamado é da empresa toda (09/10/2026): todo mundo vê os dos colegas, e quem quer
+  // só os seus filtra por quem abriu. 'todos' | 'meus' | id de um colega.
+  const [filtroAutor, setFiltroAutor] = useState('todos')
+  const { user } = useAuth()
+  const meuId = user?.id ? Number(user.id) : undefined
   const [arquivos, setArquivos] = useState<File[]>([])
   const [interna, setInterna] = useState(false)
   const [metricas, setMetricas] = useState<MetricasSuporte | null>(null)
@@ -184,6 +200,24 @@ export const Suporte: React.FC = () => {
   }, [filtroStatus])
 
   useEffect(() => { carregar() }, [carregar])
+
+  // Colegas que abriram algum chamado, para o filtro — eu fico de fora (sou o "Abertos por mim").
+  const autores = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const t of tickets) if (t.usuario_id !== meuId) m.set(t.usuario_id, t.usuario_nome || `Usuário ${t.usuario_id}`)
+    return [...m].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [tickets, meuId])
+  // "Aguardando você" só para quem abriu (#418): com o chamado visível à empresa toda,
+  // o colega lia como pendência dele. Para os outros, o nome de quem tem de responder.
+  const rotuloStatus = (t: Ticket) => {
+    if (t.status !== 'aguardando_cliente') return ROTULO_STATUS[t.status]
+    if (atendente) return 'Com o cliente'
+    if (t.usuario_id === meuId) return ROTULO_STATUS[t.status]
+    return `Aguardando ${(t.usuario_nome || 'colega').trim().split(/\s+/)[0]}`
+  }
+
+  const ticketsVisiveis = atendente || filtroAutor === 'todos' ? tickets
+    : tickets.filter(t => t.usuario_id === (filtroAutor === 'meus' ? meuId : Number(filtroAutor)))
 
   const abrirConversa = useCallback(async (id: number) => {
     setCarregandoConversa(true)
@@ -288,6 +322,16 @@ export const Suporte: React.FC = () => {
         }
       />
 
+      <Tabs className="mt-4" active={aba} onChange={(k) => setAba(k as typeof ABAS[number])} tabs={[
+        { key: 'chamados', label: 'Chamados', icon: <MessagesSquare className="h-4 w-4" /> },
+        { key: 'tutoriais', label: 'Tutoriais', icon: <PlayCircle className="h-4 w-4" /> },
+        { key: 'atualizacoes', label: 'Atualizações', icon: <Sparkles className="h-4 w-4" />, badge: NOVAS || undefined },
+      ]} />
+
+      {aba === 'tutoriais' && <ListaTutoriais />}
+      {aba === 'atualizacoes' && <ListaAtualizacoes />}
+
+      {aba === 'chamados' && (<>
       {/* Métricas da Central. Média só de quem já foi respondido — chamado sem
           resposta não tem tempo de resposta, e contá-lo como zero mentiria. */}
       {atendente && metricas && (
@@ -322,10 +366,22 @@ export const Suporte: React.FC = () => {
         <Card data-tour="suporte-lista" className={`${selecionado ? 'hidden lg:block' : ''} overflow-hidden`}>
           <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
             <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-              {atendente ? 'Central de suporte' : 'Meus chamados'}{' '}
-              {tickets.length > 0 && <span className="text-gray-400">({tickets.length})</span>}
+              {atendente ? 'Central de suporte' : 'Chamados da empresa'}{' '}
+              {ticketsVisiveis.length > 0 && <span className="text-gray-400">({ticketsVisiveis.length})</span>}
             </span>
             <div className="flex items-center gap-1.5">
+            {!atendente && (
+              <select
+                value={filtroAutor}
+                onChange={e => setFiltroAutor(e.target.value)}
+                aria-label="Filtrar por quem abriu"
+                className="max-w-[9rem] rounded-lg border border-gray-300 bg-white px-1.5 py-1 text-xs text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              >
+                <option value="todos">Todos da empresa</option>
+                <option value="meus">Abertos por mim</option>
+                {autores.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
+              </select>
+            )}
             <select
               data-tour="suporte-filtro"
               value={filtroStatus}
@@ -355,6 +411,10 @@ export const Suporte: React.FC = () => {
             <div className="flex justify-center py-10">
               <Loader2 className="h-5 w-5 animate-spin text-primary-600" />
             </div>
+          ) : tickets.length > 0 && ticketsVisiveis.length === 0 ? (
+            <p className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+              Nenhum chamado aberto por {filtroAutor === 'meus' ? 'você' : autores.find(([id]) => String(id) === filtroAutor)?.[1] || 'esta pessoa'} com este filtro.
+            </p>
           ) : tickets.length === 0 ? (
             <EstadoVazio
               avatar="duo"
@@ -368,7 +428,7 @@ export const Suporte: React.FC = () => {
             />
           ) : (
             <ul className="max-h-[60vh] divide-y divide-gray-100 overflow-y-auto dark:divide-gray-700 lg:max-h-[calc(100vh-16rem)]">
-              {tickets.map(t => (
+              {ticketsVisiveis.map(t => (
                 <li key={t.id}>
                   <button
                     onClick={() => abrirConversa(t.id)}
@@ -381,12 +441,13 @@ export const Suporte: React.FC = () => {
                         {t.assunto}
                       </span>
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${CORES_STATUS[t.status]}`}>
-                        {ROTULO_STATUS[t.status]}
+                        {rotuloStatus(t)}
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       #{t.id} · {ROTULO_CATEGORIA[t.categoria] || t.categoria} · {quando(t.updated_at)}
                       {atendente && t.empresa_nome && ` · ${t.empresa_nome}`}
+                      {!atendente && ` · ${t.usuario_id === meuId ? 'aberto por você' : `aberto por ${t.usuario_nome || 'colega'}`}`}
                     </p>
                   </button>
                 </li>
@@ -418,13 +479,14 @@ export const Suporte: React.FC = () => {
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       {ROTULO_CATEGORIA[selecionado.categoria] || selecionado.categoria}
-                      {atendente && ` · ${selecionado.empresa_nome} · ${selecionado.usuario_nome}`}
+                      {atendente ? ` · ${selecionado.empresa_nome} · ${selecionado.usuario_nome}`
+                        : ` · aberto por ${selecionado.usuario_id === meuId ? 'você' : selecionado.usuario_nome || 'colega'}`}
                     </p>
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                   <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${CORES_STATUS[selecionado.status]}`}>
-                    {ROTULO_STATUS[selecionado.status]}
+                    {rotuloStatus(selecionado)}
                   </span>
                   {/* Prioridade é da equipe: o cliente não escolhe na abertura,
                       justamente para "urgente" continuar querendo dizer algo. */}
@@ -531,13 +593,13 @@ export const Suporte: React.FC = () => {
                       ref={inputArquivo}
                       type="file"
                       multiple
-                      accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+                      accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.xlsx,.xls,.csv"
                       onChange={e => escolherArquivos(e.target.files)}
                       className="hidden"
                     />
                     <button
                       onClick={() => inputArquivo.current?.click()}
-                      title="Anexar print ou PDF (até 10 MB, no máximo 3)"
+                      title="Anexar print, PDF ou planilha (até 10 MB, no máximo 3)"
                       aria-label="Anexar arquivo"
                       disabled={arquivos.length >= 3}
                       className="rounded-xl border border-gray-300 p-2.5 text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-40 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
@@ -570,6 +632,7 @@ export const Suporte: React.FC = () => {
           )}
         </Card>
       </div>
+      </>)}
 
       <NovoChamadoModal
         aberto={novoAberto}
@@ -669,12 +732,12 @@ function NovoChamadoModal({
           </label>
           <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
             Um print da tela costuma resolver o chamado em uma ida e volta a menos.
-            Imagem ou PDF, até 10 MB, no máximo 3 arquivos.
+            Imagem, PDF ou planilha, até 10 MB, no máximo 3 arquivos.
           </p>
           <input
             type="file"
             multiple
-            accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+            accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.xlsx,.xls,.csv"
             onChange={e => {
               const lista = e.target.files
               if (!lista?.length) return
@@ -715,5 +778,52 @@ function NovoChamadoModal({
         <Button variant="primary" onClick={criar} isLoading={salvando}>Abrir chamado</Button>
       </ModalFooter>
     </Modal>
+  )
+}
+
+const DATA_LONGA = new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })
+
+/** O que mudou no sistema, agrupado por dia — mais recente primeiro. */
+function ListaAtualizacoes() {
+  const dias = ATUALIZACOES.reduce<Record<string, typeof ATUALIZACOES>>((acc, a) => {
+    (acc[a.data] ||= []).push(a)
+    return acc
+  }, {})
+
+  return (
+    <div className="mt-4 max-w-3xl space-y-6">
+      {Object.entries(dias).map(([data, itens]) => (
+        <section key={data}>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            {DATA_LONGA.format(new Date(`${data}T12:00:00`))}
+          </h2>
+          <div className="space-y-2.5">
+            {itens.map(a => (
+              <Card key={a.titulo} className="p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{a.titulo}</h3>
+                  {a.plano && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                      {a.plano === 'Enterprise' ? 'Enterprise' : 'Profissional e Enterprise'}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{a.descricao}</p>
+                {(a.onde || a.video) && (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    {a.onde && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Onde: <span className="font-medium text-gray-700 dark:text-gray-200">{a.onde}</span>
+                      </p>
+                    )}
+                    {a.video && <LinkVideo video={a.video} />}
+                  </div>
+                )}
+              </Card>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
   )
 }

@@ -92,6 +92,18 @@ export function calcularCobranca(
   return { mensal, total: Math.round(mensal * ciclo.meses * 100) / 100, meses: ciclo.meses };
 }
 
+/**
+ * Mesma regra do backend (assinaturas.service.calcularParcelamento): tabela Price,
+ * 1x sem juros. A taxa vem de GET /planos.
+ */
+export function calcularParcelamento(total: number, parcelas: number, jurosAoMes: number) {
+  const n = Math.max(1, Math.trunc(parcelas));
+  const i = n > 1 ? jurosAoMes : 0;
+  const parcela = i > 0 ? (total * i) / (1 - Math.pow(1 + i, -n)) : total / n;
+  const valorParcela = Math.round(parcela * 100) / 100;
+  return { parcelas: n, valorParcela, total: Math.round(valorParcela * n * 100) / 100 };
+}
+
 /** Quanto se economiza no ano contra o compromisso de referência. */
 export function economiaAnual(plano: Plano, ciclo: PlanoCiclo): number {
   const referencia = Number(cicloReferencia(plano).preco_mensal);
@@ -138,6 +150,12 @@ export const assinaturasApi = {
     return res.data.planos;
   },
 
+  /** Taxa do parcelamento no cartão (juros ao mês, fração). Vem da API, fonte única. */
+  async getJurosParcelamento(): Promise<number> {
+    const res = await api.get('/planos');
+    return Number(res.data.parcelamento?.juros_ao_mes ?? 0);
+  },
+
   async getMinhaAssinatura(): Promise<Assinatura | null> {
     const res = await api.get('/assinaturas/minha');
     return res.data.assinatura;
@@ -175,6 +193,8 @@ export const assinaturasApi = {
     usuarios?: number;
     /** Compromisso de fidelidade; omitido é o de menor prazo à venda. */
     ciclo?: Ciclo;
+    /** Parcelas no cartão (2..meses do ciclo); omitido = cobrança do ciclo de uma vez. */
+    parcelas?: number;
   }): Promise<{ assinatura: Assinatura; paymentUrl?: string; pixQrCode?: string; pixQrCodeImage?: string }> {
     const res = await api.post('/assinaturas/assinar', data);
     return res.data;

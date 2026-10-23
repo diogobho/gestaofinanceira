@@ -1,4 +1,5 @@
 import { query } from '../../../config/database';
+import { normalizarTarefasEntrada, type TarefaDoEstagio } from '../leads/tarefas-estagio';
 import { extrairPassosFollowup, calcularCadencia, nomearDias } from '../_shared/agendamento';
 import { getJanelaEmpresa, conflitosDoConfig } from '../_shared/janela';
 
@@ -76,6 +77,7 @@ export interface EstagioFunil {
   agente_ia_ativo?: boolean;
   instrucoes_agente_ia?: string | null;
   reuniao_lembretes?: EstagioReuniaoLembretes | null;
+  tarefas_entrada?: TarefaDoEstagio[];
   created_at: Date;
   updated_at: Date;
 }
@@ -106,6 +108,7 @@ export interface UpdateEstagioDto {
   agente_ia_ativo?: boolean;
   instrucoes_agente_ia?: string | null;
   reuniao_lembretes?: EstagioReuniaoLembretes | null;
+  tarefas_entrada?: TarefaDoEstagio[] | null;
 }
 
 export const estagiosService = {
@@ -286,6 +289,10 @@ export const estagiosService = {
     if (data.reuniao_lembretes !== undefined) {
       fields.push(`reuniao_lembretes = $${paramCount++}`);
       values.push(data.reuniao_lembretes ? JSON.stringify(data.reuniao_lembretes) : null);
+    }
+    if (data.tarefas_entrada !== undefined) {
+      fields.push(`tarefas_entrada = $${paramCount++}`);
+      values.push(JSON.stringify(normalizarTarefasEntrada(data.tarefas_entrada)));
     }
 
     if (fields.length === 0) return estagio;

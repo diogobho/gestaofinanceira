@@ -12,7 +12,7 @@ export const followupsController = {
       const {
         agendado_para, tipo, mensagem, instrucao_ia,
         media_url, media_mimetype, media_filename,
-        modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana,
+        modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana, modelo_whatsapp,
       } = req.body;
 
       if (!tipo || !['manual', 'agente_ia'].includes(tipo)) {
@@ -35,6 +35,15 @@ export const followupsController = {
         modo: modo || 'dias', atrasoDias: atraso_dias, atrasoUnidade: atraso_unidade, dataFixa: data_fixa,
         horaEnvio: hora_envio, diasSemana: dias_semana,
         agendadoPara: agendado_para,
+        // Só um objeto com nome conta como reserva; o resto é ignorado.
+        modeloWhatsapp: modelo_whatsapp && typeof modelo_whatsapp.nome === 'string' && modelo_whatsapp.nome
+          ? {
+              nome: modelo_whatsapp.nome,
+              idioma: typeof modelo_whatsapp.idioma === 'string' ? modelo_whatsapp.idioma : undefined,
+              variaveis: Array.isArray(modelo_whatsapp.variaveis) ? modelo_whatsapp.variaveis.map(String) : [],
+              cabecalho: typeof modelo_whatsapp.cabecalho === 'string' ? modelo_whatsapp.cabecalho : null,
+            }
+          : null,
       });
       return res.status(201).json(followup);
     } catch (err: any) {
@@ -52,8 +61,11 @@ export const followupsController = {
       if (!file) {
         return res.status(400).json({ error: 'Nenhum arquivo enviado' });
       }
+      // m4a chega como audio/x-m4a (Chrome/Windows), nome que a Meta não reconhece; o
+      // conteúdo é o mesmo audio/mp4 que ela aceita como áudio.
+      const mimetype = /^audio\/(x-)?m4a$/i.test(file.mimetype) ? 'audio/mp4' : file.mimetype;
       const media = await followupsService.salvarMidiaUpload(
-        empresaId, file.path, file.originalname, file.mimetype
+        empresaId, file.path, file.originalname, mimetype
       );
       return res.status(201).json(media);
     } catch (err: any) {

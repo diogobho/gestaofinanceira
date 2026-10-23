@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, Plus, Edit2, Trash2 } from 'lucide-react'
+import { ChevronDown, Plus, Edit2, Trash2, Eraser } from 'lucide-react'
 import type { Funil } from '@/types/crm'
 
 interface FunilSelectorProps {
@@ -9,9 +9,11 @@ interface FunilSelectorProps {
   onCreateNew: () => void
   onEdit: (funil: Funil) => void
   onDelete?: (funil: Funil) => void
+  /** Apaga os leads e mantém o funil. Só vem para quem administra a conta. */
+  onEsvaziar?: (funil: Funil) => void
 }
 
-export default function FunilSelector({ funis, selectedFunilId, onSelect, onCreateNew, onEdit, onDelete }: FunilSelectorProps) {
+export default function FunilSelector({ funis, selectedFunilId, onSelect, onCreateNew, onEdit, onDelete, onEsvaziar }: FunilSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -79,6 +81,19 @@ export default function FunilSelector({ funis, selectedFunilId, onSelect, onCrea
                 >
                   <Edit2 size={14} />
                 </button>
+                {onEsvaziar && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEsvaziar(funil)
+                      setIsOpen(false)
+                    }}
+                    className="p-1 text-gray-400 hover:text-red-600"
+                    title="Esvaziar funil (exclui os leads e mantém o funil)"
+                  >
+                    <Eraser size={14} />
+                  </button>
+                )}
                 {/* Funis padrão são recriados pelo sistema — não faz sentido excluir. */}
                 {onDelete && !funil.padrao && !funil.padrao_cx && (
                   <button

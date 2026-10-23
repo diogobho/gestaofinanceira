@@ -1,15 +1,17 @@
 import { Request, Response } from 'express';
 import { capacidadesDaEmpresa } from '../../shared/capacidades';
 import { AuthRequest } from '../../middlewares/auth.middleware';
-import { assinaturasService, bloqueioDaEmpresa } from './assinaturas.service';
+import { assinaturasService, bloqueioDaEmpresa, PARCELAMENTO } from './assinaturas.service';
 import { isAdminEmpresa } from '../../shared/roles';
+import { duoRecarga } from '../chat-financeiro/creditos';
 
 export const assinaturasController = {
   /** GET /planos — público */
   async listPlanos(req: Request, res: Response) {
     try {
       const planos = await assinaturasService.getPlanos();
-      res.json({ planos });
+      // A taxa do parcelamento vai junto: a tela calcula as parcelas com a mesma regra.
+      res.json({ planos, parcelamento: { juros_ao_mes: PARCELAMENTO.jurosAoMes } });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -70,7 +72,7 @@ export const assinaturasController = {
       const empresaId = req.user?.empresa_id;
       if (!empresaId) return res.status(400).json({ message: 'Usuário sem empresa' });
 
-      const { plano_id, billing_type, cpf_cnpj, credit_card, credit_card_holder_info, usuarios, ciclo } = req.body;
+      const { plano_id, billing_type, cpf_cnpj, credit_card, credit_card_holder_info, usuarios, ciclo, parcelas } = req.body;
 
       if (!plano_id || !billing_type) {
         return res.status(400).json({ message: 'plano_id e billing_type são obrigatórios' });
@@ -100,6 +102,7 @@ export const assinaturasController = {
         remoteIp,
         usuarios: usuarios != null ? Number(usuarios) : undefined,
         ciclo: typeof ciclo === 'string' ? ciclo : undefined,
+        parcelas: parcelas != null ? Number(parcelas) : undefined,
       });
 
       res.json(resultado);
@@ -200,7 +203,10 @@ export const assinaturasController = {
     try {
       const { event, payment, subscription } = req.body;
 
-      if (event && payment) {
+      // Recarga de crédito do Duo (111): cobrança avulsa, não é assinatura.
+      if (event && payment && duoRecarga.ehReferencia(payment.externalReference)) {
+        await duoRecarga.aoEventoAsaas(event, payment);
+      } else if (event && payment) {
         // Eventos de pagamento: PAYMENT_CONFIRMED, PAYMENT_OVERDUE, PAYMENT_RECEIVED, PAYMENT_DELETED
         await assinaturasService.processarWebhook(event, payment);
       } else if (event && subscription) {

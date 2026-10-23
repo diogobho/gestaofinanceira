@@ -2,6 +2,7 @@ import { LayoutList, DollarSign, User, CheckCircle2, Clock, Calendar } from 'luc
 import type { Lead, EstagioFunil } from '@/types/crm'
 import type { OrdemCards } from '@/api/crm'
 import { compararLeads } from '@/components/crm/OrdenarCards'
+import { SeloJanela } from '@/components/crm/SeloJanela'
 
 /**
  * Visão em LISTA (tabela) dos leads de um funil — compartilhada entre o funil de
@@ -84,6 +85,7 @@ export default function CRMListView({ colunas, onCardClick, emptyLabel = 'Nenhum
                       {lead.total_recebidas} {lead.total_recebidas === 1 ? 'recebida' : 'recebidas'}
                     </span>
                   )}
+                  <SeloJanela lead={lead} className="ml-1 text-xs" />
                   {(lead.mensagens_nao_lidas ?? 0) > 0 && (
                     <span className="ml-1 px-1.5 py-0.5 bg-green-500 text-white text-xs font-bold rounded-full">
                       {lead.mensagens_nao_lidas}

@@ -12,7 +12,9 @@ export const despesasController = {
       const filters = {
         ...req.query,
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
 
       const result = await despesasService.list(filters, page, pageSize);
@@ -26,7 +28,9 @@ export const despesasController = {
     try {
       const filters = {
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       const result = await despesasService.getById(req.params.id, filters);
       return res.json(result);
@@ -53,7 +57,9 @@ export const despesasController = {
     try {
       const filters = {
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       const result = await despesasService.update(req.params.id, req.body, filters);
       return res.json(result);
@@ -66,7 +72,9 @@ export const despesasController = {
     try {
       const filters = {
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       await despesasService.delete(req.params.id, filters);
       return res.status(204).send();

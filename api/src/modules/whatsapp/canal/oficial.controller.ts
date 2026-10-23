@@ -1,6 +1,27 @@
 import { Request, Response } from 'express';
 import { query } from '../../../config/database';
-import { configES, onboardingDoNumero } from '../meta/embedded-signup.service';
+import {
+  configES,
+  onboardingDoNumero,
+  onboardingCoexistencia,
+  ErroPortfolioErrado,
+  separarDDI,
+  criarNumeroNaWaba,
+  pedirCodigo,
+  verificarCodigo,
+  registrarNumero,
+  numerosDaWaba,
+  gerarPin,
+} from '../meta/embedded-signup.service';
+import {
+  portfolioDaEmpresa,
+  definirPortfolio,
+  tokenDoPortfolio,
+  pagamentoPendenteDaEmpresa,
+  nomeDoCreator,
+} from './portfolio';
+import { sincronizarAposConexao } from './coexistencia';
+import { copiarModelosPara } from './copiar-modelos';
 import {
   contaDoUsuario,
   contaDaEmpresa,
@@ -19,7 +40,7 @@ import {
   atualizarPerfilComercial,
   trocarFotoPerfil,
 } from '../meta/meta-whatsapp.service';
-import { isAdminEmpresa, isSuperAdmin } from '../../../shared/roles';
+import { isAdminEmpresa, isSuperAdmin, isCreator } from '../../../shared/roles';
 
 /**
  * Conectar o número oficial do CLIENTE — a ponta que faltava do canal oficial.
@@ -117,7 +138,22 @@ export const oficialController = {
       }
     }
 
+    // Portfólio da empresa (097): sem ele, só o dono da conta conecta — é a conexão dele
+    // que cria a referência onde todos os números da equipe entram.
+    const portfolio = await portfolioDaEmpresa(empresaId);
+    const user = (req as any).user;
+
     return res.json({
+      portfolio: portfolio
+        ? {
+            nome: portfolio.business_nome,
+            businessId: portfolio.business_id,
+            wabaId: portfolio.waba_id,
+            pagamentoPendente: await pagamentoPendenteDaEmpresa(portfolio),
+          }
+        : null,
+      podeDefinirPortfolio: isCreator(user) || isSuperAdmin(user),
+      donoDaConta: portfolio ? null : await nomeDoCreator(empresaId),
       embeddedSignup: {
         configurado: cfg.configurado,
         faltando: cfg.faltando,
@@ -139,6 +175,18 @@ export const oficialController = {
             // desligar tira o canal de todo mundo.
             meu: !!minha,
             daEmpresa: !minha && !!daEmpresa,
+            // Conectado num portfólio que não é o da empresa (o pessoal da pessoa): a Meta
+            // recusa o número na conta da empresa até ele ser solto no celular.
+            foraDoPortfolio: !!portfolio && !!conta.business_id && conta.business_id !== portfolio.business_id,
+            coexistencia: conta.coexistencia,
+            historico: conta.coexistencia
+              ? {
+                  status: conta.historico_status,
+                  progresso: conta.historico_progresso,
+                  mensagens: conta.historico_mensagens,
+                  erro: conta.sync_erro,
+                }
+              : null,
           }
         : null,
     });
@@ -157,9 +205,12 @@ export const oficialController = {
 
     const code = String(req.body?.code || '').trim();
     const wabaId = String(req.body?.waba_id || '').trim();
-    const phoneNumberId = String(req.body?.phone_number_id || '').trim();
+    let phoneNumberId = String(req.body?.phone_number_id || '').trim();
+    // Coexistência: o número continua no app WhatsApp Business do celular. A janela
+    // devolve só a WABA — o número é procurado nela.
+    const coexistencia = req.body?.coexistencia === true;
     if (!code) return res.status(400).json({ message: 'A autorização da Meta não veio completa. Refaça a conexão.' });
-    if (!/^\d{6,30}$/.test(wabaId) || !/^\d{6,30}$/.test(phoneNumberId)) {
+    if (!/^\d{6,30}$/.test(wabaId) || (!/^\d{6,30}$/.test(phoneNumberId) && !(coexistencia && !phoneNumberId))) {
       return res.status(400).json({ message: 'A Meta não devolveu a conta e o número. Refaça a conexão.' });
     }
 
@@ -169,8 +220,32 @@ export const oficialController = {
     ]);
     if (!dono.rows[0]) return res.status(404).json({ message: 'Usuário não encontrado nesta empresa' });
 
+    // Sem portfólio da empresa, a primeira conexão é do dono da conta: é ela que define
+    // onde todos os números da equipe vão entrar, e onde fica o cartão.
+    const portfolio = await portfolioDaEmpresa(empresaId);
+    const user = (req as any).user;
+    if (!portfolio && !isCreator(user) && !isSuperAdmin(user)) {
+      const dono = await nomeDoCreator(empresaId);
+      return res.status(409).json({
+        message: `Primeiro o dono da conta${dono ? ` (${dono})` : ''} conecta o número oficial dele: é essa conexão que cria o portfólio da empresa na Meta, com o cartão de pagamento. Depois disso você conecta o seu.`,
+      });
+    }
+    const portfolioEsperado = portfolio ? { id: portfolio.business_id, nome: portfolio.business_nome } : null;
+
+    // Já fala por um número oficial: trocar por outro no meio derrubaria o canal dele.
+    // Reconectar o MESMO número (renovar a autorização) segue permitido.
+    const atual = await contaDoUsuario(usuarioId);
+    if (atual?.ativo && (!phoneNumberId || atual.phone_number_id !== phoneNumberId)) {
+      return res.status(409).json({
+        message: `Este usuário já está conectado ao número oficial${atual.numero ? ` ${atual.numero}` : ''}. Desconecte-o antes de ligar outro.`,
+      });
+    }
+
     try {
-      const onboarding = await onboardingDoNumero({ code, wabaId, phoneNumberId });
+      const onboarding = coexistencia
+        ? await onboardingCoexistencia({ code, wabaId, phoneNumberId: phoneNumberId || null, portfolioEsperado })
+        : await onboardingDoNumero({ code, wabaId, phoneNumberId, portfolioEsperado });
+      if (coexistencia) phoneNumberId = (onboarding as any).phoneNumberId;
       const conta = await salvarConta({
         empresaId,
         usuarioId,
@@ -178,13 +253,35 @@ export const oficialController = {
         wabaId,
         businessId: onboarding.businessId,
         token: onboarding.token,
-        pin: onboarding.pin,
+        pin: onboarding.pin || null,
         origem: 'embedded_signup',
+        coexistencia,
       });
       const ligada = await ligarConta(conta.id, usuarioId);
+      if (!portfolio && onboarding.businessId) {
+        await definirPortfolio({
+          empresaId,
+          businessId: onboarding.businessId,
+          businessNome: onboarding.businessNome,
+          wabaId,
+          token: onboarding.token,
+          usuarioId,
+        });
+        console.log(`[Cloud API] portfólio da empresa #${empresaId} definido: ${onboarding.businessNome} (${onboarding.businessId})`);
+      }
+      // Contatos e histórico do app: 24h e uma chamada só. Falhar aqui não desfaz a
+      // conexão — o número já fala; o erro fica na conta e a tela mostra.
+      if (coexistencia) {
+        await sincronizarAposConexao(ligada).catch((e: any) =>
+          console.error('[Coexistência] sincronização não pedida:', e?.message || e)
+        );
+      }
+      // Número com WABA própria (o do app WhatsApp Business) nasce sem modelo nenhum: leva os
+      // aprovados do dono da conta. Em segundo plano — são dezenas de chamadas à Meta.
+      copiarModelosPara(ligada).catch((e: any) => console.error('[Modelos] cópia na conexão:', e?.message || e));
       console.log(
         `[Cloud API] número oficial CONECTADO por Embedded Signup — empresa #${empresaId}, usuário #${usuarioId}, ` +
-          `número ${ligada.numero}, porta ${ligada.porta_virtual}`
+          `número ${ligada.numero}, porta ${ligada.porta_virtual}${coexistencia ? ' (coexistência com o app)' : ''}`
       );
       return res.json({
         success: true,
@@ -193,9 +290,13 @@ export const oficialController = {
           numero: ligada.numero,
           nomeExibicao: ligada.nome_exibicao,
           porta: ligada.porta_virtual,
+          coexistencia,
         },
       });
     } catch (err: any) {
+      if (err instanceof ErroPortfolioErrado) {
+        return res.status(409).json({ message: err.message, portfolioErrado: true });
+      }
       // 23505 = o número já está em outra conta do sistema. Dizer isso é melhor do
       // que "erro ao conectar": quem tropeça aqui geralmente conectou duas vezes.
       if (err?.code === '23505') {
@@ -205,6 +306,94 @@ export const oficialController = {
       }
       console.error('[Cloud API] Embedded Signup falhou:', err?.message || err);
       return res.status(400).json({ message: err?.message || 'Não foi possível conectar o número oficial' });
+    }
+  },
+
+  /**
+   * Número novo na conta da empresa, sem janela (097) — passo 1: cria o número na WABA
+   * da empresa e pede o código por SMS ou ligação. Número que já existe nela (código
+   * pedido antes e não confirmado) é reaproveitado, em vez de dar erro.
+   */
+  async numeroPedirCodigo(req: Request, res: Response) {
+    const empresaId = Number((req as any).user?.empresa_id);
+    const { ok, usuarioId } = alvoPermitido(req);
+    if (!ok) return res.status(403).json({ message: 'Você só pode conectar o seu próprio número.' });
+    const portfolio = await portfolioDaEmpresa(empresaId);
+    if (!portfolio) return res.status(409).json({ message: 'O portfólio da empresa ainda não foi definido pelo dono da conta.' });
+
+    const partes = separarDDI(String(req.body?.numero || ''));
+    if (!partes) return res.status(400).json({ message: 'Informe o número com DDD, por exemplo 11 91234-5678.' });
+    const nome = String(req.body?.nome_exibicao || portfolio.business_nome || '').trim();
+    if (nome.length < 3) return res.status(400).json({ message: 'Informe o nome que os clientes vão ver.' });
+    const metodo = req.body?.metodo === 'VOICE' ? 'VOICE' : 'SMS';
+
+    const dono = await query(`SELECT id FROM usuarios WHERE id = $1 AND empresa_id = $2 AND ativo = true`, [usuarioId, empresaId]);
+    if (!dono.rows[0]) return res.status(404).json({ message: 'Usuário não encontrado nesta empresa' });
+    const atual = await contaDoUsuario(usuarioId);
+    if (atual?.ativo) {
+      return res.status(409).json({ message: 'Este usuário já está conectado a um número oficial. Desconecte-o antes de ligar outro.' });
+    }
+
+    const token = tokenDoPortfolio(portfolio);
+    try {
+      const digitos = partes.cc + partes.nacional;
+      const existentes = await numerosDaWaba(portfolio.waba_id, token);
+      const ja = existentes.find((n) => String(n.display_phone_number || '').replace(/\D/g, '') === digitos);
+      const phoneNumberId = ja?.id ?? (await criarNumeroNaWaba(portfolio.waba_id, token, partes.cc, partes.nacional, nome));
+      await pedirCodigo(phoneNumberId, token, metodo);
+      console.log(`[Cloud API] número ${digitos} na WABA da empresa #${empresaId} — código pedido por ${metodo}`);
+      return res.json({ phone_number_id: phoneNumberId });
+    } catch (err: any) {
+      console.error('[Cloud API] número novo — pedir código falhou:', err?.message || err);
+      return res.status(400).json({ message: err?.message || 'A Meta não aceitou o número.' });
+    }
+  },
+
+  /** Passo 2: confere o código, registra o número e liga no usuário. */
+  async numeroVerificar(req: Request, res: Response) {
+    const empresaId = Number((req as any).user?.empresa_id);
+    const { ok, usuarioId } = alvoPermitido(req);
+    if (!ok) return res.status(403).json({ message: 'Você só pode conectar o seu próprio número.' });
+    const portfolio = await portfolioDaEmpresa(empresaId);
+    if (!portfolio) return res.status(409).json({ message: 'O portfólio da empresa ainda não foi definido pelo dono da conta.' });
+
+    const phoneNumberId = String(req.body?.phone_number_id || '').trim();
+    const codigo = String(req.body?.codigo || '').replace(/\D/g, '');
+    if (!/^\d{6,30}$/.test(phoneNumberId)) return res.status(400).json({ message: 'Peça o código de novo.' });
+    if (codigo.length !== 6) return res.status(400).json({ message: 'O código tem 6 números.' });
+
+    const token = tokenDoPortfolio(portfolio);
+    try {
+      // O id tem de ser da WABA da empresa: sem isso, qualquer id serviria para ligar
+      // num usuário daqui um número de outra conta que o nosso app também alcança.
+      const daEmpresa = (await numerosDaWaba(portfolio.waba_id, token)).some((n) => n.id === phoneNumberId);
+      if (!daEmpresa) return res.status(404).json({ message: 'Este número não está na conta da empresa. Peça o código de novo.' });
+
+      await verificarCodigo(phoneNumberId, token, codigo);
+      const pin = gerarPin();
+      await registrarNumero(phoneNumberId, pin, token);
+      const conta = await salvarConta({
+        empresaId,
+        usuarioId,
+        phoneNumberId,
+        wabaId: portfolio.waba_id,
+        businessId: portfolio.business_id,
+        token,
+        pin,
+        origem: 'portfolio_empresa',
+      });
+      const ligada = await ligarConta(conta.id, usuarioId);
+      console.log(
+        `[Cloud API] número oficial CONECTADO pela WABA da empresa — empresa #${empresaId}, usuário #${usuarioId}, ` +
+          `número ${ligada.numero}, porta ${ligada.porta_virtual}`
+      );
+      return res.json({ success: true, conta: { id: ligada.id, numero: ligada.numero, porta: ligada.porta_virtual } });
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        return res.status(409).json({ message: 'Este número já está conectado a outro usuário do sistema.' });
+      }
+      console.error('[Cloud API] número novo — verificar falhou:', err?.message || err);
+      return res.status(400).json({ message: err?.message || 'Não foi possível confirmar o código.' });
     }
   },
 

@@ -1,10 +1,11 @@
 import { ArrowUpDown } from 'lucide-react'
 import type { OrdemCards } from '@/api/crm'
 import type { Lead } from '@/types/crm'
+import { useCanalWhatsApp } from '@/hooks/useCanalWhatsApp'
 
 export const ORDENS_CARDS = [
   'manual', 'recentes', 'antigos', 'mensagem', 'mais_recebidas',
-  'nome_az', 'nome_za', 'valor', 'temperatura',
+  'nome_az', 'nome_za', 'valor', 'temperatura', 'janela_24h',
 ] as const
 
 const ROTULOS: Record<OrdemCards, string> = {
@@ -17,11 +18,12 @@ const ROTULOS: Record<OrdemCards, string> = {
   nome_za: 'Nome (Z–A)',
   valor: 'Maior valor primeiro',
   temperatura: 'Mais quentes primeiro',
+  janela_24h: 'Janela de 24h aberta primeiro',
 }
 
 const GRUPOS: { rotulo: string; ordens: OrdemCards[] }[] = [
   { rotulo: 'Posição', ordens: ['manual'] },
-  { rotulo: 'Conversa', ordens: ['mensagem', 'mais_recebidas'] },
+  { rotulo: 'Conversa', ordens: ['mensagem', 'mais_recebidas', 'janela_24h'] },
   { rotulo: 'Entrada no funil', ordens: ['recentes', 'antigos'] },
   { rotulo: 'Nome', ordens: ['nome_az', 'nome_za'] },
   { rotulo: 'Negócio', ordens: ['valor', 'temperatura'] },
@@ -52,6 +54,13 @@ export function compararLeads(ordem: OrdemCards): ((a: Lead, b: Lead) => number)
     case 'valor': return (a, b) => (Number(b.valor_potencial) || 0) - (Number(a.valor_potencial) || 0) || desempate(a, b)
     case 'temperatura': return (a, b) => (PESO_TEMPERATURA[a.temperatura] ?? 3) - (PESO_TEMPERATURA[b.temperatura] ?? 3)
       || tempo(b.ultima_mensagem_at) - tempo(a.ultima_mensagem_at) || desempate(a, b)
+    case 'janela_24h': {
+      // Aberta antes de fechada; entre as abertas, a que fecha primeiro; depois quem escreveu por último.
+      const resta = (l: Lead) => Number(l.janela_resta_seg) || 0
+      return (a, b) => Number(resta(b) > 0) - Number(resta(a) > 0)
+        || (resta(a) > 0 ? resta(a) - resta(b) : 0)
+        || tempo(b.ultima_entrada_at) - tempo(a.ultima_entrada_at) || desempate(a, b)
+    }
     default: return null
   }
 }
@@ -68,6 +77,11 @@ interface OrdenarCardsProps {
  * ordenação — por isso o aviso no `title`.
  */
 export default function OrdenarCards({ valor, onChange }: OrdenarCardsProps) {
+  // A janela de 24h é regra do número oficial: no QR não existe, então a opção só
+  // aparece para quem fala pela Cloud API (ou se já estiver escolhida pela URL).
+  const { data: canal } = useCanalWhatsApp()
+  const oficial = canal?.provedor === 'cloud_api'
+  const visivel = (o: OrdemCards) => o !== 'janela_24h' || oficial || valor === o
   return (
     <label
       className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
@@ -88,7 +102,7 @@ export default function OrdenarCards({ valor, onChange }: OrdenarCardsProps) {
       >
         {GRUPOS.map((g) => (
           <optgroup key={g.rotulo} label={g.rotulo}>
-            {g.ordens.map((o) => (
+            {g.ordens.filter(visivel).map((o) => (
               <option key={o} value={o}>{ROTULOS[o]}</option>
             ))}
           </optgroup>

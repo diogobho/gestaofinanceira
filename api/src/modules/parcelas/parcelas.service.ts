@@ -1,3 +1,4 @@
+import { escopoDono, type FiltroDono } from '../../shared/escopoFinanceiro';
 import { query } from '../../config/database';
 import { enviarEmailCobrancaParcela } from '../../services/email.service';
 import { configuracoesSmtpService } from '../configuracoes-smtp/configuracoes-smtp.service';
@@ -10,11 +11,8 @@ export const parcelasService = {
     let paramCount = 1;
 
     // Multi-tenancy: ADMIN vê tudo, usuário vê apenas suas parcelas
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ` AND r.usuario_id = $${paramCount}`;
-      params.push(filters.usuario_id);
-      paramCount++;
-    }
+    where += escopoDono(filters, params, 'r.usuario_id');
+    paramCount = params.length + 1;
 
     if (filters.status) {
       where += ` AND pr.status = $${paramCount}`;
@@ -28,14 +26,19 @@ export const parcelasService = {
       paramCount++;
     }
 
+    // `base=pagamento` (regime de caixa, Dashboard): o período olha o dia em que o
+    // dinheiro entrou/saiu, e só a parcela paga tem esse dia.
+    const colunaData = filters.base === 'pagamento' ? 'pr.data_pagamento' : 'pr.data_vencimento';
+    if (filters.base === 'pagamento') where += ` AND pr.status = 'PAGO'`;
+
     if (filters.data_ini) {
-      where += ` AND pr.data_vencimento >= $${paramCount}`;
+      where += ` AND ${colunaData} >= $${paramCount}`;
       params.push(filters.data_ini);
       paramCount++;
     }
 
     if (filters.data_fim) {
-      where += ` AND pr.data_vencimento <= $${paramCount}`;
+      where += ` AND ${colunaData} <= $${paramCount}`;
       params.push(filters.data_fim);
       paramCount++;
     }
@@ -57,6 +60,10 @@ export const parcelasService = {
         r.fonte as receita_fonte,
         r.cliente_id,
         c.nome as cliente_nome,
+        -- Origem para o filtro do dashboard: veio do Asaas, do Conta Azul ou foi lançada no Duo.
+        CASE WHEN EXISTS (SELECT 1 FROM asaas_cobrancas ac WHERE ac.receita_id = r.id) THEN 'asaas'
+             WHEN EXISTS (SELECT 1 FROM contaazul_lancamentos cl WHERE cl.receita_id = r.id) THEN 'contaazul'
+             ELSE 'manual' END as origem,
         (
           SELECT ne.data_envio
           FROM notificacoes_enviadas ne
@@ -81,11 +88,8 @@ export const parcelasService = {
     let paramCount = 1;
 
     // Multi-tenancy: ADMIN vê tudo, usuário vê apenas suas parcelas
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ` AND d.usuario_id = $${paramCount}`;
-      params.push(filters.usuario_id);
-      paramCount++;
-    }
+    where += escopoDono(filters, params, 'd.usuario_id');
+    paramCount = params.length + 1;
 
     if (filters.status) {
       where += ` AND pd.status = $${paramCount}`;
@@ -93,14 +97,19 @@ export const parcelasService = {
       paramCount++;
     }
 
+    // `base=pagamento` (regime de caixa, Dashboard): o período olha o dia em que o
+    // dinheiro entrou/saiu, e só a parcela paga tem esse dia.
+    const colunaData = filters.base === 'pagamento' ? 'pd.data_pagamento' : 'pd.data_vencimento';
+    if (filters.base === 'pagamento') where += ` AND pd.status = 'PAGO'`;
+
     if (filters.data_ini) {
-      where += ` AND pd.data_vencimento >= $${paramCount}`;
+      where += ` AND ${colunaData} >= $${paramCount}`;
       params.push(filters.data_ini);
       paramCount++;
     }
 
     if (filters.data_fim) {
-      where += ` AND pd.data_vencimento <= $${paramCount}`;
+      where += ` AND ${colunaData} <= $${paramCount}`;
       params.push(filters.data_fim);
       paramCount++;
     }
@@ -119,7 +128,8 @@ export const parcelasService = {
         pd.updated_at,
         d.descricao as despesa_descricao,
         d.valor as despesa_valor_total,
-        d.categoria as despesa_categoria
+        d.categoria as despesa_categoria,
+        COALESCE(d.origem, 'manual') as origem
       FROM parcelas_despesas pd
       INNER JOIN despesas d ON pd.despesa_id = d.id
       WHERE ${where}
@@ -136,11 +146,8 @@ export const parcelasService = {
     let paramCount = 2;
 
     // Multi-tenancy: apenas o dono pode atualizar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ` AND r.usuario_id = $${paramCount}`;
-      params.push(filters.usuario_id);
-      paramCount++;
-    }
+    where += escopoDono(filters, params, 'r.usuario_id');
+    paramCount = params.length + 1;
 
     // Verificar permissão primeiro
     const checkResult = await query(
@@ -204,11 +211,8 @@ export const parcelasService = {
     let paramCount = 2;
 
     // Multi-tenancy: apenas o dono pode atualizar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ` AND d.usuario_id = $${paramCount}`;
-      params.push(filters.usuario_id);
-      paramCount++;
-    }
+    where += escopoDono(filters, params, 'd.usuario_id');
+    paramCount = params.length + 1;
 
     // Verificar permissão primeiro
     const checkResult = await query(
@@ -266,7 +270,7 @@ export const parcelasService = {
     return result.rows[0];
   },
 
-  async enviarEmailsCobrancaManuais(parcelaIds: string[], usuarioId?: number, nivel?: string, empresaId?: number) {
+  async enviarEmailsCobrancaManuais(parcelaIds: string[], filtro: FiltroDono, empresaId?: number) {
     const resultados = {
       enviados: [] as any[],
       erros: [] as any[],
@@ -281,6 +285,8 @@ export const parcelasService = {
     for (const parcelaId of parcelaIds) {
       try {
         // Buscar informações da parcela, cliente e mentor
+        const paramsParcela: any[] = [parcelaId];
+        const escopo = escopoDono(filtro, paramsParcela, 'r.usuario_id');
         const parcelaQuery = await query(`
           SELECT
             pr.id,
@@ -301,9 +307,8 @@ export const parcelasService = {
           INNER JOIN receitas r ON pr.receita_id = r.id
           LEFT JOIN clientes c ON r.cliente_id = c.id
           LEFT JOIN usuarios u ON r.usuario_id = u.id
-          WHERE pr.id = $1
-            ${nivel !== 'super_admin' && usuarioId ? 'AND r.usuario_id = $2' : ''}
-        `, nivel !== 'super_admin' && usuarioId ? [parcelaId, usuarioId] : [parcelaId]);
+          WHERE pr.id = $1 ${escopo}
+        `, paramsParcela);
 
         if (parcelaQuery.rows.length === 0) {
           resultados.erros.push({
@@ -427,7 +432,7 @@ export const parcelasService = {
     };
   },
 
-  async enviarWhatsAppCobrancaManuais(parcelaIds: string[], usuarioId?: number, nivel?: string) {
+  async enviarWhatsAppCobrancaManuais(parcelaIds: string[], filtro: FiltroDono) {
     const axios = require('axios');
     const resultados = {
       enviados: [] as any[],
@@ -438,6 +443,8 @@ export const parcelasService = {
     for (const parcelaId of parcelaIds) {
       try {
         // Buscar informações da parcela, cliente e mentor (usuário)
+        const paramsParcela: any[] = [parcelaId];
+        const escopo = escopoDono(filtro, paramsParcela, 'r.usuario_id');
         const parcelaQuery = await query(`
           SELECT
             pr.id,
@@ -459,9 +466,8 @@ export const parcelasService = {
           INNER JOIN receitas r ON pr.receita_id = r.id
           LEFT JOIN clientes c ON r.cliente_id = c.id
           INNER JOIN usuarios u ON r.usuario_id = u.id
-          WHERE pr.id = $1
-            ${nivel !== 'super_admin' && usuarioId ? 'AND r.usuario_id = $2' : ''}
-        `, nivel !== 'super_admin' && usuarioId ? [parcelaId, usuarioId] : [parcelaId]);
+          WHERE pr.id = $1 ${escopo}
+        `, paramsParcela);
 
         if (parcelaQuery.rows.length === 0) {
           resultados.erros.push({

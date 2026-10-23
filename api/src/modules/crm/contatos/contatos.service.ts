@@ -311,6 +311,40 @@ export const contatosService = {
     return result.rows[0]?.whatsapp_porta ? responsavelId : fallbackId;
   },
 
+  /**
+   * Antes de mandar pelo card: a conversa do lead passa a ser a do chip que envia.
+   *
+   * O envio sai pelo responsável, mas o card podia continuar ligado ao contato de outro
+   * operador (#425, 20/10/2026: Pollyana ligada ao contato da Débora, conversa pelo chip
+   * da Jéssica). A resposta chega no contato do chip que enviou, que não era o do card —
+   * sumia da tela e ficava fora de "o lead falou?" do follow-up. Remetente sem chip não
+   * troca nada: o envio vai falhar de qualquer jeito.
+   */
+  async contatoDoRemetente(leadId: number, contatoId: number, remetenteId: number, empresaId: number): Promise<number> {
+    const r = await query(
+      `SELECT c.usuario_id, c.whatsapp_id, c.numero, c.nome, u.whatsapp_porta
+         FROM contatos_whatsapp c, usuarios u
+        WHERE c.id = $1 AND c.empresa_id = $2 AND u.id = $3`,
+      [contatoId, empresaId, remetenteId]
+    );
+    const c = r.rows[0];
+    if (!c || Number(c.usuario_id) === Number(remetenteId) || !c.whatsapp_porta) return contatoId;
+
+    const proprio = await query(
+      `INSERT INTO contatos_whatsapp (usuario_id, empresa_id, whatsapp_id, numero, nome, is_grupo, sincronizado_at)
+       VALUES ($1, $2, $3, $4, $5, false, CURRENT_TIMESTAMP)
+       ON CONFLICT (usuario_id, whatsapp_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+       RETURNING id`,
+      [remetenteId, empresaId, c.whatsapp_id, c.numero, c.nome]
+    );
+    const novoId = proprio.rows[0].id;
+    await query(
+      `UPDATE leads SET contato_whatsapp_id = $1 WHERE id = $2 AND empresa_id = $3`,
+      [novoId, leadId, empresaId]
+    );
+    return novoId;
+  },
+
   /** Mesma regra, para quem só tem o id do lead em mãos. Sem lead, é quem opera. */
   async resolverRemetenteDoLead(leadId: number | undefined | null, empresaId: number, fallbackId: number): Promise<number> {
     if (!leadId) return fallbackId;
@@ -378,7 +412,10 @@ export const contatosService = {
     // desta função é o chat do card, operado por gente.
     origem: OrigemMensagem = 'manual',
     // id do WhatsApp da mensagem respondida (#188). Só vale se ela for DESTA conversa.
-    respostaA?: string | null
+    respostaA?: string | null,
+    // Opções de resposta ("SIM" / "NÃO"), até 3. No QR saem como enquete (/send-enquete);
+    // no número oficial fora de modelo não há botão: sai o texto com as opções listadas.
+    botoes?: string[] | null
   ): Promise<{ success: boolean; messageId?: string; error?: string; status?: number }> {
     // Buscar contato (verificando empresa)
     const contato = await this.getById(contatoId, empresaId);
@@ -421,15 +458,32 @@ export const contatosService = {
       if (c) quoted = { id: c.whatsapp_message_id, fromMe: c.direcao === 'saida', text: c.conteudo || '' };
     }
 
+    const opcoes = (botoes || []).map((b) => String(b || '').trim()).filter(Boolean).slice(0, 3);
+    if (opcoes.length && ehPortaVirtual(Number(porta))) {
+      mensagem = `${mensagem}\n\n${opcoes.map((o) => `▪️ ${o}`).join('\n')}`;
+    }
+
     // Enviar mensagem usando whatsapp_id como chatId (suporta @c.us, @g.us, @lid)
     try {
-      const response = await instancia(porta).post(`/send`, {
-        number: contato.whatsapp_id,
-        message: mensagem,
-        ...(quoted ? { quoted } : {})
-      }, {
-        timeout: 30000
-      });
+      // No QR, as opções vão como ENQUETE: botão de resposta de número comum o WhatsApp
+      // descarta (testado em 05/10); enquete aparece, e o voto volta como resposta com
+      // `botao: true`. Texto que cabe no título da enquete (255) vai nela; maior, sai
+      // antes como mensagem e a enquete só pergunta.
+      const comEnquete = opcoes.length >= 2 && !ehPortaVirtual(Number(porta));
+      if (comEnquete && mensagem.length > 255) {
+        await instancia(porta).post(`/send`, { number: contato.whatsapp_id, message: mensagem }, { timeout: 30000 });
+      }
+      const response = comEnquete
+        ? await instancia(porta).post(`/send-enquete`, {
+          number: contato.whatsapp_id, pergunta: mensagem.length > 255 ? 'Toque na sua resposta:' : mensagem, opcoes,
+        }, { timeout: 30000 })
+        : await instancia(porta).post(`/send`, {
+          number: contato.whatsapp_id,
+          message: mensagem,
+          ...(quoted ? { quoted } : {})
+        }, {
+          timeout: 30000
+        });
 
       if (!response.data.success) {
         throw new Error(response.data.error || 'Erro ao enviar mensagem');
@@ -449,7 +503,7 @@ export const contatosService = {
           usuarioId,
           empresaId,
           response.data.messageId || null,
-          mensagem,
+          comEnquete ? `${mensagem}\n\n${opcoes.map((o) => `▪️ ${o}`).join('\n')}` : mensagem,
           origem,
           quoted?.id ?? null
         ]
@@ -517,9 +571,10 @@ export const contatosService = {
     contatoId: number,
     mensagem: string,
     leadId?: number,
-    origem: OrigemMensagem = 'manual'
+    origem: OrigemMensagem = 'manual',
+    botoes?: string[] | null
   ): Promise<{ success: true; messageId?: string }> {
-    const envio = await this.enviarMensagem(usuarioId, empresaId, contatoId, mensagem, leadId, origem);
+    const envio = await this.enviarMensagem(usuarioId, empresaId, contatoId, mensagem, leadId, origem, null, botoes);
     if (!envio.success) {
       // O status vai anexado ao Error: o corpo da instância traz só o texto
       // ("WhatsApp não conectado"), e sem o código o scheduler não consegue separar
@@ -659,7 +714,24 @@ export const contatosService = {
     return { success: true };
   },
 
-  async getHistoricoMensagens(contatoId: number, empresaId: number, limit = 50): Promise<any[]> {
+  /**
+   * A conversa do CARD: a do contato ligado e a dos outros chips da empresa com o mesmo
+   * número. Cada chip tem o seu contato, e o card troca de chip quando troca de
+   * responsável — lendo só o contato ligado, a conversa anterior sumia da tela (#425).
+   */
+  async getHistoricoDoNumero(contatoId: number, empresaId: number, limit = 50): Promise<any[]> {
+    const ids = await query(
+      `SELECT x.id FROM contatos_whatsapp c
+         JOIN contatos_whatsapp x ON x.empresa_id = c.empresa_id AND NOT x.is_grupo
+                                 AND (x.id = c.id OR x.whatsapp_id = c.whatsapp_id OR x.numero = c.numero)
+        WHERE c.id = $1 AND c.empresa_id = $2`,
+      [contatoId, empresaId]
+    );
+    if (ids.rows.length <= 1) return this.getHistoricoMensagens(contatoId, empresaId, limit);
+    return this.getHistoricoMensagens(ids.rows.map((x: any) => x.id), empresaId, limit);
+  },
+
+  async getHistoricoMensagens(contatoId: number | number[], empresaId: number, limit = 50): Promise<any[]> {
     // `citada_*`: o trecho da mensagem respondida (#188), achado pelo id do WhatsApp
     // na mesma conversa. Citada anterior ao CRM não é achada — o balão mostra só a resposta.
     const result = await query(
@@ -676,14 +748,14 @@ export const contatosService = {
             AND NOT c.copia_indevida
           LIMIT 1
        ) cit ON true
-       WHERE hm.contato_whatsapp_id = $1 AND hm.empresa_id = $2
+       WHERE hm.contato_whatsapp_id = ANY($1::int[]) AND hm.empresa_id = $2
          AND hm.grupo_whatsapp_id IS NULL
          AND NOT hm.copia_indevida
          AND NOT (hm.tipo = 'texto' AND hm.media_url IS NULL
                   AND COALESCE(btrim(hm.conteudo), '') = '')
        ORDER BY hm.enviado_at DESC
        LIMIT $3`,
-      [contatoId, empresaId, limit]
+      [Array.isArray(contatoId) ? contatoId : [contatoId], empresaId, limit]
     );
     return result.rows;
   },

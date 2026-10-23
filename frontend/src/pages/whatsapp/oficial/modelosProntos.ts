@@ -1,4 +1,4 @@
-import type { NovoModelo } from '@/api/canalWhatsapp'
+import type { BotaoModelo, NovoModelo } from '@/api/canalWhatsapp'
 
 /**
  * Modelos de abordagem prontos para o número oficial (docs/MODELOS_ABORDAGEM_META.md).
@@ -14,9 +14,29 @@ export interface ModeloPronto {
   titulo: string
   quando: string
   modelo: Omit<NovoModelo, 'idioma' | 'botoes'>
+  /** Botões que já vêm no formulário (ex.: Sim/Não das "Respostas por botão"). */
+  botoes?: BotaoModelo[]
 }
 
 export const MODELOS_PRONTOS: ModeloPronto[] = [
+  {
+    titulo: 'Boas-vindas com Sim/Não',
+    quando: 'Quem entrou num grupo ou campanha. O clique no botão dispara as "Respostas por botão" da etapa.',
+    modelo: {
+      nome: 'boas_vindas_conhece',
+      categoria: 'MARKETING',
+      corpo:
+        'Olá, {{1}}! 💫\n\n' +
+        'Que bom ter você no *{{2}}*!\n' +
+        'Sou da equipe da {{3}}.\n\n' +
+        'Você já conhece o nosso trabalho?',
+      exemplos: ['Marina', 'Clube do Livro', 'Escola Horizonte'],
+    },
+    botoes: [
+      { tipo: 'QUICK_REPLY', texto: 'Sim, conheço' },
+      { tipo: 'QUICK_REPLY', texto: 'Ainda não' },
+    ],
+  },
   {
     titulo: 'Retomar formulário',
     quando: 'Quem preencheu um formulário e ainda não foi atendido.',

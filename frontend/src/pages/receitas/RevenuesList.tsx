@@ -1,12 +1,18 @@
 import React, { useState } from 'react'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
 import { Button, MetricCard, Card, Modal, ModalFooter, Input, Select, Spinner, Badge, MobileCard, MobileCardHeader, MobileCardRow, MobileCardActions } from '@/components/ui'
-import { Plus, Edit, Trash2, CreditCard, Calendar, Filter, TrendingUp, DollarSign, CheckCircle, Clock } from 'lucide-react'
+import { Plus, Edit, Trash2, Link2, CreditCard, Calendar, Filter, TrendingUp, DollarSign, CheckCircle, Clock } from 'lucide-react'
 import { revenuesApi, categoriasReceitasApi, clientsApi } from '@/api'
 import type { Revenue, CreateRevenueRequest, CreateCategoriaRequest } from '@/types'
 import { formatDate as formatDateUtil } from '@/utils/format'
+import { DicaVideo } from '@/tutoriais/DicaVideo'
+import { useAuth } from '@/contexts/AuthContext'
+import { podeUsarContaAzul } from '@/utils/roles'
+import { AsaasConexaoModal } from './AsaasConexaoModal'
+import { ContaAzulConexaoModal, useRetornoContaAzul } from './ContaAzulConexaoModal'
 
 export const RevenuesList: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -14,8 +20,14 @@ export const RevenuesList: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<string | null>(null)
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
+  const [isAsaasOpen, setIsAsaasOpen] = useState(false)
+  const [isContaAzulOpen, setIsContaAzulOpen] = useState(false)
+  const { user } = useAuth()
+  const mostrarContaAzul = podeUsarContaAzul(user as any)
+  useRetornoContaAzul(() => setIsContaAzulOpen(true))
   const [tipoPagamento, setTipoPagamento] = useState<'a_vista' | 'parcelado'>('a_vista')
   const queryClient = useQueryClient()
+  const { Cliente, cliente, clientes } = useTermoCliente()
 
   // Estados para filtros
   const [filters, setFilters] = useState({
@@ -228,10 +240,29 @@ export const RevenuesList: React.FC = () => {
         subtitle="Gerencie todas as receitas do negócio"
         tourId="receitas"
         action={
+          <div className="flex flex-wrap gap-2">
+          {/* Cada integração com o próprio vídeo (09/10/2026): o do Asaas ficava só dentro da janela dele. */}
+          <DicaVideo video="asaas-receitas">
+          <Button variant="secondary" onClick={() => setIsAsaasOpen(true)}>
+            <Link2 className="w-4 h-4 mr-2" aria-hidden />
+            Asaas
+          </Button>
+          </DicaVideo>
+          {mostrarContaAzul && (
+            <DicaVideo video="contaazul-receitas">
+            <Button variant="secondary" onClick={() => setIsContaAzulOpen(true)}>
+              <Link2 className="w-4 h-4 mr-2" aria-hidden />
+              Conta Azul
+            </Button>
+            </DicaVideo>
+          )}
+          <DicaVideo video="lancar-receita">
           <Button data-tour="receitas-nova" variant="primary" onClick={handleOpenModal}>
             <Plus className="w-4 h-4 mr-2" />
             Nova Receita
           </Button>
+          </DicaVideo>
+          </div>
         }
       />
 
@@ -320,13 +351,13 @@ export const RevenuesList: React.FC = () => {
             {/* Cliente */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cliente
+                {Cliente}
               </label>
               <Select
                 value={filters.cliente_id}
                 onChange={(e) => setFilters({ ...filters, cliente_id: e.target.value })}
               >
-                <option value="">Todos os clientes</option>
+                <option value="">Todos os {clientes}</option>
                 {clients?.map((client) => (
                   <option key={client.id} value={client.id}>
                     {client.nome}
@@ -432,7 +463,7 @@ export const RevenuesList: React.FC = () => {
                   }
                 />
                 {revenue.cliente_nome && (
-                  <MobileCardRow label="Cliente" value={revenue.cliente_nome} />
+                  <MobileCardRow label={Cliente} value={revenue.cliente_nome} />
                 )}
                 <MobileCardRow label="Produto" value={revenue.fonte} />
                 <MobileCardRow
@@ -464,7 +495,7 @@ export const RevenuesList: React.FC = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Descrição</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{Cliente}</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Produto</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Valor</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo Pgto</th>
@@ -576,14 +607,14 @@ export const RevenuesList: React.FC = () => {
 
             <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
               <label className="block text-sm font-semibold text-blue-900 mb-1">
-                Cliente (Origem da Receita) ⭐ Recomendado
+                {Cliente} (Origem da Receita) ⭐ Recomendado
               </label>
               <Select
                 name="cliente_id"
                 defaultValue={editingItem?.cliente_id || ''}
                 className="w-full border-blue-300 focus:border-blue-500 focus:ring-blue-500"
               >
-                <option value="">⚠️ Nenhum cliente (não recomendado)</option>
+                <option value="">⚠️ Nenhum {cliente} (não recomendado)</option>
                 {clients
                   ?.filter((client, index, self) =>
                     index === self.findIndex((c) => c.id === client.id)
@@ -597,11 +628,11 @@ export const RevenuesList: React.FC = () => {
               </Select>
               <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-2">
                 <p className="text-xs font-medium text-amber-800">
-                  💡 <strong>Por que vincular um cliente?</strong>
+                  💡 <strong>Por que vincular um {cliente}?</strong>
                 </p>
                 <ul className="text-xs text-amber-700 mt-1 ml-4 list-disc space-y-0.5">
                   <li>Permite enviar e-mails de cobrança automáticos</li>
-                  <li>Facilita rastreamento de receitas por cliente</li>
+                  <li>Facilita rastreamento de receitas por {cliente}</li>
                   <li>Melhora a organização do seu fluxo financeiro</li>
                 </ul>
               </div>
@@ -843,6 +874,8 @@ export const RevenuesList: React.FC = () => {
           </ModalFooter>
         </form>
       </Modal>
+    <AsaasConexaoModal isOpen={isAsaasOpen} onClose={() => setIsAsaasOpen(false)} />
+    <ContaAzulConexaoModal isOpen={isContaAzulOpen} onClose={() => setIsContaAzulOpen(false)} voltarPara="receitas" />
     </div>
   )
 }

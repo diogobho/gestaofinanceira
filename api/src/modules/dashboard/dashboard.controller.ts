@@ -22,7 +22,9 @@ export const dashboardController = {
         data_ini: dataValida(req.query.data_ini),
         data_fim: dataValida(req.query.data_fim),
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
 
       const data = await dashboardService.getDashboardData(filters);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { MessageSquare, CheckCircle, XCircle, RefreshCw, Send, AlertCircle, User, Cloud } from 'lucide-react';
+import { MessageSquare, CheckCircle, XCircle, RefreshCw, Send, AlertCircle, User, Cloud, FileText, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -18,7 +18,26 @@ import { diagnosticarConexao, CORES_TOM, CORES_SELO } from './diagnosticoConexao
 import { NumeroOficialPainel } from './NumeroOficialPainel';
 import { ConvitePlanoOficial } from './ConvitePlanoOficial';
 import { EscolhaDeCanal } from './EscolhaDeCanal';
+import { ConectarNumeroOficial } from './ConectarNumeroOficial';
+import { canalWhatsappApi } from '@/api/canalWhatsapp';
+import { useQuery } from '@tanstack/react-query';
 import { useCanalWhatsApp } from '@/hooks/useCanalWhatsApp';
+import { useVideoAjuda } from '@/tutoriais/VideoAjuda';
+import { LinkVideo } from '@/tutoriais/LinkVideo';
+
+/**
+ * QR na tela há mais de 90s sem ser lido: o sinal mais claro de que a pessoa
+ * travou no celular. O Duo oferece o vídeo (uma vez por sessão — ver VideoAjuda).
+ */
+const QR_PARADO_MS = 90_000;
+function useQrParado(esperando: boolean, sinalizar: ReturnType<typeof useVideoAjuda>['sinalizarDificuldade']) {
+  useEffect(() => {
+    if (!esperando) return;
+    const t = setTimeout(() => sinalizar({ qr: 'conectar-whatsapp-qr' },
+      'O QR Code está esperando faz um tempinho. Quer ver em 1 minuto como ler pelo celular?'), QR_PARADO_MS);
+    return () => clearTimeout(t);
+  }, [esperando, sinalizar]);
+}
 
 // ============================================================
 // Card individual de usuário (usado na visão master)
@@ -31,6 +50,7 @@ interface UserCardProps {
 }
 
 const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf, onMudou }) => {
+  const { sinalizarDificuldade } = useVideoAjuda();
   const [status, setStatus] = useState<WhatsAppStatus | null>(null);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
@@ -146,6 +166,7 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf, onMudou }) => {
 
   const isConnected = status?.status === 'connected';
   const diag = usuario.configurado ? diagnosticarConexao(status, { temQr: !!qrUrl }) : null;
+  useQrParado(isSelf && !isConnected && !!qrUrl, sinalizarDificuldade);
 
   return (
     <div data-tour="wa-card" className={`rounded-xl border-2 p-5 bg-white ${isSelf ? 'border-primary-400' : 'border-gray-200'}`}>
@@ -204,6 +225,11 @@ const UserCard: React.FC<UserCardProps> = ({ usuario, isSelf, onMudou }) => {
             WhatsApp não configurado para este usuário
           </div>
         )
+      )}
+
+      {/* Já tem canal, mas o oficial não está no portfólio da empresa (QR, ou oficial pessoal) */}
+      {usuario.configurado && usuario.podeOficial && !usuario.oficial?.naEmpresa && (
+        <OficialNaContaDaEmpresa usuario={usuario} onConectado={onMudou} />
       )}
 
       {/* Conectado */}
@@ -320,6 +346,7 @@ export const WhatsAppConfig: React.FC = () => {
 
 const WhatsAppConfigQr: React.FC = () => {
   const { user } = useAuth();
+  const { sinalizarDificuldade } = useVideoAjuda();
   const isMaster = isAdminEmpresa(user);
 
   // ---- Estado para visão de usuário comum ----
@@ -337,6 +364,9 @@ const WhatsAppConfigQr: React.FC = () => {
   const [testSuccess, setTestSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+
+  // Hook antes de qualquer return antecipado (a visão master e o carregando saem cedo).
+  useQrParado(!isMaster && status?.status !== 'connected' && !!qrCodeUrl, sinalizarDificuldade);
 
   // ---- Estado para visão master ----
   const [usuariosEmpresa, setUsuariosEmpresa] = useState<WhatsAppUsuarioEmpresa[]>([]);
@@ -508,6 +538,7 @@ const WhatsAppConfigQr: React.FC = () => {
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <MessageSquare className="w-8 h-8 text-green-600" />
               WhatsApp da Empresa
+              <LinkVideo video={{ qr: 'conectar-whatsapp-qr' }} className="ml-1" />
             </h1>
             <p className="text-gray-600 mt-1">
               Gerencie as conexões WhatsApp de todos os usuários da empresa
@@ -530,6 +561,8 @@ const WhatsAppConfigQr: React.FC = () => {
             </Button>
           </div>
         </div>
+
+        {usuariosEmpresa.some((u) => u.podeOficial) && <GuiaEquipeNoOficial />}
 
         {usuariosEmpresa.length === 0 ? (
           <Card className="p-8 text-center text-gray-500">
@@ -613,6 +646,7 @@ const WhatsAppConfigQr: React.FC = () => {
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <MessageSquare className="w-8 h-8 text-green-600" />
           Configuração WhatsApp
+          <LinkVideo video={{ qr: 'conectar-whatsapp-qr' }} className="ml-1" />
         </h1>
         <p className="text-gray-600 mt-1">
           Gerencie a conexão do seu WhatsApp para notificações automáticas
@@ -811,6 +845,79 @@ const WhatsAppConfigQr: React.FC = () => {
           </div>
         </div>
       </Card>
+    </div>
+  );
+};
+
+/**
+ * Passo a passo para pôr a equipe no portfólio da empresa (13/10/2026): o dono libera o Facebook
+ * de cada pessoa no site da Meta (nunca o número, que sairia do app) e cada uma conecta no Duo.
+ * O PDF é gerado do HTML em public/ — mexa no HTML e gere de novo.
+ */
+const GuiaEquipeNoOficial: React.FC = () => (
+  <div className="mb-4 flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800">
+    <FileText size={18} className="text-primary-600 shrink-0 mt-0.5" />
+    <div className="flex-1 min-w-0">
+      <p className="font-medium text-gray-900 text-sm">Passo a passo: equipe no número oficial</p>
+      <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+        O que o dono da conta faz no site da Meta para liberar cada pessoa no portfólio da empresa, e o que
+        cada pessoa faz depois para conectar o número aqui sem sair do app WhatsApp Business.
+      </p>
+      <div className="flex flex-wrap items-center gap-4 mt-2">
+        <a href="/gestao/guia-equipe-no-oficial.html" target="_blank" rel="noopener noreferrer"
+          className="text-xs font-semibold text-primary-600 hover:text-primary-700 underline">
+          Abrir guia
+        </a>
+        <a href="/gestao/guia-equipe-no-oficial.pdf" download="passo-a-passo-equipe-no-oficial.pdf"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 hover:text-primary-700">
+          <Download size={13} />
+          Baixar PDF
+        </a>
+      </div>
+    </div>
+  </div>
+);
+
+/**
+ * O administrador conecta o oficial de alguém da equipe no portfólio da empresa (13/10/2026).
+ * A janela da Meta só lista os portfólios a que o Facebook de quem ENTRA nela tem acesso: a
+ * Jéssica não via o "Duofuturo-oficial" da Panteras. Aqui quem entra na janela é o dono da
+ * conta, com o Facebook dele, e a pessoa só lê o QR com o celular dela.
+ * Antes isto só aparecia para quem não tinha canal nenhum — quem já estava no QR, ou com um
+ * oficial em portfólio pessoal, ficava sem caminho.
+ */
+const OficialNaContaDaEmpresa: React.FC<{ usuario: WhatsAppUsuarioEmpresa; onConectado?: () => void }> = ({ usuario, onConectado }) => {
+  const [aberto, setAberto] = useState(false);
+  const { data: oficial } = useQuery({
+    queryKey: ['whatsapp', 'canal', 'oficial'],
+    queryFn: canalWhatsappApi.getOficial,
+    staleTime: 60_000,
+    retry: false,
+    enabled: aberto,
+  });
+  const primeiro = usuario.nome.split(' ')[0];
+  return (
+    <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-2.5 text-xs text-emerald-900 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-100">
+      <div className="flex items-start gap-2">
+        <Cloud size={14} className="mt-0.5 shrink-0" />
+        <span>
+          {usuario.oficial?.numero
+            ? <>O oficial de {primeiro} ({usuario.oficial.numero}) está fora da conta da empresa na Meta.</>
+            : <>{primeiro} ainda não tem número oficial na conta da empresa.</>}{' '}
+          Você pode conectar por {primeiro}: a janela da Meta abre com o <strong>seu</strong> Facebook, e {primeiro} lê
+          o QR com o celular. Funciona só se o seu Facebook estiver no portfólio da empresa na Meta. Se o
+          portfólio não aparecer na janela, quem conecta é alguém que esteja nele.
+        </span>
+      </div>
+      {!aberto ? (
+        <button onClick={() => setAberto(true)} className="mt-2 underline font-medium">
+          Conectar o oficial de {primeiro} na conta da empresa
+        </button>
+      ) : oficial ? (
+        <ConectarNumeroOficial oficial={oficial} usuarioId={usuario.id} onConectado={onConectado} />
+      ) : (
+        <div className="mt-2 flex items-center gap-1.5"><Spinner size="sm" /> Carregando…</div>
+      )}
     </div>
   );
 };

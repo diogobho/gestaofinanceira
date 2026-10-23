@@ -2,10 +2,13 @@ import { query } from '../../../config/database';
 import { estagiosService } from '../estagios/estagios.service';
 import { tarefasService } from '../tarefas/tarefas.service';
 import { followupsService } from '../followups/followups.service';
+import { aplicarTarefasDoEstagio } from './tarefas-estagio';
 import { funisService } from '../funis/funis.service';
 import { receitasService } from '../../receitas/receitas.service';
-import { extrairPassosFollowup, calcularAgendadoPara } from '../_shared/agendamento';
+import { extrairPassosFollowup, calcularAgendadoPara, passoValeParaOrigem } from '../_shared/agendamento';
 import { digitosParaGravar, variantesTelefone, vinculoDivergente } from '../_shared/telefone';
+
+const FUNIS_DONO_FIXO = (process.env.FUNIS_DONO_FIXO || '').split(',').map(Number).filter((n) => n > 0);
 
 /**
  * Offset (em dias) de um passo de cadência relativo à ENTRADA no estágio — só definido
@@ -35,6 +38,10 @@ function isOrigemEmbaixadores(origem: unknown): boolean {
 
 
 export interface Lead {
+  negocio?: string | null;
+  objetivo?: string | null;
+  desafio?: string | null;
+  duvida?: string | null;
   id: number;
   usuario_id: number;
   empresa_id: number;
@@ -115,6 +122,24 @@ export interface UpdateLeadDto {
   notas?: string;
   arquivado?: boolean;
   origem?: string;
+  // Campos do playbook (migration 100): entram nas variáveis dos modelos do oficial.
+  negocio?: string | null;
+  objetivo?: string | null;
+  desafio?: string | null;
+  duvida?: string | null;
+}
+
+/** Limites das colunas da migration 100. */
+const CAMPOS_PLAYBOOK: Record<string, number> = { negocio: 120, objetivo: 160, desafio: 160, duvida: 120 };
+
+/**
+ * O valor entra no meio de uma frase do modelo ("seu objetivo de faturar 15 mil por
+ * mês."): espaços repetidos e ponto final viram ruído na mensagem. Vazio vira null,
+ * que é o que barra o modelo no despacho.
+ */
+export function limparCampoPlaybook(valor: unknown, limite: number): string | null {
+  const t = String(valor ?? '').replace(/\s+/g, ' ').trim().replace(/[.;,]+$/, '').trim();
+  return t ? t.slice(0, limite) : null;
 }
 
 export interface MoveLeadDto {
@@ -136,6 +161,8 @@ export interface FiltrosLead {
   responsavel_id?: number;
   temperatura?: string;
   origem?: string;
+  /** Ids de tag — o lead entra se tiver QUALQUER uma delas. */
+  tag_ids?: number[];
   arquivado?: boolean;
   com_tarefa_atrasada?: boolean;
   com_tarefa_hoje?: boolean;
@@ -154,7 +181,7 @@ export interface FiltrosLead {
  */
 export type OrdemCards =
   | 'manual' | 'recentes' | 'antigos' | 'mensagem' | 'mais_recebidas'
-  | 'nome_az' | 'nome_za' | 'valor' | 'temperatura';
+  | 'nome_az' | 'nome_za' | 'valor' | 'temperatura' | 'janela_24h';
 
 // O banco é C.UTF-8: sem a collation ICU, "Álvaro" e "Érica" iam para depois do "z" e
 // maiúscula vinha antes de minúscula.
@@ -167,13 +194,18 @@ const ORDEM_SQL: Record<OrdemCards, string> = {
   recentes: 'l.created_at DESC, l.id DESC',
   antigos: 'l.created_at ASC, l.id ASC',
   mensagem: 'cw.ultima_mensagem_at DESC NULLS LAST, l.created_at DESC, l.id DESC',
-  // `rec` só existe quando esta ordem é pedida — ver `juncaoRecebidas`.
+  // `rec` só existe quando esta ordem é pedida — ver `juncaoDaOrdem`.
   mais_recebidas: 'rec.total_recebidas DESC, cw.ultima_mensagem_at DESC NULLS LAST, l.id DESC',
   nome_az: `${NOME_PT} ASC, l.id ASC`,
   nome_za: `${NOME_PT} DESC, l.id DESC`,
   valor: 'l.valor_potencial DESC NULLS LAST, l.created_at DESC, l.id DESC',
   temperatura: `CASE l.temperatura WHEN 'quente' THEN 0 WHEN 'morno' THEN 1 WHEN 'frio' THEN 2 ELSE 3 END,
     cw.ultima_mensagem_at DESC NULLS LAST, l.id DESC`,
+  // Número oficial: primeiro quem está com a janela de 24h ABERTA, e entre eles quem fecha
+  // antes (o mais urgente); depois os de janela fechada, do que escreveu por último.
+  // `jan` só existe nesta ordem — ver `juncaoDaOrdem`.
+  janela_24h: `(jan.janela_resta_seg > 0) DESC, CASE WHEN jan.janela_resta_seg > 0 THEN jan.janela_resta_seg END ASC,
+    jan.ultima_entrada_at DESC NULLS LAST, l.id DESC`,
 };
 
 export function normalizarOrdem(valor: unknown): OrdemCards {
@@ -187,7 +219,8 @@ export function normalizarOrdem(valor: unknown): OrdemCards {
  * (5,7 mil leads), e as outras ordens não precisam pagar isso. A coluna volta no lead
  * para o card mostrar o número que decidiu a posição.
  */
-function juncaoRecebidas(ordem: OrdemCards): { join: string; coluna: string } {
+function juncaoDaOrdem(ordem: OrdemCards): { join: string; coluna: string } {
+  if (ordem === 'janela_24h') return juncaoJanela();
   if (ordem !== 'mais_recebidas') return { join: '', coluna: '' };
   return {
     join: `LEFT JOIN LATERAL (
@@ -196,6 +229,25 @@ function juncaoRecebidas(ordem: OrdemCards): { join: string; coluna: string } {
             AND h.grupo_whatsapp_id IS NULL AND NOT h.copia_indevida
         ) rec ON true`,
     coluna: ', rec.total_recebidas',
+  };
+}
+
+/**
+ * Janela de 24h do número oficial por card: a mesma conta de `whatsapp/canal/janela.ts`
+ * (última ENTRADA 1:1 do contato + 24h, contra LOCALTIMESTAMP, com 2 min de margem), só
+ * que pelo contato do card em vez das variantes do telefone — basta para ordenar. Volta
+ * `janela_resta_seg` (> 0 = aberta) para o card mostrar quanto falta.
+ */
+function juncaoJanela(): { join: string; coluna: string } {
+  return {
+    join: `LEFT JOIN LATERAL (
+          SELECT MAX(h.enviado_at) AS ultima_entrada_at,
+                 GREATEST(EXTRACT(EPOCH FROM (MAX(h.enviado_at) + interval '24 hours' - LOCALTIMESTAMP))::int - 120, 0) AS janela_resta_seg
+            FROM historico_mensagens h
+           WHERE h.contato_whatsapp_id = l.contato_whatsapp_id AND h.direcao = 'entrada'
+             AND h.grupo_whatsapp_id IS NULL AND NOT h.copia_indevida
+        ) jan ON true`,
+    coluna: ', jan.janela_resta_seg, jan.ultima_entrada_at',
   };
 }
 
@@ -293,6 +345,15 @@ export const leadsService = {
     if (filtros?.origem) {
       whereClause += ` AND l.origem = $${paramCount++}`;
       params.push(filtros.origem);
+    }
+
+    // Tag de outra empresa não casa nada: o `t.empresa_id = l.empresa_id` prende o
+    // filtro à empresa do lead, que já é a do token pela condição base.
+    if (filtros?.tag_ids?.length) {
+      whereClause += ` AND EXISTS (SELECT 1 FROM lead_tags lt JOIN tags t ON t.id = lt.tag_id
+                        WHERE lt.lead_id = l.id AND t.empresa_id = l.empresa_id
+                          AND lt.tag_id = ANY($${paramCount++}::int[]))`;
+      params.push(filtros.tag_ids);
     }
 
     if (filtros?.search) {
@@ -403,7 +464,7 @@ export const leadsService = {
     );
 
     const ordem = normalizarOrdem(filtros?.ordenar);
-    const recebidas = juncaoRecebidas(ordem);
+    const recebidas = juncaoDaOrdem(ordem);
     const result = await query(
       `WITH base AS (
         SELECT
@@ -444,7 +505,7 @@ export const leadsService = {
     const offsetParam = paramCount + 1;
 
     const ordem = normalizarOrdem(filtros?.ordenar);
-    const recebidas = juncaoRecebidas(ordem);
+    const recebidas = juncaoDaOrdem(ordem);
     const result = await query(
       `SELECT
         ${this._selectColumns()}${recebidas.coluna}
@@ -611,8 +672,33 @@ export const leadsService = {
 
     // Criar follow-up automático se o estágio tiver config ativa
     await this._criarFollowupEstagio(estagioId, lead.id, usuarioId, empresaId);
+    await aplicarTarefasDoEstagio(lead.id, estagioId, empresaId, usuarioId);
 
     return this.getById(lead.id, empresaId) as Promise<Lead>;
+  },
+
+  /**
+   * Cadência que conta do SILÊNCIO do lead (13/10/2026, `followup_config.reiniciar_ao_responder`):
+   * na Conexão e na Qualificação do funil 74 o FUP só entra depois de 3 dias sem resposta, então
+   * cada mensagem do lead recomeça os toques a partir de agora. Rajada de mensagens não recria a
+   * cadência a cada uma: só se a pendente tiver mais de 10 minutos.
+   */
+  async reiniciarCadenciaAoResponder(leadId: number, empresaId: number): Promise<boolean> {
+    const r = await query(
+      `SELECT l.estagio_id, l.usuario_id, ef.followup_config,
+              (SELECT MAX(fa.created_at) FROM followups_agendados fa
+                WHERE fa.lead_id = l.id AND fa.origem = 'estagio' AND fa.status = 'pendente') AS pendente_desde
+         FROM leads l JOIN estagios_funil ef ON ef.id = l.estagio_id
+        WHERE l.id = $1 AND l.empresa_id = $2 AND l.arquivado = false`,
+      [leadId, empresaId]
+    );
+    const row = r.rows[0];
+    const cfg = row?.followup_config;
+    if (!cfg?.ativo || cfg.reiniciar_ao_responder !== true) return false;
+    if (row.pendente_desde && Date.now() - new Date(row.pendente_desde).getTime() < 10 * 60_000) return false;
+    await followupsService.cancelarEstagiosPorLead(leadId);
+    await this._criarFollowupEstagio(row.estagio_id, leadId, row.usuario_id, empresaId);
+    return true;
   },
 
   async _criarFollowupEstagio(estagioId: number, leadId: number, usuarioId: number, empresaId: number) {
@@ -628,12 +714,19 @@ export const leadsService = {
       // 'anterior' encadeiam sobre o instante agendado do passo anterior.
       const passos = extrairPassosFollowup(cfg);
       if (passos.length === 0) return;
+      // Passo com filtro de origem só vale para quem casa. O índice do passo continua o da
+      // cadência inteira (o reancorar lê por ele); o "último" que move o card é o último que vale.
+      const origem = (await query(`SELECT origem FROM leads WHERE id = $1`, [leadId])).rows[0]?.origem ?? null;
+      const valem = passos.map((p: any) => passoValeParaOrigem(p, origem));
+      const ultimo = valem.lastIndexOf(true);
+      if (ultimo < 0) return;
 
       const entrada = new Date();
       let anterior: Date | null = null;        // agendado do passo anterior (base 'anterior')
       let prevScheduled: Date | null = null;   // agendado EFETIVO do passo anterior (min-gap)
       let prevOffsetDias: number | null = null;
       for (let i = 0; i < passos.length; i++) {
+        if (!valem[i]) continue;
         const p = passos[i];
         const base = p.base === 'anterior' && anterior ? anterior : entrada;
         let quando = new Date(calcularAgendadoPara({
@@ -677,7 +770,7 @@ export const leadsService = {
           diasSemana: p.dias_semana,
           agendadoPara: quando.toISOString(),
           passoOrdem: i,
-          moverAposEnvio: i === passos.length - 1,
+          moverAposEnvio: i === ultimo,
         });
         anterior = new Date(row.agendado_para);
         prevScheduled = quando;
@@ -695,6 +788,26 @@ export const leadsService = {
    * ganho (cliente/receita), que exige dados humanos e fica só no fluxo manual.
    * Retorna true se o lead foi de fato movido.
    */
+  /**
+   * De qual etapa o lead veio para a etapa `estagioAtual` (a última mudança registrada).
+   * Movimento manual grava `estagio_novo_id`, o automático `novo_estagio_id` — lê os dois.
+   * Só vale etapa do mesmo funil e diferente da atual; senão, null.
+   */
+  async etapaAnterior(leadId: number, estagioAtual: number): Promise<{ id: number; nome: string } | null> {
+    const r = await query(
+      `SELECT e.id, e.nome
+         FROM atividades_lead a
+         JOIN leads l ON l.id = a.lead_id
+         JOIN estagios_funil e ON e.id = (a.dados->>'estagio_anterior_id')::int AND e.funil_id = l.funil_id
+        WHERE a.lead_id = $1 AND a.tipo = 'mudanca_estagio'
+          AND COALESCE(a.dados->>'novo_estagio_id', a.dados->>'estagio_novo_id') = $2::text
+          AND e.id <> $2::int
+        ORDER BY a.id DESC LIMIT 1`,
+      [leadId, estagioAtual]
+    );
+    return r.rows[0] ?? null;
+  },
+
   async moverPorAutomacao(
     id: number,
     empresaId: number,
@@ -735,6 +848,7 @@ export const leadsService = {
     // cancelar antes de criar, senão a cadência nova seria cancelada junto).
     await followupsService.cancelarEstagiosPorLead(id);
     await this._criarFollowupEstagio(novoEstagioId, id, usuarioId, empresaId);
+    await aplicarTarefasDoEstagio(id, novoEstagioId, empresaId, usuarioId);
 
     await this.registrarAtividade(id, usuarioId, empresaId, 'mudanca_estagio', descricao, {
       automatico: true,
@@ -880,8 +994,15 @@ export const leadsService = {
       data_previsao_fechamento: 'data_previsao_fechamento',
       notas: 'notas',
       arquivado: 'arquivado',
-      origem: 'origem'
+      origem: 'origem',
+      negocio: 'negocio',
+      objetivo: 'objetivo',
+      desafio: 'desafio',
+      duvida: 'duvida',
     };
+    for (const [campo, limite] of Object.entries(CAMPOS_PLAYBOOK)) {
+      if ((data as any)[campo] !== undefined) (data as any)[campo] = limparCampoPlaybook((data as any)[campo], limite);
+    }
 
     for (const [key, column] of Object.entries(fieldMap)) {
       if ((data as any)[key] !== undefined) {
@@ -1029,6 +1150,7 @@ export const leadsService = {
     if (estagioAnteriorId !== data.novo_estagio_id) {
       await followupsService.cancelarEstagiosPorLead(id);
       await this._criarFollowupEstagio(data.novo_estagio_id, id, usuarioId, empresaId);
+      await aplicarTarefasDoEstagio(id, data.novo_estagio_id, empresaId, usuarioId);
     }
 
     // Registrar atividade
@@ -1106,6 +1228,7 @@ export const leadsService = {
     // Encerra a cadência pendente do funil/estágio anterior e inicia a do estágio de entrada do novo funil
     await followupsService.cancelarEstagiosPorLead(id);
     await this._criarFollowupEstagio(novoEstagio.id, id, usuarioId, empresaId);
+    await aplicarTarefasDoEstagio(id, novoEstagio.id, empresaId, usuarioId);
 
     // Registrar atividade
     const funilAnteriorResult = await query(`SELECT nome FROM funis WHERE id = $1`, [lead.funil_id]);
@@ -1120,7 +1243,10 @@ export const leadsService = {
         funil_novo_id: novoFunilId,
         funil_novo_nome: novoFunil.nome,
         estagio_novo_id: novoEstagio.id,
-        estagio_novo_nome: novoEstagio.nome
+        estagio_novo_nome: novoEstagio.nome,
+        // A Produtividade só conta o lead como contato novo no funil de destino se o
+        // responsável mudar depois disto (ver produtividade.ts).
+        responsavel_anterior_id: lead.responsavel_id ?? lead.usuario_id
       }
     );
 
@@ -1394,6 +1520,49 @@ export const leadsService = {
     return true;
   },
 
+  /**
+   * Exclusão em massa: todos os leads ativos de um estágio ou de um funil inteiro.
+   * Arquivados ficam — não aparecem no quadro, então quem confirma não os viu.
+   * O resto (tarefas, anotações, tags, follow-ups) vai junto por ON DELETE CASCADE,
+   * igual ao `delete` de um lead; o histórico de mensagens fica, com lead_id nulo.
+   */
+  async alvoExclusaoEmMassa(empresaId: number, funilId: number, estagioId?: number): Promise<{ total: number } | null> {
+    const params: any[] = [empresaId, funilId];
+    let filtroEstagio = '';
+    if (estagioId) {
+      params.push(estagioId);
+      filtroEstagio = `AND estagio_id = $${params.length}`;
+    }
+    const funil = await query(`SELECT 1 FROM funis WHERE id = $2 AND empresa_id = $1`, [empresaId, funilId]);
+    if (!funil.rows[0]) return null;
+    if (estagioId) {
+      const est = await query(`SELECT 1 FROM estagios_funil WHERE id = $1 AND funil_id = $2`, [estagioId, funilId]);
+      if (!est.rows[0]) return null;
+    }
+    const r = await query(
+      `SELECT COUNT(*)::int AS total FROM leads
+        WHERE empresa_id = $1 AND funil_id = $2 AND arquivado = false ${filtroEstagio}`,
+      params
+    );
+    return { total: Number(r.rows[0]?.total) || 0 };
+  },
+
+  async excluirEmMassa(empresaId: number, funilId: number, estagioId?: number): Promise<{ excluidos: number } | null> {
+    const alvo = await this.alvoExclusaoEmMassa(empresaId, funilId, estagioId);
+    if (!alvo) return null;
+    const params: any[] = [empresaId, funilId];
+    let filtroEstagio = '';
+    if (estagioId) {
+      params.push(estagioId);
+      filtroEstagio = `AND estagio_id = $${params.length}`;
+    }
+    const del = await query(
+      `DELETE FROM leads WHERE empresa_id = $1 AND funil_id = $2 AND arquivado = false ${filtroEstagio}`,
+      params
+    );
+    return { excluidos: del.rowCount ?? 0 };
+  },
+
   async arquivar(id: number, empresaId: number, usuarioId: number): Promise<Lead | null> {
     const lead = await this.getById(id, empresaId);
     if (!lead) return null;
@@ -1459,14 +1628,17 @@ export const leadsService = {
     leadId: number,
     executorId: number,
     empresaId: number,
-    origem: 'disparo_whatsapp' | 'disparo_email' | 'mensagem_individual' | 'email_individual'
+    origem: 'disparo_whatsapp' | 'disparo_email' | 'mensagem_individual' | 'email_individual' | 'mensagem_sendflow' | 'boas_vindas_grupo'
   ): Promise<boolean> {
     const atual = await query(
-      `SELECT usuario_id, responsavel_id FROM leads WHERE id = $1 AND empresa_id = $2`,
+      `SELECT usuario_id, responsavel_id, funil_id FROM leads WHERE id = $1 AND empresa_id = $2`,
       [leadId, empresaId]
     );
     const lead = atual.rows[0];
     if (!lead) return false;
+    // Funil com dono fixo (13/10/2026, `FUNIS_DONO_FIXO` no .env): o 74 da Escola roda o teste
+    // pelo número oficial da Débora, e a 1ª mensagem de outro chip passava o card para quem mandou.
+    if (FUNIS_DONO_FIXO.includes(Number(lead.funil_id))) return false;
 
     const mesmoDono = lead.usuario_id === executorId && lead.responsavel_id === executorId;
     if (mesmoDono) return false;

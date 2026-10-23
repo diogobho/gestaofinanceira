@@ -22,6 +22,8 @@ router.get('/canal/oficial', soComOficial, (req, res) => oficialController.get(r
 router.get('/canal/oficial/contas', soComOficial, (req, res) => oficialController.listar(req, res));
 router.post('/canal/oficial/conectar', soComOficial, (req, res) => oficialController.conectar(req, res));
 router.post('/canal/oficial/desconectar', soComOficial, (req, res) => oficialController.desconectar(req, res));
+router.post('/canal/oficial/numero/codigo', soComOficial, (req, res) => oficialController.numeroPedirCodigo(req, res));
+router.post('/canal/oficial/numero/verificar', soComOficial, (req, res) => oficialController.numeroVerificar(req, res));
 router.get('/canal/oficial/saude', soComOficial, (req, res) => oficialController.saude(req, res));
 router.get('/canal/oficial/perfil', soComOficial, (req, res) => oficialController.getPerfil(req, res));
 router.put('/canal/oficial/perfil', soComOficial, (req, res) => oficialController.putPerfil(req, res));
@@ -46,6 +48,11 @@ router.post(
   '/canal/modelos',
   exigirCapacidade('modelos_meta'),
   (req, res) => canalController.criarModelo(req, res).catch((e) => res.status(500).json({ error: e.message }))
+);
+router.post(
+  '/canal/modelos/nova-versao',
+  exigirCapacidade('modelos_meta'),
+  (req, res) => canalController.novaVersaoModelo(req, res).catch((e) => res.status(500).json({ error: e.message }))
 );
 router.delete(
   '/canal/modelos/:nome',

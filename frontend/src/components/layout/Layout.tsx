@@ -11,6 +11,7 @@ import { useAssinatura } from '@/hooks/useAssinatura'
 import { useAuth } from '@/contexts/AuthContext'
 import DuoWidget from '@/components/DuoWidget'
 import { AvisoContaBloqueada } from '@/components/assinatura/AvisoContaBloqueada'
+import { VideoAjudaProvider } from '@/tutoriais/VideoAjuda'
 
 const ROTAS_LIVRES = ['/planos', '/minha-conta', '/perfil']
 
@@ -118,7 +119,10 @@ export const Layout: React.FC = () => {
     )
   }
 
+  // Ajuda em vídeo (player no canto, dica nos botões, oferta do Duo) só na
+  // conta liberada: nas telas de bloqueio e cobrança acima ela não entra.
   return (
+    <VideoAjudaProvider>
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900" {...swipeHandlers}>
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
@@ -151,5 +155,6 @@ export const Layout: React.FC = () => {
         <DuoWidget />
       )}
     </div>
+    </VideoAjudaProvider>
   )
 }

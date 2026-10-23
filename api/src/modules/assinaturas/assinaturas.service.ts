@@ -1,5 +1,6 @@
 import { query } from '../../config/database';
 import { asaasService } from '../../services/asaas.service';
+import { afiliadosService } from '../afiliados/afiliados.service';
 import { addMonthsClamped } from '../../shared/utils';
 
 export interface Plano {
@@ -109,6 +110,30 @@ export interface Assinatura {
 export const CICLOS_VALIDOS: Ciclo[] = ['mensal', 'trimestral', 'semestral', 'anual'];
 
 /** Descrição que o cliente vê na fatura do Asaas. */
+/**
+ * Parcelamento no cartão (migration 099). Só para ciclo de mais de um mês e só no
+ * cartão: o Asaas não parcela assinatura recorrente, então o ciclo vira um
+ * parcelamento avulso — até uma parcela por mês do ciclo (6x no semestral, 12x no
+ * anual). Juros pela tabela Price; à vista (1x) não tem juros.
+ * A taxa mora aqui e a tela a recebe por GET /planos — não repetir no frontend.
+ */
+export const PARCELAMENTO = {
+  jurosAoMes: Number(process.env.PARCELAMENTO_JUROS_AM ?? 1.99) / 100,
+};
+
+export function calcularParcelamento(
+  total: number,
+  parcelas: number,
+  jurosAoMes = PARCELAMENTO.jurosAoMes
+): { parcelas: number; valorParcela: number; total: number; juros: number } {
+  const n = Math.max(1, Math.trunc(parcelas));
+  const i = n > 1 ? jurosAoMes : 0;
+  const parcela = i > 0 ? (total * i) / (1 - Math.pow(1 + i, -n)) : total / n;
+  const valorParcela = Math.round(parcela * 100) / 100;
+  const totalFinal = Math.round(valorParcela * n * 100) / 100;
+  return { parcelas: n, valorParcela, total: totalFinal, juros: Math.round((totalFinal - total) * 100) / 100 };
+}
+
 function descricaoAssinatura(planoNome: string, usuarios: number, ciclo: PlanoCiclo): string {
   const compromisso = ciclo.ciclo === 'mensal' ? 'mensal' : `${ciclo.ciclo} (${ciclo.meses} meses)`;
   return `${planoNome} — ${usuarios} usuários — ${compromisso} — Gestão Financeira DuoFuturo`;
@@ -160,6 +185,27 @@ export async function suspenderTrialsVencidos(): Promise<{ empresa_id: number; n
         AND a.empresa_id IN (SELECT empresa_id FROM assinaturas WHERE ${SQL_TRIAL_ENCERRADO})
       RETURNING a.empresa_id, e.nome`,
     [MOTIVO_TRIAL_ENCERRADO]
+  );
+  for (const row of r.rows) esquecerBloqueio(row.empresa_id);
+  return r.rows;
+}
+
+/**
+ * Ciclo parcelado no cartão que chegou ao fim vira `suspensa` (migration 099).
+ * A assinatura recorrente se suspende sozinha (o Asaas gera a cobrança nova e manda
+ * PAYMENT_OVERDUE); o parcelamento não gera nada no fim do ciclo, e sem isto a conta
+ * seguiria liberada para sempre. A saída é a mesma: escolher o plano e pagar de novo.
+ */
+export async function suspenderParceladosVencidos(): Promise<{ empresa_id: number; nome: string }[]> {
+  const r = await query(
+    `UPDATE assinaturas a
+        SET status = 'suspensa', cancelamento_motivo = 'Ciclo parcelado encerrado', updated_at = now()
+       FROM empresas e
+      WHERE e.id = a.empresa_id
+        AND a.asaas_installment_id IS NOT NULL
+        AND a.status = 'ativa'
+        AND a.plano_ativo_ate < now()
+      RETURNING a.empresa_id, e.nome`
   );
   for (const row of r.rows) esquecerBloqueio(row.empresa_id);
   return r.rows;
@@ -461,6 +507,8 @@ export const assinaturasService = {
     usuarios?: number;
     /** Compromisso de fidelidade. Default: o ativo de menor compromisso. */
     ciclo?: string;
+    /** Parcelas no cartão (2..meses do ciclo). Ausente ou 1 = assinatura recorrente. */
+    parcelas?: number;
   }): Promise<{ assinatura: Assinatura; paymentUrl?: string; pixQrCode?: string; pixQrCodeImage?: string }> {
     const plano = await this.getPlanoById(params.planoId);
     if (!plano) throw new Error('Plano não encontrado');
@@ -492,6 +540,15 @@ export const assinaturasService = {
     const ciclo = await this.getCiclo(plano.id, params.ciclo);
     const cobranca = calcularCobranca(plano, ciclo, usuarios, 0);
 
+    const parcelas = params.parcelas != null ? Math.trunc(Number(params.parcelas)) : 1;
+    const parcelado = parcelas > 1;
+    if (parcelado) {
+      if (params.billingType !== 'CREDIT_CARD') throw new Error('Parcelamento só no cartão de crédito.');
+      if (!Number.isFinite(parcelas) || parcelas > ciclo.meses) {
+        throw new Error(`No compromisso ${ciclo.ciclo} dá para parcelar em até ${ciclo.meses}x.`);
+      }
+    }
+
     // 1. Criar ou recuperar customer no Asaas
     let customerId = assinatura?.asaas_customer_id;
     if (!customerId) {
@@ -521,6 +578,34 @@ export const assinaturasService = {
     const nextDue = new Date();
     nextDue.setDate(nextDue.getDate() + 1);
     const nextDueDate = nextDue.toISOString().split('T')[0];
+
+    // 4a. Parcelado: um parcelamento cobre o ciclo inteiro, sem renovação automática.
+    if (parcelado) {
+      const conta = calcularParcelamento(cobranca.total, parcelas);
+      const pagamento = await asaasService.createInstallmentPayment({
+        customerId,
+        installmentCount: conta.parcelas,
+        installmentValue: conta.valorParcela,
+        dueDate: nextDueDate,
+        description: `${descricaoAssinatura(plano.nome, usuarios, ciclo)} — ${conta.parcelas}x`,
+        creditCard: params.creditCard,
+        creditCardHolderInfo: params.creditCardHolderInfo,
+        remoteIp: params.remoteIp,
+      });
+      // Cartão aprovado na hora: o acesso vale pelo ciclo inteiro desde já.
+      await query(`
+        INSERT INTO assinaturas (empresa_id, plano_id, status, asaas_customer_id, asaas_subscription_id, asaas_installment_id, parcelas, asaas_next_due_date, plano_ativo_ate, usuarios_contratados, usuarios_cortesia, ciclo, updated_at)
+        VALUES ($1, $2, 'ativa', $3, NULL, $4, $5, NULL, $6, $7, 0, $8, now())
+        ON CONFLICT (empresa_id) DO UPDATE SET
+          plano_id = $2, status = 'ativa', asaas_customer_id = $3,
+          asaas_subscription_id = NULL, asaas_installment_id = $4, parcelas = $5,
+          asaas_next_due_date = NULL, plano_ativo_ate = $6, usuarios_contratados = $7,
+          usuarios_cortesia = 0, ciclo = $8, updated_at = now()
+      `, [params.empresaId, params.planoId, customerId, pagamento.installment || pagamento.id, conta.parcelas,
+          addMonthsClamped(new Date(), ciclo.meses), usuarios, ciclo.ciclo]);
+      esquecerBloqueio(params.empresaId);
+      return { assinatura: (await this.getAssinaturaByEmpresa(params.empresaId))! };
+    }
 
     // 4. Criar subscription no Asaas
     const subscription = await asaasService.createSubscription({
@@ -553,7 +638,7 @@ export const assinaturasService = {
         plano_id = $2, status = $7, asaas_customer_id = $3,
         asaas_subscription_id = $4, asaas_next_due_date = $5,
         plano_ativo_ate = $6, usuarios_contratados = $8, usuarios_cortesia = 0,
-        ciclo = $9, updated_at = now()
+        ciclo = $9, asaas_installment_id = NULL, parcelas = NULL, updated_at = now()
     `, [params.empresaId, params.planoId, customerId, subscription.id, nextDueDate, planoAtivate, statusInicial, usuarios, ciclo.ciclo]);
     esquecerBloqueio(params.empresaId);
 
@@ -630,19 +715,43 @@ export const assinaturasService = {
   /** Processar webhook do Asaas */
   async processarWebhook(event: string, payload: any): Promise<void> {
     const subscriptionId: string | undefined = payload.subscription;
+    const installmentId: string | undefined = payload.installment;
 
-    if (!subscriptionId) return;
+    if (!subscriptionId && !installmentId) return;
 
     // Encontrar assinatura pelo ID do Asaas
-    const res = await query(
-      'SELECT * FROM assinaturas WHERE asaas_subscription_id = $1',
-      [subscriptionId]
-    );
+    const res = subscriptionId
+      ? await query('SELECT * FROM assinaturas WHERE asaas_subscription_id = $1', [subscriptionId])
+      : await query('SELECT * FROM assinaturas WHERE asaas_installment_id = $1', [installmentId]);
     if (!res.rows[0]) return;
 
     const assinatura = res.rows[0];
+    // Cobrança nova do ciclo: abate as recompensas de indicação que esperam por ela (113).
+    if (event === 'PAYMENT_CREATED' && subscriptionId) {
+      void afiliadosService.aplicarDescontos(assinatura.empresa_id);
+      return;
+    }
+    // Primeiro pagamento de conta indicada vira recompensa de quem indicou (113).
+    if (event === 'PAYMENT_CONFIRMED' || event === 'PAYMENT_RECEIVED') {
+      void afiliadosService.aoPagamentoAssinatura(assinatura.empresa_id, payload, assinatura.parcelas);
+    }
     // Pagamento confirmado libera na hora (nesta instância); as outras, pelo TTL.
     esquecerBloqueio(assinatura.empresa_id);
+
+    // Parcelado: cada parcela gera CONFIRMED e, mês a mês, RECEIVED. O ciclo já foi
+    // liberado inteiro na contratação — somar meses a cada parcela daria anos de acesso.
+    if (!subscriptionId) {
+      if (event === 'PAYMENT_CONFIRMED' || event === 'PAYMENT_RECEIVED') {
+        if (assinatura.status !== 'ativa') {
+          await query(`UPDATE assinaturas SET status = 'ativa', updated_at = now() WHERE id = $1`, [assinatura.id]);
+        }
+      } else if (event === 'PAYMENT_OVERDUE') {
+        await query(`UPDATE assinaturas SET status = 'suspensa', updated_at = now() WHERE id = $1`, [assinatura.id]);
+      } else if (event === 'PAYMENT_REFUNDED' || event === 'PAYMENT_CHARGEBACK_REQUESTED') {
+        await query(`UPDATE assinaturas SET status = 'cancelada', updated_at = now() WHERE id = $1`, [assinatura.id]);
+      }
+      return;
+    }
 
     switch (event) {
       case 'PAYMENT_CONFIRMED':

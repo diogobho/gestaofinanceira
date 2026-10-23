@@ -113,8 +113,22 @@ const MAPA: Record<FollowupErroCategoria, DescricaoErroFollowup> = {
  * banco de propósito e sempre vai existir linha antiga sem ele.
  */
 export function descreverErroFollowup(
-  categoria?: FollowupErroCategoria | string | null
+  categoria?: FollowupErroCategoria | string | null,
+  erro?: string | null
 ): DescricaoErroFollowup {
+  // `conflito_config` não é só dia sem interseção: o motor grava nela também o primeiro
+  // contato barrado (plano ou chip no QR) e o passo sem modelo de reserva no oficial.
+  // O texto fixo de "dias em comum" mandava o operador mexer na janela — que estava
+  // certa — e reagendar para falhar de novo (chamado #231). Nesses casos o erro gravado
+  // já diz o motivo e o que fazer.
+  if (categoria === 'conflito_config' && erro) {
+    if (/nunca escreveu/i.test(erro)) {
+      return { ...MAPA.conflito_config, rotulo: 'Primeiro contato bloqueado', explicacao: erro, acaoDoUsuario: '' }
+    }
+    if (/modelo/i.test(erro)) {
+      return { ...MAPA.conflito_config, rotulo: 'Falta modelo de reserva', explicacao: erro, acaoDoUsuario: '' }
+    }
+  }
   if (categoria && categoria in MAPA) return MAPA[categoria as FollowupErroCategoria]
   return MAPA.desconhecido
 }

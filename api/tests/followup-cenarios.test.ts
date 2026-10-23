@@ -606,5 +606,17 @@ describe('Cenário — canal de quem envia (28/09/2026)', () => {
 
     assert.equal(repo.registros[0].erro_categoria, 'conflito_config');
     assert.match(repo.registros[0].erro!, /modelo de reserva/);
+    assert.match(repo.registros[0].erro!, /passo da cadência/);
+  });
+
+  test('avulso do card sem modelo de reserva manda agendar de novo, não reagendar', async () => {
+    // A reserva do avulso mora no registro (098): reagendar sairia sem modelo outra vez.
+    const repo = new RepoFalso([followupFalso({ id: 1, origem: 'lead', passo_ordem: null })]);
+    const p = portasDeTeste({ repo, agora: TERCA_13H, janela: JANELA_COMERCIAL, despachar: async () => 'sem_modelo' });
+
+    await executarCiclo(p);
+
+    assert.equal(repo.registros[0].erro_categoria, 'conflito_config');
+    assert.match(repo.registros[0].erro!, /agende de novo no card/);
   });
 });

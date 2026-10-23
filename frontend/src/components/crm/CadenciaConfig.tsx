@@ -4,9 +4,10 @@ import {
   MessageCircle, Bot, Paperclip, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import AgendamentoConfig, { AgendamentoValue, agendamentoPadrao } from './AgendamentoConfig'
-import SeletorModeloWhatsApp from '@/components/whatsapp/SeletorModeloWhatsApp'
-import { useCanalWhatsApp, useModelosWhatsApp } from '@/hooks/useCanalWhatsApp'
+import ModeloReservaWhatsApp from './ModeloReservaWhatsApp'
+import { useCanalWhatsApp } from '@/hooks/useCanalWhatsApp'
 import type { EstagioFollowupConfig, PassoFollowupConfig } from '@/types/crm'
+import { LinkVideo } from '@/tutoriais/LinkVideo'
 
 /**
  * Editor de CADÊNCIA de follow-up por estágio: uma sequência de toques (D0 → D+10min → …).
@@ -25,6 +26,8 @@ const MULT_MIN: Record<string, number> = { minuto: 1, hora: 60, dia: 1440 }
 export interface CadenciaValue {
   ativo: boolean
   passos: AgendamentoValue[]
+  /** Opções da etapa que a tela não edita (ex.: `reiniciar_ao_responder`): voltam intactas ao salvar. */
+  extras?: Pick<EstagioFollowupConfig, 'voltar_ao_responder' | 'reiniciar_ao_responder'>
 }
 
 const genKey = () => Math.random().toString(36).slice(2, 10)
@@ -116,8 +119,12 @@ export function followupConfigParaCadencia(fc?: EstagioFollowupConfig | null): C
     hora_envio: p.hora_envio || '09:00',
     dias_semana: p.dias_semana ?? [1, 2, 3, 4, 5],
     modelo_whatsapp: p.modelo_whatsapp ?? null,
+    origens: p.origens ?? null,
   }))
-  return { ativo: fc.ativo || false, passos: ordenarPassos(passos.length ? passos : cadenciaPadrao().passos) }
+  const extras: CadenciaValue['extras'] = {}
+  if (fc.voltar_ao_responder !== undefined) extras.voltar_ao_responder = fc.voltar_ao_responder
+  if (fc.reiniciar_ao_responder !== undefined) extras.reiniciar_ao_responder = fc.reiniciar_ao_responder
+  return { ativo: fc.ativo || false, passos: ordenarPassos(passos.length ? passos : cadenciaPadrao().passos), extras }
 }
 
 /**
@@ -143,8 +150,9 @@ export function cadenciaParaFollowupConfig(c: CadenciaValue): EstagioFollowupCon
     hora_envio: p.hora_envio || undefined,
     dias_semana: (p.dias_semana?.length ?? 0) > 0 ? p.dias_semana : undefined,
     modelo_whatsapp: p.modelo_whatsapp?.nome ? p.modelo_whatsapp : undefined,
+    origens: p.origens?.contem?.length ? p.origens : undefined,
   }))
-  return { ativo: c.ativo, passos }
+  return { ...(c.extras ?? {}), ativo: c.ativo, passos }
 }
 
 /** Resumo curto do timing de um passo, para o cabeçalho recolhido. */
@@ -168,7 +176,6 @@ export default function CadenciaConfig({ value, onChange, titulo = 'Follow-up au
   // janela de 24h do lead estiver fechada (texto livre não é entregue nesse caso).
   const { data: canal } = useCanalWhatsApp()
   const oficial = canal?.provedor === 'cloud_api'
-  const { data: modelos = [], isLoading: carregandoModelos, refetch: refetchModelos } = useModelosWhatsApp(oficial)
   // Passos sempre exibidos ordenados pelo horário de disparo.
   const passos = useMemo(() => ordenarPassos(value.passos), [value.passos])
   // Passo aberto identificado por _key (estável mesmo quando a ordem muda).
@@ -203,6 +210,7 @@ export default function CadenciaConfig({ value, onChange, titulo = 'Follow-up au
         <div className="flex items-center gap-2">
           <Bell size={16} className="text-amber-500" />
           <label className="text-sm font-medium text-gray-700">{titulo}</label>
+          <LinkVideo video="cadencia-etapa" />
         </div>
         <button
           type="button"
@@ -251,6 +259,11 @@ export default function CadenciaConfig({ value, onChange, titulo = 'Follow-up au
                     <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-500 border border-amber-100">
                       {resumoTiming(passo, idx)}
                     </span>
+                    {passo.origens?.contem?.length ? (
+                      <span className="shrink-0 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 border border-sky-100">
+                        {passo.origens.modo === 'exceto' ? 'menos ' : 'só '}{passo.origens.contem.join(' e ')}
+                      </span>
+                    ) : null}
                     {!estaAberto && (
                       <span className="flex items-center gap-1 min-w-0 text-[11px] text-gray-500">
                         {ehIA ? <Bot size={11} className="shrink-0" /> : <MessageCircle size={11} className="shrink-0 text-emerald-500" />}
@@ -305,25 +318,11 @@ export default function CadenciaConfig({ value, onChange, titulo = 'Follow-up au
                     />
 
                     {oficial && (
-                      <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
-                        <p className="text-xs font-semibold text-emerald-800">Modelo de reserva — janela de 24h fechada</p>
-                        <p className="text-[11px] text-gray-600">
-                          No WhatsApp oficial, se o lead não escreveu nas últimas 24h esta mensagem
-                          {ehIA ? ' (e a do agente de IA)' : ''} não é entregue. Com um modelo aqui, ele sai no lugar;
-                          sem modelo, o follow-up fica como falha com o motivo.
-                        </p>
-                        <SeletorModeloWhatsApp
-                          modelos={modelos}
-                          carregando={carregandoModelos}
-                          valor={passo.modelo_whatsapp ?? null}
-                          onChange={(m) => setPasso(key, { ...passo, modelo_whatsapp: m })}
-                          modo="variaveis"
-                          sugestaoPrimeira="[PrimeiroNome]"
-                          onRecarregar={() => refetchModelos()}
-                          permitirNenhum
-                          rotuloNenhum="Sem modelo de reserva"
-                        />
-                      </div>
+                      <ModeloReservaWhatsApp
+                        valor={passo.modelo_whatsapp ?? null}
+                        onChange={(m) => setPasso(key, { ...passo, modelo_whatsapp: m })}
+                        ehIA={ehIA}
+                      />
                     )}
                   </div>
                 )}

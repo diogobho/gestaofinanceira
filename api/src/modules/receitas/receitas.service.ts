@@ -1,3 +1,4 @@
+import { escopoDono } from '../../shared/escopoFinanceiro';
 import { query } from '../../config/database';
 import { buildPaginationQuery, buildPaginatedResponse, addMonthsClamped, dividirEmParcelas, statusParcela, dataVencimentoDe } from '../../shared/utils';
 
@@ -7,11 +8,8 @@ export const receitasService = {
     let where = '1=1';
     const params: any[] = [];
 
-    // Multi-tenancy: filtrar por usuario_id (super_admin vê tudo, outros veem apenas seus dados)
-    if (filters.usuario_id && filters.nivel !== 'super_admin') {
-      params.push(filters.usuario_id);
-      where += ` AND r.usuario_id = $${params.length}`;
-    }
+    // Quem vê o quê: ver shared/escopoFinanceiro.ts (master/creator veem a empresa inteira)
+    where += escopoDono(filters, params, 'r.usuario_id');
 
     // Suportar novo campo "status" e manter compatibilidade com "recebido"
     if (filters.status !== undefined && filters.status !== '') {
@@ -27,6 +25,11 @@ export const receitasService = {
     if (filters.fonte) {
       params.push(filters.fonte);
       where += ` AND r.fonte ILIKE '%' || $${params.length} || '%'`;
+    }
+    // Busca pela descrição — o Duo usa para achar o lançamento que a pessoa quer editar.
+    if (filters.busca) {
+      params.push(filters.busca);
+      where += ` AND r.descricao ILIKE '%' || $${params.length} || '%'`;
     }
     if (filters.data_ini) {
       params.push(filters.data_ini);
@@ -81,10 +84,7 @@ export const receitasService = {
     const params: any[] = [id];
 
     // Multi-tenancy: verificar permissão de acesso
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      params.push(filters.usuario_id);
-      where += ` AND usuario_id = $${params.length}`;
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     const result = await query(`SELECT * FROM receitas WHERE ${where}`, params);
     if (result.rows.length === 0) throw new Error('Receita não encontrada');
@@ -243,10 +243,7 @@ export const receitasService = {
     ];
 
     // Multi-tenancy: garantir que apenas o dono pode atualizar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ' AND usuario_id = $13';
-      params.push(filters.usuario_id);
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     const result = await query(
       `UPDATE receitas SET
@@ -292,10 +289,7 @@ export const receitasService = {
     const params: any[] = [id];
 
     // Multi-tenancy: garantir que apenas o dono pode deletar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ' AND usuario_id = $2';
-      params.push(filters.usuario_id);
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     const result = await query(`DELETE FROM receitas WHERE ${where} RETURNING *`, params);
     if (result.rows.length === 0) throw new Error('Receita não encontrada ou sem permissão');
@@ -308,10 +302,7 @@ export const receitasService = {
     const params: any[] = [];
 
     // Multi-tenancy: filtrar por usuario_id
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      params.push(filters.usuario_id);
-      where += ` AND r.usuario_id = $${params.length}`;
-    }
+    where += escopoDono(filters, params, 'r.usuario_id');
 
     const result = await query(
       `SELECT
@@ -339,10 +330,7 @@ export const receitasService = {
     const params: any[] = [receitaId];
 
     // Multi-tenancy: garantir que apenas o dono pode atualizar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      params.push(filters.usuario_id);
-      where += ` AND usuario_id = $${params.length}`;
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     // Verificar se a receita existe e o usuário tem permissão
     const checkResult = await query(

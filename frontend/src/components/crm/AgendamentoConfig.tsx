@@ -46,6 +46,8 @@ export interface AgendamentoValue {
   dias_semana?: number[] | null     // 0=Dom..6=Sáb
   // Cadência no número oficial: modelo aprovado de reserva para a janela de 24h fechada.
   modelo_whatsapp?: { nome: string; idioma?: string; variaveis: string[]; cabecalho?: string | null } | null
+  // Cadência: passo só para algumas origens do lead (passoValeParaOrigem na API).
+  origens?: { modo: 'so' | 'exceto'; contem: string[] } | null
 }
 
 // Variáveis de personalização disponíveis: os atributos do lead e, no fim, quem

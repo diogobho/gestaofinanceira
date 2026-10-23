@@ -88,7 +88,7 @@ export const useUpdateEstagio = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; estagio_apos_resposta_id?: number | null; estagio_apos_envio_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null; auto_criar_lead?: boolean; auto_criar_lead_usuarios?: number[] | null; agente_ia_ativo?: boolean; instrucoes_agente_ia?: string | null; reuniao_lembretes?: import('@/types/crm').ReuniaoLembretesConfig | null }> }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; estagio_apos_resposta_id?: number | null; estagio_apos_envio_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null; auto_criar_lead?: boolean; auto_criar_lead_usuarios?: number[] | null; agente_ia_ativo?: boolean; instrucoes_agente_ia?: string | null; reuniao_lembretes?: import('@/types/crm').ReuniaoLembretesConfig | null; tarefas_entrada?: import('@/types/crm').TarefaDoEstagio[] }> }) =>
       estagiosApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'estagios'] })
@@ -149,6 +149,11 @@ export const useLeads = (funilId: number | undefined, filtros: FiltrosLead = {})
     queryFn: () => leadsApi.listByFunil(funilId!, filtros),
     enabled: !!funilId,
     refetchInterval: 30000,
+    // Trocar filtro mantém os cards na tela até os novos chegarem: sem isto o
+    // `isLoading` troca o quadro inteiro pelo spinner e desmonta o painel de filtros
+    // no meio do clique. Só no MESMO funil — os cards de outro não têm coluna aqui.
+    placeholderData: (anterior, consulta) =>
+      consulta?.queryKey[2] === funilId ? anterior : undefined,
   })
 }
 
@@ -289,6 +294,20 @@ export const useDeleteLead = () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
       queryClient.invalidateQueries({ queryKey: ['crm', 'estagios'] })
       toast.success('Lead deletado!')
+    },
+  })
+}
+
+export const useExcluirLeadsEmMassa = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ funilId, estagioId }: { funilId: number; estagioId?: number }) =>
+      leadsApi.excluirEmMassa(funilId, estagioId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['crm'] })
+      const n = data?.excluidos ?? 0
+      toast.success(n === 1 ? '1 lead excluído.' : `${n} leads excluídos.`)
     },
   })
 }
@@ -838,8 +857,19 @@ export interface DashboardDateFilters {
   responsavel_id?: number
 }
 
-export const useCRMDashboard = (funilId?: number, filters?: DashboardDateFilters, granularidade?: Granularidade) => {
+/**
+ * `opcoes.comparacao`: a consulta do período ANTERIOR (cartões com "subiu/caiu").
+ * Ela não roda sem período e não segura o dado velho — número de outro recorte
+ * com o rótulo novo seria uma comparação errada.
+ */
+export const useCRMDashboard = (
+  funilId?: number,
+  filters?: DashboardDateFilters,
+  granularidade?: Granularidade,
+  opcoes?: { comparacao?: boolean; enabled?: boolean }
+) => {
   return useQuery({
+    enabled: opcoes?.enabled ?? true,
     // A granularidade entra na chave: sem isso, trocar de dia para mês devolve
     // o cache anterior e o gráfico não muda.
     queryKey: ['crm', 'dashboard', funilId, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id, granularidade],
@@ -852,7 +882,7 @@ export const useCRMDashboard = (funilId?: number, filters?: DashboardDateFilters
       navegador joga o scroll para o topo. Com `keepPreviousData` o conteúdo
       continua na tela e só `isFetching` muda.
     */
-    placeholderData: keepPreviousData,
+    placeholderData: opcoes?.comparacao ? undefined : keepPreviousData,
   })
 }
 
@@ -860,6 +890,16 @@ export const useCRMFunilAnalytics = (funilId?: number, dias?: number, filters?: 
   return useQuery({
     queryKey: ['crm', 'dashboard', 'funil', funilId, dias, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id],
     queryFn: () => dashboardApi.getFunilAnalytics(funilId, dias, filters),
+    placeholderData: keepPreviousData,
+    staleTime: 60000,
+  })
+}
+
+export const useCRMProdutividade = (funilId?: number, filters?: DashboardDateFilters) => {
+  return useQuery({
+    queryKey: ['crm', 'dashboard', 'produtividade', funilId, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id],
+    queryFn: () => dashboardApi.getProdutividade(funilId!, filters),
+    enabled: !!funilId,
     placeholderData: keepPreviousData,
     staleTime: 60000,
   })
@@ -1089,12 +1129,7 @@ export const useCreateFollowup = () => {
   return useMutation({
     mutationFn: ({ leadId, data }: {
       leadId: number
-      data: {
-        tipo: 'manual' | 'agente_ia'; mensagem?: string; instrucao_ia?: string
-        media_url?: string | null; media_mimetype?: string | null; media_filename?: string | null
-        modo?: 'dias' | 'data'; atraso_dias?: number | null; atraso_unidade?: 'minuto' | 'hora' | 'dia'; data_fixa?: string | null
-        hora_envio?: string | null; dias_semana?: number[] | null; agendado_para?: string
-      }
+      data: Parameters<typeof followupsApi.criar>[1]
     }) => followupsApi.criar(leadId, data),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'followups', vars.leadId] })

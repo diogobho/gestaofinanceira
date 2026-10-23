@@ -1,6 +1,7 @@
 import { Draggable } from '@hello-pangea/dnd'
 import { Phone, Building, DollarSign, MessageCircle, Clock, CheckCircle, CalendarCheck, AlertCircle, User, Send, Bell, Bot } from 'lucide-react'
 import Avatar from '@/components/ui/Avatar'
+import { SeloJanela } from './SeloJanela'
 import type { Lead } from '@/types/crm'
 
 interface KanbanCardProps {
@@ -190,7 +191,7 @@ export default function KanbanCard({ lead, index, onClick }: KanbanCardProps) {
           {/* Responsável e disparos na MESMA linha: eram duas, e cada linha a
               menos no card é mais um lead visível na coluna. Quebram sozinhas
               quando não couberem lado a lado. */}
-          {(lead.responsavel_nome || (lead.total_disparos || 0) > 0 || lead.total_recebidas != null) && (
+          {(lead.responsavel_nome || (lead.total_disparos || 0) > 0 || lead.total_recebidas != null || lead.janela_resta_seg != null) && (
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
               {/* Só vem com a ordem "Mais mensagens recebidas": mostra o número que
                   decidiu a posição do card na coluna. */}
@@ -200,6 +201,7 @@ export default function KanbanCard({ lead, index, onClick }: KanbanCardProps) {
                   <span>{lead.total_recebidas} {lead.total_recebidas === 1 ? 'recebida' : 'recebidas'}</span>
                 </span>
               )}
+              <SeloJanela lead={lead} />
               {lead.responsavel_nome && (
                 <span className="flex min-w-0 items-center gap-1 text-gray-400">
                   <User size={11} className="shrink-0" />

@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { parcelasService } from './parcelas.service';
 import { AuthRequest } from '../../middlewares/auth.middleware';
+import { filtroDoUsuario } from '../../shared/escopoFinanceiro';
 
 export const parcelasController = {
   async listReceitas(req: AuthRequest, res: Response) {
@@ -8,7 +9,9 @@ export const parcelasController = {
       const filters = {
         ...req.query,
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       const result = await parcelasService.listReceitas(filters);
       return res.json(result);
@@ -22,7 +25,9 @@ export const parcelasController = {
       const filters = {
         ...req.query,
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       const result = await parcelasService.listDespesas(filters);
       return res.json(result);
@@ -35,7 +40,9 @@ export const parcelasController = {
     try {
       const filters = {
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       const result = await parcelasService.updateParcelaReceita(
         req.params.id,
@@ -52,7 +59,9 @@ export const parcelasController = {
     try {
       const filters = {
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       const result = await parcelasService.updateParcelaDespesa(
         req.params.id,
@@ -78,8 +87,7 @@ export const parcelasController = {
 
       const result = await parcelasService.enviarEmailsCobrancaManuais(
         parcela_ids,
-        req.user?.userId,
-        req.user?.nivel,
+        filtroDoUsuario(req.user),
         req.user?.empresa_id
       );
 
@@ -105,8 +113,7 @@ export const parcelasController = {
 
       const result = await parcelasService.enviarWhatsAppCobrancaManuais(
         parcela_ids,
-        req.user?.userId,
-        req.user?.nivel
+        filtroDoUsuario(req.user)
       );
 
       return res.json(result);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
 import { useQuery } from '@tanstack/react-query'
 import { X, Trophy, Package, DollarSign, Calendar, CreditCard, AlertCircle, Percent, FileText } from 'lucide-react'
 import { categoriasReceitasApi } from '@/api'
@@ -31,6 +32,7 @@ export default function ConversaoGanhoModal({
   lead,
   funilNome,
 }: ConversaoGanhoProps) {
+  const { cliente } = useTermoCliente()
   const [descricao, setDescricao] = useState('')
   const [valorVenda, setValorVenda] = useState('')
   const [taxaServico, setTaxaServico] = useState('')
@@ -107,14 +109,14 @@ export default function ConversaoGanhoModal({
 
         <div className="px-6 py-5 space-y-4 overflow-y-auto">
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            <span className="font-semibold text-gray-700 dark:text-gray-200">{lead.nome}</span> será convertido em cliente e movido para o CRM-CX. Os dados abaixo seguem o mesmo padrão do formulário de Receita.
+            <span className="font-semibold text-gray-700 dark:text-gray-200">{lead.nome}</span> será convertido em {cliente} e movido para o CRM-CX. Os dados abaixo seguem o mesmo padrão do formulário de Receita.
           </p>
 
           {!valorPreenchido && (
             <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
               <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
               <p className="text-xs text-amber-700 dark:text-amber-400">
-                Sem valor preenchido nenhuma receita será gerada. Você pode preencher agora ou converter apenas como cliente.
+                Sem valor preenchido nenhuma receita será gerada. Você pode preencher agora ou converter apenas como {cliente}.
               </p>
             </div>
           )}

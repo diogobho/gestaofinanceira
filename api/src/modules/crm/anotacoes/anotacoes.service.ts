@@ -1,4 +1,5 @@
 import { query } from '../../../config/database';
+import { garantirLeadDaEmpresa } from '../_shared/escopo-empresa';
 
 export interface Anotacao {
   id: number;
@@ -57,6 +58,9 @@ export const anotacoesService = {
   },
 
   async create(empresaId: number, usuarioId: number, data: CreateAnotacaoDto): Promise<Anotacao> {
+    // O lead vem do corpo da requisição: sem esta conferência, quem soubesse o id
+    // de um lead de outra conta gravava anotação nele.
+    await garantirLeadDaEmpresa(data.lead_id, empresaId);
     const result = await query(
       `INSERT INTO anotacoes_lead (lead_id, empresa_id, usuario_id, conteudo, tipo, origem)
        VALUES ($1, $2, $3, $4, $5, $6)

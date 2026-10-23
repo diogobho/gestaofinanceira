@@ -223,7 +223,7 @@ export function montarCicloVida(f: {
   if (f.status === 'enviado') {
     eventos.push({ rotulo: 'Enviado', quando: f.enviado_at || f.updated_at, tom: 'ok' })
   } else if (f.status === 'falhou') {
-    const desc = descreverErroFollowup(f.erro_categoria)
+    const desc = descreverErroFollowup(f.erro_categoria, f.erro)
     eventos.push({ rotulo: `Falhou — ${desc.rotulo}`, quando: f.updated_at, detalhe: desc.explicacao, tom: 'erro' })
   } else if (f.status === 'cancelado') {
     // Sem categoria não dá para afirmar quem cancelou: além da tela, a cadência é

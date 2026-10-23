@@ -21,7 +21,8 @@ import {
   desligarConta,
 } from '../canal/contas';
 import { lerPerfilComercial, atualizarPerfilComercial, trocarFotoPerfil, CredenciaisMeta } from './meta-whatsapp.service';
-import { encaminharMensagemAoCRM, registrarStatus, registrarSaidaAutomatica } from '../canal/entrada';
+import { encaminharMensagemAoCRM, encaminharEcoAoCRM, registrarStatus, registrarSaidaAutomatica } from '../canal/entrada';
+import { importarHistorico, sincronizarContatos } from '../canal/coexistencia';
 
 /**
  * A Meta assina todo POST do webhook com o App Secret (X-Hub-Signature-256 =
@@ -100,6 +101,10 @@ export class MetaWhatsAppController {
         console.log(`[Meta WA] webhook da WABA ${entry.id}`);
 
         for (const change of entry.changes ?? []) {
+          if (['smb_message_echoes', 'history', 'smb_app_state_sync'].includes(change.field)) {
+            await this.handleCoexistencia(change.field, change.value);
+            continue;
+          }
           if (change.field !== 'messages') continue;
 
           const value = change.value;
@@ -122,6 +127,31 @@ export class MetaWhatsAppController {
       }
     } catch (err) {
       console.error('[Meta WA] Erro ao processar webhook:', err);
+    }
+  }
+
+  /**
+   * Coexistência (095): o número segue no app WhatsApp Business do celular. O que a
+   * pessoa manda por lá (eco), a agenda do app e o histórico pedido na conexão. Só
+   * vale para número ligado no CRM — de outro número não há card onde gravar.
+   */
+  private async handleCoexistencia(field: string, value: any) {
+    const phoneNumberId: string | undefined = value?.metadata?.phone_number_id;
+    const conta = phoneNumberId ? await contaPorPhoneNumberId(phoneNumberId) : null;
+    if (!conta?.ativo) {
+      console.warn(`[Meta WA] ${field} de número fora do CRM (${phoneNumberId ?? 'sem id'}) — ignorado`);
+      return;
+    }
+    try {
+      if (field === 'smb_message_echoes') {
+        for (const eco of value.message_echoes ?? []) await encaminharEcoAoCRM(conta, eco, value);
+      } else if (field === 'smb_app_state_sync') {
+        await sincronizarContatos(conta, value.state_sync ?? []);
+      } else {
+        for (const item of value.history ?? []) await importarHistorico(conta, item);
+      }
+    } catch (err: any) {
+      console.error(`[Meta WA] ${field} não processado (conta #${conta.id}):`, err?.response?.data ?? err?.message ?? err);
     }
   }
 

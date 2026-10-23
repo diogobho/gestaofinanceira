@@ -102,7 +102,9 @@ export const clientesService = {
         endereco_rua, endereco_numero, endereco_complemento, endereco_bairro,
         endereco_cidade, endereco_estado, endereco_cep,
         cidade, servico, empresa_id, usuario_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                -- empresa de quem cadastra: o controller não manda, e o cliente ficava sem empresa
+                COALESCE($16::int, (SELECT empresa_id FROM usuarios WHERE id = $17)), $17)
       RETURNING *`,
       [
         codigo,
@@ -141,15 +143,37 @@ export const clientesService = {
     const values: any[] = [];
     let paramCount = 1;
 
+    // Mesmas validações e normalizações do create — sem isso o endereço editado não era salvo
+    if (data.cpf_cnpj !== undefined) {
+      const cpfCnpj = (data.cpf_cnpj || '').replace(/\D/g, '');
+      if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {
+        throw new Error('CPF deve ter 11 dígitos ou CNPJ deve ter 14 dígitos');
+      }
+      data.cpf_cnpj = cpfCnpj;
+    }
+    if (data.endereco_cep !== undefined) {
+      const cep = (data.endereco_cep || '').replace(/\D/g, '');
+      if (cep && cep.length !== 8) throw new Error('CEP deve ter 8 dígitos');
+      data.endereco_cep = cep || null;
+    }
+    if (data.endereco_estado !== undefined) {
+      if (data.endereco_estado && data.endereco_estado.length !== 2) {
+        throw new Error('Estado deve ter 2 caracteres (UF)');
+      }
+      data.endereco_estado = data.endereco_estado ? data.endereco_estado.toUpperCase() : null;
+    }
+
     // Campos reais permitidos para atualização
     const allowedFields = [
-      'codigo', 'nome', 'email', 'telefone', 'aniversario', 'cidade', 'servico', 'empresa_id'
+      'codigo', 'nome', 'email', 'telefone', 'aniversario', 'cidade', 'servico', 'cpf_cnpj',
+      'endereco_rua', 'endereco_numero', 'endereco_complemento', 'endereco_bairro',
+      'endereco_cidade', 'endereco_estado', 'endereco_cep'
     ];
 
     allowedFields.forEach(field => {
       if (data[field] !== undefined) {
         fields.push(`${field} = $${paramCount}`);
-        values.push(data[field]);
+        values.push(data[field] === '' && field.startsWith('endereco_') ? null : data[field]);
         paramCount++;
       }
     });

@@ -1,0 +1,12 @@
+/* Entradas da ajuda em vídeo (VideoAjuda.tsx, DicaVideo.tsx). Curtas e sem repetição:
+   ajuda que pisca vira ruído. Movimento reduzido: aparecem sem animação. */
+.video-ajuda-dica { animation: va-sobe .18s ease-out; }
+.video-ajuda-mini { animation: va-mini .28s cubic-bezier(.2,.8,.2,1); }
+.video-ajuda-peek { animation: va-peek .5s cubic-bezier(.3,1.4,.5,1); }
+.video-ajuda-balao { animation: va-sobe .25s ease-out; }
+@keyframes va-sobe { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes va-mini { from { opacity: 0; transform: translateY(16px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes va-peek { from { opacity: 0; transform: translateX(18px) rotate(8deg); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .video-ajuda-dica, .video-ajuda-mini, .video-ajuda-peek, .video-ajuda-balao { animation: none; }
+}

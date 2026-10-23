@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Droppable } from '@hello-pangea/dnd'
-import { Plus, MoreVertical, Settings, GripVertical, ChevronDown, Loader2, Bell, Bot } from 'lucide-react'
+import { Plus, MoreVertical, Settings, GripVertical, ChevronDown, Loader2, Bell, Bot, Trash2 } from 'lucide-react'
 import type { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd'
 import KanbanCard from './KanbanCard'
 import type { EstagioFunil, Lead } from '@/types/crm'
@@ -12,6 +12,7 @@ interface KanbanColumnProps {
   onCardClick?: (lead: Lead) => void
   onAddClick?: (estagioId: number) => void
   onEditEstagio?: (estagio: EstagioFunil) => void
+  onExcluirLeads?: (estagio: EstagioFunil) => void
   onLoadMore?: () => void
   isLoadingMore?: boolean
   totalNoEstagio?: number
@@ -24,6 +25,7 @@ export default function KanbanColumn({
   onCardClick,
   onAddClick,
   onEditEstagio,
+  onExcluirLeads,
   onLoadMore,
   isLoadingMore,
   totalNoEstagio,
@@ -105,6 +107,18 @@ export default function KanbanColumn({
                     <Settings size={14} />
                     Configurar estágio
                   </button>
+                  {onExcluirLeads && (
+                    <button
+                      onClick={() => {
+                        onExcluirLeads(estagio)
+                        setShowMenu(false)
+                      }}
+                      className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    >
+                      <Trash2 size={14} />
+                      Excluir leads deste estágio
+                    </button>
+                  )}
                 </div>
               )}
             </div>

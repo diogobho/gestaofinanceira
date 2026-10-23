@@ -85,6 +85,68 @@ function portaLivreNoSistema(porta: number): Promise<boolean> {
   });
 }
 
+/** Primeira porta Baileys sem dono, sem processo e sem rastro em disco. Chamar sob LOCK_PORTA. */
+async function portaLivre(cliente: { query: typeof query }): Promise<number> {
+  const noBanco = await cliente.query(
+    `SELECT whatsapp_porta AS p FROM usuarios WHERE whatsapp_porta IS NOT NULL
+     UNION SELECT porta FROM whatsapp_chip_grupos`
+  );
+  const ocupadas = new Set<number>([
+    ...noBanco.rows.map((r: any) => Number(r.p)),
+    ...(await portasNoPm2()),
+    ...lerRastroEmDisco(),
+  ]);
+  let porta: number | null = null;
+  while ((porta = escolherPorta(ocupadas)) !== null) {
+    if (await portaLivreNoSistema(porta)) break;
+    ocupadas.add(porta); // outro serviço escutando nela
+  }
+  if (porta === null) throw new Error('Nenhuma porta WhatsApp disponível');
+  return porta;
+}
+
+/**
+ * Porta do chip de Grupos (101) de quem está no número oficial. Reaproveita a porta
+ * QR que a pessoa tinha antes de ligar o oficial (`portas_anteriores`) — a instância
+ * costuma estar no ar e o número dela já é o que está nos grupos. Sem isso, porta nova.
+ */
+async function reservarPortaDeGrupos(usuarioId: number): Promise<{ porta: number; nova: boolean }> {
+  const cliente = await pool.connect();
+  try {
+    await cliente.query('BEGIN');
+    await cliente.query('SELECT pg_advisory_xact_lock($1)', [LOCK_PORTA]);
+    const atual = await cliente.query(`SELECT porta FROM whatsapp_chip_grupos WHERE usuario_id = $1`, [usuarioId]);
+    if (atual.rows[0]) {
+      await cliente.query('COMMIT');
+      return { porta: Number(atual.rows[0].porta), nova: false };
+    }
+    const ant = await cliente.query(
+      `SELECT (c.portas_anteriores ->> $2)::int AS p
+         FROM usuarios u JOIN whatsapp_cloud_contas c ON c.porta_virtual = u.whatsapp_porta
+        WHERE u.id = $1`,
+      [usuarioId, String(usuarioId)]
+    );
+    let porta: number | null = Number(ant.rows[0]?.p) || null;
+    if (porta) {
+      const usada = await cliente.query(
+        `SELECT 1 FROM usuarios WHERE whatsapp_porta = $1 UNION ALL SELECT 1 FROM whatsapp_chip_grupos WHERE porta = $1`,
+        [porta]
+      );
+      if (usada.rowCount) porta = null;
+    }
+    const nova = !porta;
+    if (!porta) porta = await portaLivre(cliente);
+    await cliente.query(`INSERT INTO whatsapp_chip_grupos (usuario_id, porta) VALUES ($1, $2)`, [usuarioId, porta]);
+    await cliente.query('COMMIT');
+    return { porta, nova };
+  } catch (err) {
+    await cliente.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    cliente.release();
+  }
+}
+
 async function reservarPorta(usuarioId: number): Promise<{ porta: number; nova: boolean }> {
   const cliente = await pool.connect();
   try {
@@ -98,20 +160,7 @@ async function reservarPorta(usuarioId: number): Promise<{ porta: number; nova: 
       return { porta: atual.rows[0].whatsapp_porta, nova: false };
     }
 
-    const noBanco = await cliente.query(`SELECT DISTINCT whatsapp_porta FROM usuarios WHERE whatsapp_porta IS NOT NULL`);
-    const ocupadas = new Set<number>([
-      ...noBanco.rows.map((r: any) => Number(r.whatsapp_porta)),
-      ...(await portasNoPm2()),
-      ...lerRastroEmDisco(),
-    ]);
-
-    let porta: number | null = null;
-    while ((porta = escolherPorta(ocupadas)) !== null) {
-      if (await portaLivreNoSistema(porta)) break;
-      ocupadas.add(porta); // outro serviço escutando nela
-    }
-    if (porta === null) throw new Error('Nenhuma porta WhatsApp disponível');
-
+    const porta = await portaLivre(cliente);
     await cliente.query(`UPDATE usuarios SET whatsapp_porta = $1 WHERE id = $2`, [porta, usuarioId]);
     await cliente.query('COMMIT');
     return { porta, nova: true };
@@ -261,6 +310,35 @@ export const whatsappProvisionService = {
   async criarInstancia(usuarioId: number): Promise<number> {
     const porta = await this.garantirWhatsApp(usuarioId, { permitirQrNovo: true });
     if (!porta) throw new Error('Não foi possível provisionar o WhatsApp');
+    return porta;
+  },
+
+  /**
+   * Chip de Grupos (101): o WhatsApp por QR de quem está no número oficial, que serve
+   * só à página de Grupos. Quem ainda está no QR usa o próprio chip — devolve a porta
+   * dele sem criar nada. Lança com a mensagem que a tela mostra.
+   */
+  async garantirChipDeGrupos(usuarioId: number): Promise<number> {
+    const r = await query(
+      `SELECT u.whatsapp_porta, a.status AS assinatura
+         FROM usuarios u LEFT JOIN assinaturas a ON a.empresa_id = u.empresa_id
+        WHERE u.id = $1 AND u.ativo = true`,
+      [usuarioId]
+    );
+    const u = r.rows[0];
+    if (!u) throw new Error('Usuário não encontrado');
+    if (u.whatsapp_porta && !ehPortaVirtual(u.whatsapp_porta)) return Number(u.whatsapp_porta);
+    if (!STATUS_ELEGIVEIS.includes(u.assinatura)) throw new Error('A assinatura da conta não está ativa');
+    const { porta, nova } = await reservarPortaDeGrupos(usuarioId);
+    try {
+      const saida = await subirInstancia(porta);
+      await registrarWebhook(porta);
+      console.log(`[WhatsApp] chip de grupos do usuário ${usuarioId} · porta ${porta}: ${saida}, webhook ok`);
+    } catch (err: any) {
+      console.error(`[WhatsApp] chip de grupos do usuário ${usuarioId} · porta ${porta}: falha ao subir —`, err?.message || err);
+      if (nova) await query(`DELETE FROM whatsapp_chip_grupos WHERE usuario_id = $1 AND porta = $2`, [usuarioId, porta]).catch(() => {});
+      throw new Error('Não foi possível preparar o QR Code agora. Tente de novo em alguns minutos.');
+    }
     return porta;
   },
 

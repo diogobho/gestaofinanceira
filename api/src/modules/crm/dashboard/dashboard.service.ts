@@ -43,6 +43,8 @@ export interface FunilDiarioEntry {
 
 export interface FunilAnalytics {
   acumulado: FunilEstagioAcumulado[];
+  /** Perda e etapas depois do ganho (Nutrição): fora da sequência do funil. */
+  laterais: Array<{ estagio_id: number; estagio_nome: string; estagio_cor: string; tipo: 'perda' | 'paralela'; leads: number }>;
   diario: FunilDiarioEntry[];
   boca_funil: number;
   taxa_conversao_geral: number;
@@ -439,62 +441,103 @@ export const dashboardService = {
       params.push(responsavelId);
       responsavelFilter = `AND l.responsavel_id = $${params.length}`;
     }
-    // Filtro para entradas no estágio de entrada (referência: l.created_at)
-    const dateFilterCreated = buildDateFilter(params, dataInicio, dataFim, 'l.created_at');
-    // Filtro para movimentações de estágio (referência: a.created_at — quando o evento ocorreu)
-    const dateFilterActivity = buildDateFilter(params, dataInicio, dataFim, 'a.created_at');
+    // Acumulado = funil de COORTE (30/09/2026): dos leads que ENTRARAM no funil no período
+    // (criados nele ou transferidos para ele), até onde cada um chegou — até hoje. Cada lead
+    // conta em todas as etapas até a mais avançada que tocou, então o funil sempre afunila.
+    //
+    // Antes contava passagens por etapa no período, e não afunilava: a equipe pula etapa
+    // (349 dos 745 movimentos de setembro na Escola) e volta (216), e quem ia de Entrada
+    // direto para Conexão não aparecia em Tentativa de Contato — Conexão ficava com o dobro
+    // da etapa anterior. E misturava coortes: os ganhos do mês incluíam leads de meses antes.
+    //
+    // Etapas LATERAIS ficam fora da sequência e voltam em `laterais`: a de perda e as que
+    // vêm depois da etapa de ganho (Nutrição — quem não avançou no começo do funil e recebe
+    // contato 1x por mês). O lead que foi para uma lateral conta na sequência até onde chegou.
+    //
+    // Datas em horário de Brasília: as colunas são timestamp naive guardando UTC.
+    const dataEntrada = buildDateFilter(params, dataInicio, dataFim,
+      "(c.entrou_em AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')");
 
-    // Acumulado: para cada estágio, quantos leads únicos chegaram — por data do evento
     const acumuladoResult = await query(
-      `WITH passagens AS (
-         -- Leads que entraram no estágio de entrada: data referência = created_at
-         SELECT l.id AS lead_id, l.estagio_id
+      `WITH etapas AS (
+         SELECT e.id, e.funil_id, e.nome, e.cor, e.ordem, e.is_entrada, e.is_ganho,
+                (e.is_perdido OR e.ordem > COALESCE(
+                   (SELECT MIN(g.ordem) FROM estagios_funil g WHERE g.funil_id = e.funil_id AND g.is_ganho),
+                   2147483647)) AS fora_da_sequencia,
+                e.is_perdido
+         FROM estagios_funil e JOIN funis f ON f.id = e.funil_id
+         WHERE f.empresa_id = $1 ${funilFilterEstagios}
+       ),
+       primeira AS (SELECT funil_id, MIN(ordem) AS ordem FROM etapas WHERE NOT fora_da_sequencia GROUP BY funil_id),
+       entradas AS (
+         -- Entrou no funil em que está hoje: pela transferência mais recente para ele ou, sem
+         -- ela, pela criação. Transferido conta, venha de onde vier.
+         SELECT l.id AS lead_id, l.funil_id, l.estagio_id AS estagio_atual,
+                COALESCE(tr.t, l.created_at) AS entrou_em, tr.estagio AS estagio_entrada
          FROM leads l
-         WHERE l.empresa_id = $1 ${funilFilterLeads} ${responsavelFilter} ${dateFilterCreated}
-         UNION ALL
-         -- Movimentações: data referência = quando a mudança ocorreu (a.created_at)
-         SELECT a.lead_id, (a.dados->>'estagio_novo_id')::int AS estagio_id
-         FROM atividades_lead a
-         JOIN leads l ON a.lead_id = l.id
-         WHERE l.empresa_id = $1 AND a.tipo = 'mudanca_estagio'
-           AND a.dados->>'estagio_novo_id' IS NOT NULL
-           ${funilFilterLeads} ${responsavelFilter} ${dateFilterActivity}
+         LEFT JOIN LATERAL (
+           SELECT a.created_at AS t, (a.dados->>'estagio_novo_id')::int AS estagio
+             FROM atividades_lead a
+            WHERE a.lead_id = l.id AND a.tipo = 'transferencia_funil'
+              AND (a.dados->>'funil_novo_id')::int = l.funil_id
+            ORDER BY a.created_at DESC LIMIT 1
+         ) tr ON true
+         WHERE l.empresa_id = $1 ${funilFilterLeads} ${responsavelFilter}
+       ),
+       coorte AS (SELECT * FROM entradas c WHERE true ${dataEntrada}),
+       tocadas AS (
+         SELECT lead_id, estagio_atual AS estagio_id FROM coorte
+         UNION SELECT lead_id, estagio_entrada FROM coorte WHERE estagio_entrada IS NOT NULL
+         UNION SELECT c.lead_id, (a.dados->>'estagio_novo_id')::int
+                 FROM coorte c JOIN atividades_lead a
+                   ON a.lead_id = c.lead_id AND a.tipo = 'mudanca_estagio' AND a.created_at >= c.entrou_em
+       ),
+       alcance AS (
+         SELECT c.lead_id, c.funil_id,
+                GREATEST(p.ordem, COALESCE(MAX(e.ordem) FILTER (WHERE NOT e.fora_da_sequencia), p.ordem)) AS ordem_max
+         FROM coorte c
+         JOIN primeira p ON p.funil_id = c.funil_id
+         LEFT JOIN tocadas t ON t.lead_id = c.lead_id
+         LEFT JOIN etapas e ON e.id = t.estagio_id AND e.funil_id = c.funil_id
+         GROUP BY c.lead_id, c.funil_id, p.ordem
        )
-       SELECT
-         e.id AS estagio_id,
-         e.nome AS estagio_nome,
-         e.cor AS estagio_cor,
-         e.ordem AS estagio_ordem,
-         e.is_entrada,
-         e.is_ganho,
-         COUNT(DISTINCT p.lead_id) AS leads_passaram
-       FROM estagios_funil e
-       JOIN funis f ON e.funil_id = f.id
-       LEFT JOIN passagens p ON p.estagio_id = e.id
-       WHERE f.empresa_id = $1 AND e.is_perdido = false
-       ${funilFilterEstagios}
-       GROUP BY e.id, e.nome, e.cor, e.ordem, e.is_entrada, e.is_ganho
-       ORDER BY e.ordem ASC`,
+       SELECT e.id AS estagio_id, e.nome AS estagio_nome, e.cor AS estagio_cor, e.ordem AS estagio_ordem,
+              e.funil_id, e.is_entrada, e.is_ganho, e.fora_da_sequencia, e.is_perdido,
+              CASE WHEN e.fora_da_sequencia
+                THEN (SELECT COUNT(DISTINCT t.lead_id) FROM tocadas t JOIN coorte c ON c.lead_id = t.lead_id
+                       WHERE t.estagio_id = e.id AND c.funil_id = e.funil_id)
+                ELSE (SELECT COUNT(*) FROM alcance a WHERE a.funil_id = e.funil_id AND a.ordem_max >= e.ordem)
+              END AS leads_passaram
+       FROM etapas e
+       ORDER BY e.funil_id, e.ordem`,
       params
     );
 
-    // Calcular taxas em JS
-    const estagios = acumuladoResult.rows;
-    const bocaFunil = estagios.length > 0 ? parseInt(estagios[0].leads_passaram) : 0;
-    const ganhoEstagio = estagios.find((e: any) => e.is_ganho);
-    const taxaConversaoGeral = bocaFunil > 0 && ganhoEstagio
-      ? Math.round((parseInt(ganhoEstagio.leads_passaram) / bocaFunil) * 1000) / 10
-      : 0;
+    const estagios = acumuladoResult.rows.filter((e: any) => !e.fora_da_sequencia);
+    const laterais = acumuladoResult.rows
+      .filter((e: any) => e.fora_da_sequencia)
+      .map((e: any) => ({
+        estagio_id: e.estagio_id,
+        estagio_nome: e.estagio_nome,
+        estagio_cor: e.estagio_cor,
+        tipo: (e.is_perdido ? 'perda' : 'paralela') as 'perda' | 'paralela',
+        leads: parseInt(e.leads_passaram),
+      }));
+
+    // Boca = etapa de entrada (a primeira da sequência). Com vários funis somados, cada um
+    // tem a sua — soma-se a primeira de cada.
+    const primeiraDeCada = new Map<number, any>();
+    for (const e of acumuladoResult.rows) {
+      if (!e.fora_da_sequencia && !primeiraDeCada.has(e.funil_id)) primeiraDeCada.set(e.funil_id, e);
+    }
+    const bocaFunil = [...primeiraDeCada.values()].reduce((s, e) => s + parseInt(e.leads_passaram), 0);
+    const ganhos = estagios.filter((e: any) => e.is_ganho).reduce((s: number, e: any) => s + parseInt(e.leads_passaram), 0);
+    const taxaConversaoGeral = bocaFunil > 0 ? Math.round((ganhos / bocaFunil) * 1000) / 10 : 0;
 
     const acumulado: FunilEstagioAcumulado[] = estagios.map((e: any, i: number) => {
       const leadsPassaram = parseInt(e.leads_passaram);
-      const anterior = i > 0 ? parseInt(estagios[i - 1].leads_passaram) : null;
-      const taxaEtapa = anterior !== null && anterior > 0
-        ? Math.round((leadsPassaram / anterior) * 1000) / 10
-        : null;
-      const taxaGeral = bocaFunil > 0
-        ? Math.round((leadsPassaram / bocaFunil) * 1000) / 10
-        : 100;
+      const anteriorMesmoFunil = i > 0 && estagios[i - 1].funil_id === e.funil_id ? parseInt(estagios[i - 1].leads_passaram) : null;
+      const bocaDoFunil = parseInt(primeiraDeCada.get(e.funil_id)?.leads_passaram || '0');
       return {
         estagio_id: e.estagio_id,
         estagio_nome: e.estagio_nome,
@@ -503,8 +546,10 @@ export const dashboardService = {
         is_entrada: e.is_entrada,
         is_ganho: e.is_ganho,
         leads_passaram: leadsPassaram,
-        taxa_etapa: taxaEtapa,
-        taxa_geral: taxaGeral
+        taxa_etapa: anteriorMesmoFunil !== null && anteriorMesmoFunil > 0
+          ? Math.round((leadsPassaram / anteriorMesmoFunil) * 1000) / 10
+          : null,
+        taxa_geral: bocaDoFunil > 0 ? Math.round((leadsPassaram / bocaDoFunil) * 1000) / 10 : 100,
       };
     });
 
@@ -515,28 +560,42 @@ export const dashboardService = {
     if (funilId) { paramsDiario.push(funilId); funilFilterDiario = `AND l.funil_id = $${paramsDiario.length}`; }
     let responsavelFilterDiario = '';
     if (responsavelId) { paramsDiario.push(responsavelId); responsavelFilterDiario = `AND l.responsavel_id = $${paramsDiario.length}`; }
-    paramsDiario.push(diasParam);
-    const diasIdx = `$${paramsDiario.length}`;
+    // Com período escolhido na tela, o diário segue o período; sem ele, os últimos N dias.
+    let janelaCriacao: string;
+    let janelaMovimento: string;
+    if (dataInicio || dataFim) {
+      janelaCriacao = buildDateFilter(paramsDiario, dataInicio, dataFim, "(l.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')");
+      janelaMovimento = buildDateFilter(paramsDiario, dataInicio, dataFim, "(a.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')");
+    } else {
+      paramsDiario.push(diasParam);
+      const diasIdx = `$${paramsDiario.length}`;
+      janelaCriacao = `AND l.created_at >= NOW() - (${diasIdx} || ' days')::interval`;
+      janelaMovimento = `AND a.created_at >= NOW() - (${diasIdx} || ' days')::interval`;
+    }
 
     const diarioResult = await query(
       `SELECT dia, estagio_id, estagio_nome, SUM(total)::int AS total
        FROM (
-         -- Leads criados no estágio de entrada
+         -- Leads criados: contam na ENTRADA do funil, estejam onde estiverem hoje
          SELECT
-           DATE(l.created_at) AS dia,
-           l.estagio_id,
+           DATE(l.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') AS dia,
+           e.id AS estagio_id,
            e.nome AS estagio_nome,
            COUNT(DISTINCT l.id) AS total
          FROM leads l
-         JOIN estagios_funil e ON l.estagio_id = e.id
-         WHERE l.empresa_id = $1 AND e.is_entrada = true
-           AND l.created_at >= NOW() - (${diasIdx} || ' days')::interval
+         JOIN LATERAL (
+           SELECT e0.id, e0.nome FROM estagios_funil e0
+            WHERE e0.funil_id = l.funil_id AND e0.is_entrada = true
+            ORDER BY e0.ordem LIMIT 1
+         ) e ON true
+         WHERE l.empresa_id = $1
+           ${janelaCriacao}
            ${funilFilterDiario} ${responsavelFilterDiario}
-         GROUP BY DATE(l.created_at), l.estagio_id, e.nome
+         GROUP BY 1, e.id, e.nome
          UNION ALL
          -- Movimentações para demais estágios (não entrada, não perdido)
          SELECT
-           DATE(a.created_at) AS dia,
+           DATE(a.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') AS dia,
            (a.dados->>'estagio_novo_id')::int AS estagio_id,
            e.nome AS estagio_nome,
            COUNT(DISTINCT a.lead_id) AS total
@@ -545,9 +604,9 @@ export const dashboardService = {
          JOIN estagios_funil e ON (a.dados->>'estagio_novo_id')::int = e.id
          WHERE l.empresa_id = $1 AND a.tipo = 'mudanca_estagio'
            AND e.is_entrada = false AND e.is_perdido = false
-           AND a.created_at >= NOW() - (${diasIdx} || ' days')::interval
+           ${janelaMovimento}
            ${funilFilterDiario} ${responsavelFilterDiario}
-         GROUP BY DATE(a.created_at), (a.dados->>'estagio_novo_id')::int, e.nome
+         GROUP BY 1, (a.dados->>'estagio_novo_id')::int, e.nome
        ) sub
        GROUP BY dia, estagio_id, estagio_nome
        ORDER BY dia DESC, estagio_id ASC`,
@@ -573,6 +632,7 @@ export const dashboardService = {
 
     return {
       acumulado,
+      laterais,
       diario,
       boca_funil: bocaFunil,
       taxa_conversao_geral: taxaConversaoGeral

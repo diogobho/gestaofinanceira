@@ -125,6 +125,18 @@ export const Register: React.FC = () => {
 
   useEffect(() => { fetchPlanos() }, [])
 
+  // Link de afiliado (?ref=): guardado para sobreviver a uma ida e volta à landing
+  // antes do cadastro. Storage pode faltar (aba anônima) — aí vale só o da URL.
+  const [refAfiliado] = useState<string | undefined>(() => {
+    const daUrl = new URLSearchParams(window.location.search).get('ref')?.trim()
+    try {
+      if (daUrl) localStorage.setItem('duo_ref', daUrl)
+      return daUrl || localStorage.getItem('duo_ref') || undefined
+    } catch {
+      return daUrl || undefined
+    }
+  })
+
   const criarConta = handleSubmit(async (form) => {
     if (!selectedPlano) {
       toast.error('Escolha um plano')
@@ -151,6 +163,7 @@ export const Register: React.FC = () => {
         ciclo: billingType === 'TRIAL' ? undefined : ciclo,
         aceite_termos: aceiteTermos,
         whatsapp_optin: optinWhatsapp,
+        ref: refAfiliado,
       })
 
       setWhatsappUrl(result.whatsappUrl)

@@ -11,6 +11,8 @@ interface KanbanBoardProps {
   onCardClick?: (lead: Lead) => void
   onAddClick?: (estagioId: number) => void
   onEditEstagio?: (estagio: EstagioFunil) => void
+  /** Só vem para quem administra a conta. */
+  onExcluirLeadsEstagio?: (estagio: EstagioFunil) => void
   onLoadMore?: (estagioId: number) => void
   loadingMore?: Record<number, boolean>
 }
@@ -22,6 +24,7 @@ export default function KanbanBoard({
   onCardClick,
   onAddClick,
   onEditEstagio,
+  onExcluirLeadsEstagio,
   onLoadMore,
   loadingMore,
 }: KanbanBoardProps) {
@@ -127,6 +130,7 @@ export default function KanbanBoard({
                       onCardClick={onCardClick}
                       onAddClick={onAddClick}
                       onEditEstagio={onEditEstagio}
+                      onExcluirLeads={onExcluirLeadsEstagio}
                       onLoadMore={onLoadMore ? () => onLoadMore(coluna.id) : undefined}
                       isLoadingMore={loadingMore?.[coluna.id] ?? false}
                       totalNoEstagio={coluna.total_no_estagio}

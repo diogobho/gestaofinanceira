@@ -79,6 +79,8 @@ export interface FiltrosLead {
   responsavel_id?: number
   temperatura?: 'frio' | 'morno' | 'quente'
   origem?: string
+  /** Ids de tag separados por vírgula ("12,25") — o lead entra se tiver qualquer uma. */
+  tags?: string
   com_tarefa_atrasada?: boolean
   com_tarefa_hoje?: boolean
   sem_tarefa?: boolean
@@ -93,7 +95,7 @@ export interface FiltrosLead {
 
 export type OrdemCards =
   | 'manual' | 'recentes' | 'antigos' | 'mensagem' | 'mais_recebidas'
-  | 'nome_az' | 'nome_za' | 'valor' | 'temperatura'
+  | 'nome_az' | 'nome_za' | 'valor' | 'temperatura' | 'janela_24h'
 
 // Leads
 export const leadsApi = {
@@ -128,6 +130,13 @@ export const leadsApi = {
     api.put<Lead>(`/crm/leads/${id}/reativar`).then(r => r.data),
 
   delete: (id: number) => api.delete(`/crm/leads/${id}`),
+
+  // Exclusão em massa: estágio inteiro (com estagio_id) ou funil inteiro. Só admin.
+  previaExclusaoEmMassa: (funilId: number, estagioId?: number) =>
+    api.get<{ total: number }>('/crm/leads/excluir-em-massa', { params: { funil_id: funilId, estagio_id: estagioId } }).then(r => r.data),
+
+  excluirEmMassa: (funilId: number, estagioId?: number) =>
+    api.post<{ excluidos: number }>('/crm/leads/excluir-em-massa', { funil_id: funilId, estagio_id: estagioId }).then(r => r.data),
 
   // Atividades
   getAtividades: (id: number, limit = 50) =>
@@ -282,6 +291,34 @@ export const tagsApi = {
 }
 
 // Origens
+// Respostas por botão (094): no estágio, origem + botão clicado → sequência + tarefa de FUP.
+export interface PassoRespostaBotao {
+  texto?: string | null
+  media_url?: string | null
+  media_mimetype?: string | null
+  media_filename?: string | null
+  /** Botões de resposta rápida (só QR, até 3) — o clique cai nas regras da etapa para onde o card foi. */
+  botoes?: string[] | null
+}
+export interface RegraRespostaBotao {
+  id?: number
+  origem: string | null
+  botao: string
+  passos: PassoRespostaBotao[]
+  tarefa_dias: number | null
+  /** Depois do clique, move o card para esta etapa do mesmo funil. */
+  mover_para_estagio_id?: number | null
+  /** Vale também a resposta escrita igual ao botão — para o QR, onde o botão não aparece. */
+  aceita_texto?: boolean
+  ativa: boolean
+}
+export const respostasBotaoApi = {
+  listar: (estagioId: number) =>
+    api.get<RegraRespostaBotao[]>(`/crm/estagios/${estagioId}/respostas-botao`).then(r => r.data),
+  salvar: (estagioId: number, regras: RegraRespostaBotao[]) =>
+    api.put<RegraRespostaBotao[]>(`/crm/estagios/${estagioId}/respostas-botao`, { regras }).then(r => r.data),
+}
+
 export const origensApi = {
   list: () =>
     api.get<Origem[]>('/crm/origens').then(r => r.data),
@@ -393,7 +430,44 @@ export const dashboardApi = {
   getFunilAnalytics: (funilId?: number, dias?: number, filters?: DashboardDateFilters) =>
     api.get<FunilAnalytics>('/crm/dashboard/funil', {
       params: { funil_id: funilId, dias, data_inicio: filters?.data_inicio, data_fim: filters?.data_fim, responsavel_id: filters?.responsavel_id }
+    }).then(r => r.data),
+
+  getProdutividade: (funilId: number, filters?: DashboardDateFilters) =>
+    api.get<ProdutividadeFunil>('/crm/dashboard/produtividade', {
+      params: { funil_id: funilId, data_inicio: filters?.data_inicio, data_fim: filters?.data_fim, responsavel_id: filters?.responsavel_id }
     }).then(r => r.data)
+}
+
+/** Boca → FUP → Reunião → Oferta → Venda; cada card num indicador só. Definições em `api/.../dashboard/produtividade.ts`. */
+export interface LinhaProdutividade {
+  /** Pessoas faladas no dia: mensagem nossa ou tarefa de follow-up/reunião concluída. */
+  trabalhados: number
+  responderam: number
+  contatos_novos: number
+  retornos: number
+  fup_leads: number
+  fup_responderam: number
+  fup_mensagens: number
+  fup_tarefas: number
+  reunioes_agendadas: number
+  reunioes_realizadas: number
+  ofertas: number
+  vendas: number
+  valor_vendas: number
+  perdas: number
+}
+
+export interface ProdutividadeFunil {
+  periodo: { inicio: string; fim: string }
+  /** Cards que estão AGORA em reunião agendada e nas etapas de oferta. */
+  atual: {
+    agendadas: number
+    ofertas: number
+    etapas: Array<{ id: number; nome: string; leads: number; marco: 'agendada' | 'oferta' }>
+  }
+  total: LinhaProdutividade
+  diario: Array<LinhaProdutividade & { dia: string }>
+  marcosAusentes: Array<'reuniao_agendada' | 'reuniao_realizada' | 'oferta' | 'venda' | 'perda'>
 }
 
 // Agente IA
@@ -525,6 +599,8 @@ export const followupsApi = {
     dias_semana?: number[] | null
     // Override opcional: instante já calculado
     agendado_para?: string
+    // Número oficial: modelo que sai se a janela de 24h estiver fechada (migration 098)
+    modelo_whatsapp?: { nome: string; idioma?: string; variaveis: string[]; cabecalho?: string | null }
   }) => api.post<Followup>(`/crm/leads/${leadId}/followups`, data).then(r => r.data),
 
   // Sobe um arquivo e devolve a referência de mídia para anexar num follow-up.

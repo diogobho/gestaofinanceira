@@ -12,7 +12,9 @@ export const receitasController = {
       const filters = {
         ...req.query,
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
 
       const result = await receitasService.list(filters, page, pageSize);
@@ -26,7 +28,9 @@ export const receitasController = {
     try {
       const filters = {
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       const result = await receitasService.getById(req.params.id, filters);
       return res.json(result);
@@ -53,7 +57,9 @@ export const receitasController = {
     try {
       const filters = {
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       const result = await receitasService.update(req.params.id, req.body, filters);
       return res.json(result);
@@ -66,7 +72,9 @@ export const receitasController = {
     try {
       const filters = {
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       await receitasService.delete(req.params.id, filters);
       return res.status(204).send();
@@ -80,7 +88,9 @@ export const receitasController = {
     try {
       const filters = {
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
       const result = await receitasService.listSemCliente(filters);
       return res.json(result);
@@ -103,7 +113,9 @@ export const receitasController = {
 
       const filters = {
         usuario_id: req.user?.userId,
-        nivel: req.user?.nivel
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
       };
 
       const result = await receitasService.vincularCliente(

@@ -17,6 +17,8 @@ export interface CanalWhatsApp {
   qualidade?: string | null
   erro?: string | null
   ativadoEm?: string | null
+  /** Liberação provisória do disparo em massa pelo QR (16/10/2026). */
+  disparoQrLiberado?: boolean
 }
 
 export interface ModeloWhatsApp {
@@ -99,6 +101,18 @@ export interface ModeloConfigurado {
 
 /** Estado do canal oficial DESTE usuário e da janela do Embedded Signup. */
 export interface CanalOficial {
+  /** Portfólio da Meta da empresa (097): onde entram todos os números, com um cartão só. */
+  portfolio: {
+    nome: string | null
+    businessId: string
+    wabaId: string
+    /** true = a Meta acusa problema na forma de pagamento; null = não deu para saber. */
+    pagamentoPendente: boolean | null
+  } | null
+  /** Dono da conta (creator) ou DuoFuturo: quem pode fazer a primeira conexão. */
+  podeDefinirPortfolio: boolean
+  /** Nome do dono da conta, quando o portfólio ainda não existe. */
+  donoDaConta: string | null
   embeddedSignup: {
     configurado: boolean
     /** Variáveis que faltam no .env da API. Só a DuoFuturo resolve. */
@@ -106,6 +120,8 @@ export interface CanalOficial {
     appId: string | null
     configId: string | null
     graphVersion: string
+    /** Versão do Embedded Signup da configuração: 'v4' (extras vazio) ou anterior. */
+    versao?: string
   }
   conta: {
     id: number
@@ -119,6 +135,17 @@ export interface CanalOficial {
     /** O número é deste usuário (e não o da empresa inteira). */
     meu: boolean
     daEmpresa: boolean
+    /** Conectado num portfólio da Meta que não é o da empresa. */
+    foraDoPortfolio?: boolean
+    /** O número segue no app WhatsApp Business do celular (coexistência). */
+    coexistencia?: boolean
+    /** Importação do histórico do app — só na coexistência. */
+    historico?: {
+      status: 'importando' | 'concluido' | 'recusado' | null
+      progresso: number | null
+      mensagens: number
+      erro: string | null
+    } | null
   } | null
 }
 
@@ -131,8 +158,23 @@ export const canalWhatsappApi = {
    * Conclui o Embedded Signup. O `code` da janela vive ~30 segundos — mandar
    * direto, sem guardar e sem confirmar em outra tela.
    */
-  conectarOficial: async (dados: { code: string; waba_id: string; phone_number_id: string; usuario_id?: number }) =>
+  conectarOficial: async (dados: {
+    code: string
+    waba_id: string
+    /** Na coexistência a Meta pode não informar — o servidor procura na conta. */
+    phone_number_id?: string
+    usuario_id?: number
+    coexistencia?: boolean
+  }) =>
     (await api.post('/whatsapp/canal/oficial/conectar', dados)).data,
+
+  /** Número novo na conta da empresa, sem janela da Meta: passo 1, o código. */
+  pedirCodigoNumero: async (dados: { numero: string; nome_exibicao: string; metodo: 'SMS' | 'VOICE'; usuario_id?: number }) =>
+    (await api.post('/whatsapp/canal/oficial/numero/codigo', dados)).data as { phone_number_id: string },
+
+  /** Passo 2: confere o código e liga o número no usuário. */
+  verificarNumero: async (dados: { phone_number_id: string; codigo: string; usuario_id?: number }) =>
+    (await api.post('/whatsapp/canal/oficial/numero/verificar', dados)).data,
 
   desconectarOficial: async (contaId?: number) =>
     (await api.post('/whatsapp/canal/oficial/desconectar', contaId ? { conta_id: contaId } : {})).data,
@@ -155,6 +197,10 @@ export const canalWhatsappApi = {
   },
 
   criarModelo: async (modelo: NovoModelo) => (await api.post('/whatsapp/canal/modelos', modelo)).data,
+
+  /** Texto editado no fluxo vira versão nova na Meta (`_v2`…); devolve o nome e os campos. */
+  novaVersaoModelo: async (dados: { nome: string; texto: string; campos?: string[] }): Promise<{ nome: string; idioma: string; variaveis: string[]; status: string }> =>
+    (await api.post('/whatsapp/canal/modelos/nova-versao', dados)).data,
 
   excluirModelo: async (nome: string, id?: string) =>
     (await api.delete(`/whatsapp/canal/modelos/${encodeURIComponent(nome)}`, { params: id ? { id } : {} })).data,

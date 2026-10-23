@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { authRequired, authRequiredOuTokenNaQuery } from '../../middlewares/auth.middleware';
 import { suporteController } from './suporte.controller';
+import { ANEXO_MIMES } from './suporte.service';
 
 /**
  * Upload de anexo de chamado.
@@ -17,9 +18,8 @@ const upload = multer({
   dest: '/tmp/suporte-uploads/',
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
-    const aceitos = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'];
-    if (aceitos.includes(file.mimetype)) return cb(null, true);
-    cb(new Error('Envie imagem (PNG, JPG, WEBP, GIF) ou PDF'));
+    if (ANEXO_MIMES.has(file.mimetype)) return cb(null, true);
+    cb(new Error('Envie imagem (PNG, JPG, WEBP, GIF), PDF ou planilha (XLSX, XLS, CSV)'));
   },
 });
 

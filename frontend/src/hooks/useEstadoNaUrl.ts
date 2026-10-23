@@ -112,3 +112,26 @@ export function useFunilNaUrl(
 
   return [funilId, definir]
 }
+
+/**
+ * Id numérico opcional na URL (`?responsavel=12`). Ausente ou inválido = `undefined`
+ * ("todos"). Mesmo `replace` e updater funcional de `useAbaNaUrl`.
+ */
+export function useNumeroNaUrl(chave: string): [number | undefined, (valor: number | undefined) => void] {
+  const [params, setParams] = useSearchParams()
+  const valor = Number(params.get(chave)) || undefined
+  const definir = useCallback(
+    (novo: number | undefined) =>
+      setParams(
+        (atual) => {
+          const proximo = new URLSearchParams(atual)
+          if (novo) proximo.set(chave, String(novo))
+          else proximo.delete(chave)
+          return proximo
+        },
+        { replace: true }
+      ),
+    [chave, setParams]
+  )
+  return [valor, definir]
+}

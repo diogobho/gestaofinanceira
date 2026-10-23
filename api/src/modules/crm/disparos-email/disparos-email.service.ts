@@ -32,6 +32,21 @@ function aplicarVariaveis(template: string, lead: Record<string, any>): string {
   return aplicarVariaveisLead(template, lead);
 }
 
+/**
+ * Imagem do corpo do e-mail cabendo na largura de quem lê (#58). O editor marcava a imagem
+ * só com classe CSS, que Gmail e Outlook descartam: uma arte em alta resolução chegava no
+ * tamanho original, estourando o layout. Vale também para os modelos já salvos.
+ */
+export function imagensResponsivas(html: string): string {
+  return html.replace(/<img\b[^>]*>/gi, (tag) => {
+    if (/max-width/i.test(tag)) return tag;
+    const regra = 'max-width:100%;height:auto;';
+    return /\sstyle\s*=\s*"/i.test(tag)
+      ? tag.replace(/(\sstyle\s*=\s*")/i, `$1${regra}`)
+      : tag.replace(/^<img\b/i, `<img style="${regra}"`);
+  });
+}
+
 async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -123,7 +138,7 @@ async function _processarEnviosEmail(
     const lead = leads[i];
     try {
       const assuntoFinal = aplicarVariaveis(assunto, lead);
-      const htmlFinal = aplicarVariaveis(template, lead);
+      const htmlFinal = imagensResponsivas(aplicarVariaveis(template, lead));
 
       await enviarEmail(
         lead.email,

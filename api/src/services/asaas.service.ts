@@ -69,6 +69,7 @@ export interface AsaasPayment {
   billingType: string;
   dueDate: string;
   invoiceUrl: string;
+  externalReference?: string | null;
   bankSlipUrl?: string;
   pixQrCode?: string;
   pixKey?: string;
@@ -248,12 +249,18 @@ export const asaasService = {
     return pending || (payments.length > 0 ? payments[0] : null);
   },
 
+  /**
+   * Cobrança avulsa. `UNDEFINED` deixa a pessoa escolher PIX, boleto ou cartão na
+   * fatura do Asaas (é o que a recarga de crédito do Duo usa). `externalReference`
+   * volta no webhook e diz a que a cobrança se refere.
+   */
   async createOneTimePayment(data: {
     customerId: string;
-    billingType: 'BOLETO' | 'PIX';
+    billingType: 'BOLETO' | 'PIX' | 'UNDEFINED';
     value: number;
     dueDate: string;
     description?: string;
+    externalReference?: string;
   }): Promise<AsaasPayment> {
     const res = await asaasHttp.post('/payments', {
       customer: data.customerId,
@@ -261,7 +268,46 @@ export const asaasService = {
       value: data.value,
       dueDate: data.dueDate,
       description: data.description || 'Gestão Financeira DuoFuturo',
+      externalReference: data.externalReference,
     });
+    return res.data;
+  },
+
+  /**
+   * Parcelamento no cartão (POST /payments com installmentCount). Diferente da
+   * subscription, não renova sozinho: cobre um ciclo. A resposta é a 1ª parcela, e
+   * `installment` é o id do parcelamento — é por ele que o webhook acha a assinatura.
+   */
+  async createInstallmentPayment(data: {
+    customerId: string;
+    installmentCount: number;
+    installmentValue: number;
+    dueDate: string;
+    description?: string;
+    remoteIp?: string;
+    creditCard: any;
+    creditCardHolderInfo: any;
+  }): Promise<AsaasPayment & { installment?: string }> {
+    const res = await asaasHttp.post('/payments', {
+      customer: data.customerId,
+      billingType: 'CREDIT_CARD',
+      installmentCount: data.installmentCount,
+      installmentValue: data.installmentValue,
+      dueDate: data.dueDate,
+      description: data.description || 'Gestão Financeira DuoFuturo',
+      creditCard: data.creditCard,
+      creditCardHolderInfo: data.creditCardHolderInfo,
+      remoteIp: data.remoteIp,
+    });
+    return res.data;
+  },
+
+  /**
+   * Muda o valor de UMA cobrança em aberto (não da assinatura): é como a recompensa de
+   * indicação (113) abate na próxima fatura sem mexer nas seguintes.
+   */
+  async updatePaymentValue(paymentId: string, value: number): Promise<AsaasPayment> {
+    const res = await asaasHttp.post(`/payments/${paymentId}`, { value });
     return res.data;
   },
 

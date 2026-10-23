@@ -421,10 +421,14 @@ async function processarFilaDoChip(
         // Configuração, não destino: o mesmo passo sai assim que ganhar um modelo de
         // reserva. Como `destino_invalido` ele sumia sem volta — foram 96 passos da
         // Débora em 2 minutos, no dia em que ela conectou o número oficial.
+        // O avulso do card guarda a reserva no próprio registro (098): reagendar não
+        // muda nada, o caminho é agendar de novo já escolhendo o modelo.
+        const comoResolver = followup.origem === 'estagio'
+          ? 'Escolha um modelo de reserva neste passo da cadência e reagende.'
+          : 'Cancele e agende de novo no card, escolhendo um modelo de reserva.';
         await p.followups.marcarFalhou(followup.id,
           'Este contato não escreveu nas últimas 24h, e fora dessa janela o número oficial só '
-          + 'entrega modelo aprovado pela Meta. Escolha um modelo de reserva neste passo da '
-          + 'cadência e reagende.',
+          + 'entrega modelo aprovado pela Meta. ' + comoResolver,
           'conflito_config');
         resumo.falhados++;
         p.logger.warn(`#${followup.id} (lead #${followup.lead_id}): janela de 24h fechada e passo sem modelo de reserva`);

@@ -33,6 +33,8 @@ router.get('/estagios/:estagioId/leads', leadsController.listByEstagio);
 // Rotas diretas em /leads (estáticas antes das parametrizadas)
 router.get('/leads/origens', leadsController.getOrigens);
 router.get('/leads/verificar-duplicata', leadsController.verificarDuplicata);
+router.get('/leads/excluir-em-massa', leadsController.previaExclusaoEmMassa);
+router.post('/leads/excluir-em-massa', leadsController.excluirEmMassa);
 router.get('/leads/:id', leadsController.getById);
 router.get('/leads/:id/atividades', leadsController.getAtividades);
 router.post('/leads', leadsController.create);

@@ -363,30 +363,42 @@ export const dashboardTour: Tour = {
       permissao: 'dashboard',
     },
     {
+      element: '[data-tour="dash-periodo"]',
+      titulo: 'Filtrar período',
+      descricao:
+        'Fica preso no topo enquanto você rola. Use os atalhos (Este mês, Mês passado, Últimos 3 meses, ' +
+        'Este ano) ou Personalizado. Em <b>Filtros</b>, recorte por cliente, produto, categoria, origem ' +
+        'ou situação. Tudo recalcula pela <b>data de vencimento das parcelas</b>, e fica no link da página.',
+      rota: '/dashboard',
+      lado: 'bottom',
+      permissao: 'dashboard',
+    },
+    {
       element: '[data-tour="dash-kpis"]',
       titulo: 'Números principais',
       descricao:
-        'Faturamento, despesas e lucro do período — separando o que já foi <b>realizado</b> ' +
-        'do que está <b>previsto</b> (a receber / a pagar).',
+        'Faturamento, despesas, resultado, o que está <b>em atraso</b>, clientes ativos e ticket médio. ' +
+        'Cada número diz quanto <b>subiu ou caiu</b> em relação ao período anterior.',
       rota: '/dashboard',
       lado: 'bottom',
       alinhamento: 'center',
       permissao: 'dashboard',
     },
     {
-      element: '[data-tour="dash-periodo"]',
-      titulo: 'Filtrar período',
+      element: '[data-tour="dash-fluxo"]',
+      titulo: 'Fluxo de caixa previsto',
       descricao:
-        'Use os atalhos (Hoje, 7 dias, 30 dias, Este mês) ou escolha datas. Tudo abaixo do filtro ' +
-        'recalcula pela <b>data de vencimento das parcelas</b>.',
+        'O que ainda vai entrar e sair nos próximos <b>30, 60 ou 90 dias</b>, e quanto sobra somando dia a dia. ' +
+        'Se em algum dia faltar dinheiro, o pior momento aparece marcado.',
       rota: '/dashboard',
-      lado: 'bottom',
+      lado: 'top',
+      alinhamento: 'center',
       permissao: 'dashboard',
     },
     {
       element: '[data-tour="dash-graficos"]',
       titulo: 'Gráficos de evolução',
-      descricao: 'Receitas × despesas mês a mês e a situação das parcelas.',
+      descricao: 'Receitas × despesas mês a mês e quanto do faturamento já entrou, vai vencer ou está em atraso.',
       rota: '/dashboard',
       lado: 'top',
       alinhamento: 'center',
@@ -798,14 +810,19 @@ export const crmDashboardTour: Tour = {
     {
       element: '[data-tour="cdash-periodo"]',
       titulo: 'Período de análise',
-      descricao: 'Defina o intervalo de datas dos eventos (cadastro, ganho ou movimentação).',
+      descricao:
+        'Fica preso no topo enquanto você rola. Use os atalhos (Hoje, 7 dias, 30 dias, Este mês, Mês passado) ' +
+        'ou Personalizado, e marque <b>Comparar</b> para ver quanto cada número subiu ou caiu. Funil, ' +
+        'proprietário e período ficam no link da página.',
       rota: '/crm/dashboard',
       lado: 'bottom',
     },
     {
       element: '[data-tour="cdash-kpis"]',
       titulo: 'Indicadores',
-      descricao: 'Leads ativos, valor em pipeline, taxa de conversão e tempo médio de fechamento.',
+      descricao:
+        'Logo acima, um resumo em frases. Nos cartões: leads novos, vendas, taxa de conversão, perdas, ' +
+        'valor em pipeline e tempo até a venda, cada um com a comparação ao período anterior.',
       rota: '/crm/dashboard',
       lado: 'bottom',
     },

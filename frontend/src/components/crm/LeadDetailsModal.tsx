@@ -9,9 +9,10 @@ import {
 } from 'lucide-react'
 import LeadFormModal from './LeadFormModal'
 import AgendamentoConfig, { AgendamentoValue, agendamentoPadrao } from './AgendamentoConfig'
+import ModeloReservaWhatsApp from './ModeloReservaWhatsApp'
 import {
   useArquivarLead, useReativarLead, useDeleteLead, useUpdateLead,
-  useLeadAtividades, useMarcarLido, useHistoricoMensagens,
+  useLeadAtividades, useMarcarLido,
   useTarefasLead, useCreateTarefa, useUpdateTarefa, useConcluirTarefa, useDeleteTarefa,
   useAnotacoesLead, useCreateAnotacao, useDeleteAnotacao,
   useLeadEnviarMensagem, useLeadEnviarMedia, useLeadHistoricoWhatsApp, useLeadMarcarLido,
@@ -21,6 +22,7 @@ import {
 } from '@/hooks/useCRM'
 import GerenciarOrigensModal from './GerenciarOrigensModal'
 import TagsDoLead from './TagsDoLead'
+import PerfilDoLead from './PerfilDoLead'
 import ChatBubble, { ChatDateSeparator } from './ChatBubble'
 import { trechoDaMensagem } from '@/utils/mensagemChat'
 import AgenteIALeadToggle from './AgenteIALeadToggle'
@@ -30,6 +32,9 @@ import SeletorModeloWhatsApp from '@/components/whatsapp/SeletorModeloWhatsApp'
 import { useCanalWhatsApp, useJanelaWhatsApp, useModelosWhatsApp, useEnviarModeloLead } from '@/hooks/useCanalWhatsApp'
 import type { ModeloConfigurado } from '@/api/canalWhatsapp'
 import type { Lead, EstagioFunil, HistoricoMensagem, TarefaTipo, TarefaPrioridade, AnotacaoTipo, LeadOrigem } from '@/types/crm'
+import { DicaVideo } from '@/tutoriais/DicaVideo'
+import { LinkVideo } from '@/tutoriais/LinkVideo'
+import { AvisoAgendaReuniao, DURACOES_REUNIAO } from './AvisoAgendaReuniao'
 
 interface LeadDetailsModalProps {
   lead: Lead | null
@@ -85,6 +90,9 @@ export default function LeadDetailsModal({ lead: leadProp, estagios, isOpen, onC
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const mensagemTextareaRef = useRef<HTMLTextAreaElement>(null)
+  // O botão fica desabilitado enquanto envia, mas o Enter não: dois Enter (ou Enter +
+  // clique) antes da resposta mandavam a mensagem duas vezes ao lead (#422, 20/10/2026).
+  const enviandoRef = useRef(false)
 
   // Tarefas state
   const [showTarefaForm, setShowTarefaForm] = useState(false)
@@ -92,6 +100,8 @@ export default function LeadDetailsModal({ lead: leadProp, estagios, isOpen, onC
   const [tarefaTitulo, setTarefaTitulo] = useState('')
   const [tarefaDescricao, setTarefaDescricao] = useState('')
   const [tarefaDataVencimento, setTarefaDataVencimento] = useState('')
+  // Duração da reunião (104) — vai para a agenda externa; só aparece com tipo Reunião.
+  const [tarefaDuracao, setTarefaDuracao] = useState(60)
   const [tarefaPrioridade, setTarefaPrioridade] = useState<TarefaPrioridade>('normal')
   // Mesmo formulário para criar e editar (#183): com id, o "salvar" é um PUT.
   const [tarefaEditandoId, setTarefaEditandoId] = useState<number | null>(null)
@@ -148,15 +158,9 @@ const arquivarLead = useArquivarLead()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, canWhatsApp])
 
-  // Usar historico via contato se ja vinculado, ou via lead
-  const { data: historicoContato } = useHistoricoMensagens(
-    activeTab === 'mensagem' && lead?.contato_whatsapp_id ? lead.contato_whatsapp_id : undefined
-  )
-  const { data: historicoLead } = useLeadHistoricoWhatsApp(
-    lead?.id,
-    activeTab === 'mensagem' && canWhatsApp && !lead?.contato_whatsapp_id
-  )
-  const historico = lead?.contato_whatsapp_id ? historicoContato : historicoLead
+  // Pelo lead, não pelo contato: a conversa do card junta os chips da empresa com o
+  // mesmo número (#425) — o contato ligado é só o do chip que envia agora.
+  const { data: historico } = useLeadHistoricoWhatsApp(lead?.id, activeTab === 'mensagem')
 
   // Número oficial (Cloud API): texto livre só dentro da janela de 24h aberta pela
   // última mensagem DO CLIENTE; fora dela, só modelo aprovado.
@@ -234,9 +238,10 @@ const arquivarLead = useArquivarLead()
     setTarefaDataVencimento('')
     setTarefaTipo('follow_up')
     setTarefaPrioridade('normal')
+    setTarefaDuracao(60)
   }
 
-  const abrirEdicaoTarefa = (tarefa: { id: number; tipo: TarefaTipo; titulo: string; descricao?: string | null; data_vencimento: string; prioridade: TarefaPrioridade }) => {
+  const abrirEdicaoTarefa = (tarefa: { id: number; tipo: TarefaTipo; titulo: string; descricao?: string | null; data_vencimento: string; prioridade: TarefaPrioridade; duracao_min?: number | null }) => {
     // datetime-local quer a hora LOCAL, sem fuso — a mesma que a lista mostra.
     const d = new Date(tarefa.data_vencimento)
     const p = (n: number) => String(n).padStart(2, '0')
@@ -246,19 +251,25 @@ const arquivarLead = useArquivarLead()
     setTarefaDescricao(tarefa.descricao ?? '')
     setTarefaDataVencimento(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`)
     setTarefaPrioridade(tarefa.prioridade)
+    setTarefaDuracao(tarefa.duracao_min || 60)
     setShowTarefaForm(true)
   }
 
   const handleEnviarMensagem = async () => {
-    if (!mensagem.trim()) return
-    // Usar endpoint via lead (auto-cria contato se necessario)
-    await leadEnviarMensagem.mutateAsync({
-      leadId: lead.id,
-      mensagem,
-      respostaA: respondendoA?.whatsapp_message_id ?? null,
-    })
-    setMensagem('')
-    setRespondendoA(null)
+    if (!mensagem.trim() || enviandoRef.current) return
+    enviandoRef.current = true
+    try {
+      // Usar endpoint via lead (auto-cria contato se necessario)
+      await leadEnviarMensagem.mutateAsync({
+        leadId: lead.id,
+        mensagem,
+        respostaA: respondendoA?.whatsapp_message_id ?? null,
+      })
+      setMensagem('')
+      setRespondendoA(null)
+    } finally {
+      enviandoRef.current = false
+    }
   }
 
   const handleResponder = (m: HistoricoMensagem) => {
@@ -271,15 +282,20 @@ const arquivarLead = useArquivarLead()
   }
 
   const handleEnviarMedia = async () => {
-    if (!selectedFile) return
-    // Usar endpoint via lead (auto-cria contato se necessario)
-    await leadEnviarMedia.mutateAsync({
-      leadId: lead.id,
-      file: selectedFile,
-      caption: caption || undefined,
-    })
-    setSelectedFile(null)
-    setCaption('')
+    if (!selectedFile || enviandoRef.current) return
+    enviandoRef.current = true
+    try {
+      // Usar endpoint via lead (auto-cria contato se necessario)
+      await leadEnviarMedia.mutateAsync({
+        leadId: lead.id,
+        file: selectedFile,
+        caption: caption || undefined,
+      })
+      setSelectedFile(null)
+      setCaption('')
+    } finally {
+      enviandoRef.current = false
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -384,6 +400,7 @@ const handleArquivar = async () => {
         data_fixa: agendamento.modo === 'data' ? agendamento.data_fixa : undefined,
         hora_envio: agendamento.hora_envio,
         dias_semana: (agendamento.dias_semana?.length ?? 0) > 0 ? agendamento.dias_semana : undefined,
+        modelo_whatsapp: oficial ? (agendamento.modelo_whatsapp ?? undefined) : undefined,
       }
     })
     setShowFollowupPanel(false)
@@ -699,6 +716,9 @@ const handleArquivar = async () => {
               {/* Tags */}
               <TagsDoLead lead={lead} />
 
+              {/* O que o lead contou: variáveis das mensagens automáticas do oficial */}
+              <PerfilDoLead lead={lead} />
+
               {/* Notas */}
               {lead.notas && (() => {
                 const origemMatch = lead.notas.match(/\[origem_lead_id:(\d+)\]/);
@@ -792,6 +812,21 @@ const handleArquivar = async () => {
                       className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
                   </div>
+                  {tarefaTipo === 'reuniao' && (
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 mb-1 block">Duração</label>
+                        <select
+                          value={tarefaDuracao}
+                          onChange={(e) => setTarefaDuracao(Number(e.target.value))}
+                          className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                        >
+                          {DURACOES_REUNIAO.map(([m, rotulo]) => <option key={m} value={m}>{rotulo}</option>)}
+                        </select>
+                      </div>
+                      <AvisoAgendaReuniao />
+                    </div>
+                  )}
                   <div>
                     <label className="text-xs font-medium text-gray-600 mb-1 block">Descrição (opcional)</label>
                     <textarea
@@ -824,6 +859,7 @@ const handleArquivar = async () => {
                                 descricao: tarefaDescricao,
                                 data_vencimento: new Date(tarefaDataVencimento).toISOString(),
                                 prioridade: tarefaPrioridade,
+                                ...(tarefaTipo === 'reuniao' ? { duracao_min: tarefaDuracao } : {}),
                               },
                             })
                           } else {
@@ -834,6 +870,7 @@ const handleArquivar = async () => {
                               descricao: tarefaDescricao || undefined,
                               data_vencimento: new Date(tarefaDataVencimento).toISOString(),
                               prioridade: tarefaPrioridade,
+                              ...(tarefaTipo === 'reuniao' ? { duracao_min: tarefaDuracao } : {}),
                             })
                           }
                           fecharFormTarefa()
@@ -925,6 +962,12 @@ const handleArquivar = async () => {
                         <p className="text-xs text-gray-400 mt-1">
                           {new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(tarefa.data_vencimento))}
                         </p>
+                        {tarefa.link_reuniao && (
+                          <a href={tarefa.link_reuniao} target="_blank" rel="noopener noreferrer"
+                            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:underline">
+                            Entrar na reunião ({tarefa.agenda_provedor === 'microsoft' ? 'Teams' : 'Meet'})
+                          </a>
+                        )}
                       </div>
 
                       <button
@@ -1247,6 +1290,7 @@ const handleArquivar = async () => {
                         e.target.value = ''
                       }}
                     />
+                    <DicaVideo video="conversa-card" alinhar="inicio" className="inline-flex shrink-0">
                     <button
                       onClick={handleToggleRecording}
                       className={`p-2 mb-1 rounded-full transition-colors shrink-0 ${
@@ -1258,6 +1302,7 @@ const handleArquivar = async () => {
                     >
                       {isRecording ? <Square size={20} /> : <Mic size={20} />}
                     </button>
+                    </DicaVideo>
                     <div className="flex-1 min-w-0 flex flex-col gap-1">
                       {respondendoA && (
                         <div className="flex items-start gap-2 rounded-lg border-l-4 border-green-500 bg-gray-50 dark:bg-gray-700/60 px-2.5 py-1.5">
@@ -1322,6 +1367,7 @@ const handleArquivar = async () => {
               <span className="text-sm font-medium text-amber-800 flex items-center gap-1.5">
                 <Bell size={15} />
                 Agendar Follow-up
+                <LinkVideo video="agendar-followup" className="ml-1" />
               </span>
               <button onClick={() => setShowFollowupPanel(false)} className="text-gray-400 hover:text-gray-600">
                 <XCircle size={16} />
@@ -1361,7 +1407,7 @@ const handleArquivar = async () => {
                 nenhum — retomar um follow-up só era possível pela API. */}
             {followups.filter(f => f.status === 'falhou').length > 0 && (
               <div className="space-y-1.5">
-                <p className="text-xs font-medium text-red-700 dark:text-red-300">Falhados:</p>
+                <p className="flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-300">Falhados: <LinkVideo video="followup-motivo-falha" /></p>
                 {followups.filter(f => f.status === 'falhou').map(f => (
                   <FollowupFalhadoItem key={f.id} followup={f} />
                 ))}
@@ -1374,6 +1420,13 @@ const handleArquivar = async () => {
               nivel="lead"
               showToggle={false}
             />
+            {oficial && (
+              <ModeloReservaWhatsApp
+                valor={agendamento.modelo_whatsapp ?? null}
+                onChange={(m) => setAgendamento({ ...agendamento, modelo_whatsapp: m })}
+                ehIA={agendamento.tipo === 'agente_ia'}
+              />
+            )}
 
             <button
               onClick={handleAgendarFollowup}

@@ -4,21 +4,27 @@ import {
   Reply, Send, Plus, Settings2, Trophy, XCircle, CalendarClock
 } from 'lucide-react'
 import { Spinner } from '@/components/ui'
-import { useFunisAquisicao, useFunisCX, useEstagios } from '@/hooks/useCRM'
+import { useFunisAquisicao, useFunisCX, useEstagios, useUpdateEstagio } from '@/hooks/useCRM'
+import { useModelosWhatsApp } from '@/hooks/useCanalWhatsApp'
 import EstagioSettingsModal from './EstagioSettingsModal'
+import ModelosDoPasso from './ModelosDoPasso'
 import type { EstagioFunil, EstagioFollowupConfig, PassoFollowupConfig, ReuniaoLembretesConfig } from '@/types/crm'
 
 /**
  * Visão "Fluxo": mostra, de forma visual, a cadência de automações de cada estágio
  * do funil selecionado (D0 → D+1 → D+3…), as transições entre estágios e permite
  * abrir o editor do estágio para montar/ajustar o fluxo.
+ *
+ * Cadência desligada também aparece, marcada "desligada" (06/10/2026: o fluxo oficial
+ * da Escola foi montado inteiro desligado, à espera da Meta, e a tela não mostrava nada).
+ * Passo com modelo oficial mostra o texto de cada versão e permite editar (`ModelosDoPasso`).
  */
 
 const UNIDADE_LABEL: Record<string, string> = { minuto: 'min', hora: 'h', dia: 'd' }
 
-/** Normaliza followup_config (novo ou antigo) numa lista de passos. */
+/** Normaliza followup_config (novo ou antigo) numa lista de passos — ligada ou não. */
 function extrairPassos(fc?: EstagioFollowupConfig | null): PassoFollowupConfig[] {
-  if (!fc || !fc.ativo) return []
+  if (!fc) return []
   if (Array.isArray(fc.passos) && fc.passos.length > 0) return fc.passos
   return [fc as unknown as PassoFollowupConfig]
 }
@@ -32,7 +38,7 @@ function rotuloTiming(p: PassoFollowupConfig, idx: number): string {
   return `+${qtd}${un}`
 }
 
-interface LembreteView { rotulo: string; grupo: string; mensagem: string; offset: number }
+interface LembreteView { rotulo: string; grupo: string; mensagem: string; offset: number; idx: number; modelo: any }
 
 /** Rótulo do offset de um lembrete de reunião (ex.: "−24h", "+2h", "+3d"). */
 function rotuloLembrete(offset: number): string {
@@ -45,10 +51,13 @@ function rotuloLembrete(offset: number): string {
 
 /** Lembretes de reunião ativos do estágio, ordenados por instante de disparo. */
 function extrairLembretes(cfg?: ReuniaoLembretesConfig | null): LembreteView[] {
-  if (!cfg || !cfg.ativo || !Array.isArray(cfg.marcos)) return []
-  return [...cfg.marcos]
-    .sort((a, b) => a.offset_min - b.offset_min)
-    .map(m => ({
+  if (!cfg || !Array.isArray(cfg.marcos)) return []
+  return cfg.marcos
+    .map((m, idx) => ({ m, idx }))
+    .sort((a, b) => a.m.offset_min - b.m.offset_min)
+    .map(({ m, idx }) => ({
+      idx,
+      modelo: (m as any).modelo_whatsapp ?? null,
       rotulo: rotuloLembrete(m.offset_min),
       grupo: m.grupo || (m.offset_min < 0 ? 'lembrete' : 'noshow'),
       mensagem: m.mensagem,
@@ -90,6 +99,21 @@ function FluxoAutomacaoView({
     return m
   }, [estagios])
 
+  const { data: modelos = [] } = useModelosWhatsApp(true)
+  const atualizarEstagio = useUpdateEstagio()
+  /** Troca o modelo de um passo (ou lembrete) depois que a versão nova foi para a Meta. */
+  const trocarModeloPasso = async (estagio: EstagioFunil, i: number, novo: any) => {
+    const fc: any = JSON.parse(JSON.stringify(estagio.followup_config))
+    if (Array.isArray(fc.passos) && fc.passos.length > 0) fc.passos[i].modelo_whatsapp = novo
+    else fc.modelo_whatsapp = novo
+    await atualizarEstagio.mutateAsync({ id: estagio.id, data: { followup_config: fc } })
+  }
+  const trocarModeloLembrete = async (estagio: EstagioFunil, idx: number, novo: any) => {
+    const cfg: any = JSON.parse(JSON.stringify(estagio.reuniao_lembretes))
+    cfg.marcos[idx].modelo_whatsapp = novo
+    await atualizarEstagio.mutateAsync({ id: estagio.id, data: { reuniao_lembretes: cfg } })
+  }
+
   const [editarEstagio, setEditarEstagio] = useState<EstagioFunil | null>(null)
   // Quando aberto via "+ Adicionar passo", o modal anexa um nó novo (não sobrescreve).
   const [modoAppend, setModoAppend] = useState(false)
@@ -98,13 +122,11 @@ function FluxoAutomacaoView({
     setEditarEstagio(estagio)
   }
 
-  const totalPassos = estagios.reduce(
-    (s, e) => s + extrairPassos(e.followup_config).length + extrairLembretes(e.reuniao_lembretes).length,
-    0
-  )
-  const estagiosComAuto = estagios.filter(
-    (e) => extrairPassos(e.followup_config).length > 0 || extrairLembretes(e.reuniao_lembretes).length > 0
-  ).length
+  // O cabeçalho conta só o que está LIGADO: desligado aparece no quadro, mas não envia.
+  const passosLigados = (e: EstagioFunil) => (e.followup_config?.ativo ? extrairPassos(e.followup_config).length : 0)
+  const lembretesLigados = (e: EstagioFunil) => (e.reuniao_lembretes?.ativo ? extrairLembretes(e.reuniao_lembretes).length : 0)
+  const totalPassos = estagios.reduce((s, e) => s + passosLigados(e) + lembretesLigados(e), 0)
+  const estagiosComAuto = estagios.filter((e) => passosLigados(e) + lembretesLigados(e) > 0).length
 
   return (
     <div className="space-y-4">
@@ -144,7 +166,12 @@ function FluxoAutomacaoView({
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {estagios.map((estagio, colIdx) => {
             const passos = extrairPassos(estagio.followup_config)
-            const lembretes = extrairLembretes(estagio.reuniao_lembretes)
+            // Lembrete desligado só aparece se foi montado para o oficial (tem modelo): toda
+            // etapa guarda uma cópia padrão desligada, e ela repetia os mesmos lembretes em
+            // todas as colunas (dono, 06/10/2026). Reunião existe só onde há modelo.
+            const todosLembretes = extrairLembretes(estagio.reuniao_lembretes)
+            const lembretes = estagio.reuniao_lembretes?.ativo || todosLembretes.some((l) => l.modelo?.nome)
+              ? todosLembretes : []
             const proximo = estagios[colIdx + 1]
             const nomeAposResp = estagio.estagio_apos_resposta_id
               ? nomePorId.get(estagio.estagio_apos_resposta_id)
@@ -171,6 +198,13 @@ function FluxoAutomacaoView({
                     <span className="truncate font-semibold text-gray-800 dark:text-gray-100">{estagio.nome}</span>
                     {estagio.is_ganho && <Trophy className="h-4 w-4 shrink-0 text-emerald-500" />}
                     {estagio.is_perdido && <XCircle className="h-4 w-4 shrink-0 text-red-500" />}
+                    {((estagio.followup_config && !estagio.followup_config.ativo && passos.length > 0)
+                      || (estagio.reuniao_lembretes && !estagio.reuniao_lembretes.ativo && lembretes.length > 0)) && (
+                      <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+                        title="A cadência está montada mas não envia nada até ser ligada">
+                        desligada
+                      </span>
+                    )}
                     {estagio.agente_ia_ativo && (
                       <span title="Agente de IA reativo ativo neste estágio" className="flex items-center shrink-0">
                         <Bot className="h-4 w-4 text-emerald-500" />
@@ -212,6 +246,10 @@ function FluxoAutomacaoView({
                             <p className="mt-0.5 truncate text-xs text-gray-600 dark:text-gray-300" title={l.mensagem}>
                               {l.mensagem}
                             </p>
+                            {l.modelo?.nome && (
+                              <ModelosDoPasso modelo={l.modelo} modelos={modelos} salvando={atualizarEstagio.isPending}
+                                onTrocar={(novo) => trocarModeloLembrete(estagio, l.idx, novo)} />
+                            )}
                           </div>
                         </div>
                       ))}
@@ -240,10 +278,19 @@ function FluxoAutomacaoView({
                                     <Clock className="h-3 w-3" /> após anterior
                                   </span>
                                 )}
+                                {p.origens?.contem?.length ? (
+                                  <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+                                    {p.origens.modo === 'exceto' ? 'menos ' : 'só '}{p.origens.contem.join(' e ')}
+                                  </span>
+                                ) : null}
                               </div>
                               <p className="mt-0.5 truncate text-xs text-gray-600 dark:text-gray-300" title={texto}>
                                 {texto}
                               </p>
+                              {p.modelo_whatsapp?.nome && (
+                                <ModelosDoPasso modelo={p.modelo_whatsapp} modelos={modelos} salvando={atualizarEstagio.isPending}
+                                  onTrocar={(novo) => trocarModeloPasso(estagio, i, novo)} />
+                              )}
                             </div>
                           </div>
                         )

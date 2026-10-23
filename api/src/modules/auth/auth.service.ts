@@ -9,6 +9,7 @@ import { registrarLeadDoCadastro } from '../onboarding/lead-cadastro';
 import { digitosParaGravar } from '../crm/_shared/telefone';
 import { podeUsarCloudApi } from '../whatsapp/meta/acesso';
 import { whatsappProvisionService } from '../../services/whatsapp-provision.service';
+import { afiliadosService } from '../afiliados/afiliados.service';
 
 // Versão vigente dos Termos de Uso / Política de Privacidade (atualize ao publicar nova versão).
 export const TERMOS_VERSAO = '1.0';
@@ -29,7 +30,9 @@ export const authService = {
     let empresaInfo = null;
     if (user.empresa_id) {
       const empresaResult = await query(
-        'SELECT id, nome, email, telefone, endereco, logo_url, cor_primaria FROM empresas WHERE id = $1',
+        `SELECT id, nome, email, telefone, endereco, logo_url, cor_primaria,
+                config->'rotulo_cliente' AS rotulo_cliente
+           FROM empresas WHERE id = $1`,
         [user.empresa_id]
       );
       empresaInfo = empresaResult.rows[0] || null;
@@ -127,6 +130,8 @@ export const authService = {
     /** Consentimento (LGPD) para receber o material também pelo WhatsApp. */
     optinWhatsapp?: boolean;
     aceiteIp?: string;
+    /** Código do link de afiliado (?ref=) — quem indicou esta conta. */
+    ref?: string;
   }): Promise<{ token: string; user: any; paymentUrl?: string; pixQrCode?: string; whatsappUrl?: string }> {
     // Validar senha
     if (data.senha.length < 8) throw new Error('A senha deve ter no mínimo 8 caracteres');
@@ -153,6 +158,7 @@ export const authService = {
       [data.nomeEmpresa, slug, data.email, digitosParaGravar(data.telefone)]
     );
     const empresaId: number = empresaResult.rows[0].id;
+    await afiliadosService.vincularIndicacao(empresaId, data.ref);
 
     try {
       // 2. Criar o DONO da empresa (com o aceite dos Termos/Política — LGPD).
@@ -347,7 +353,8 @@ export const authService = {
              u.assinatura_email,
              e.nome as empresa_nome, e.email as empresa_email, e.telefone as empresa_telefone,
              e.endereco as empresa_endereco, e.logo_url as empresa_logo_url,
-             e.cor_primaria as empresa_cor_primaria
+             e.cor_primaria as empresa_cor_primaria,
+             e.config->'rotulo_cliente' as empresa_rotulo_cliente
       FROM usuarios u
       LEFT JOIN empresas e ON u.empresa_id = e.id
       WHERE u.id = $1
@@ -374,6 +381,8 @@ export const authService = {
         endereco: user.empresa_endereco || null,
         logo_url: user.empresa_logo_url || null,
         cor_primaria: user.empresa_cor_primaria || null,
+        // como a conta chama o "cliente" (empresas.config.rotulo_cliente); null = "Cliente"
+        rotulo_cliente: user.empresa_rotulo_cliente || null,
       } : null
     };
   }

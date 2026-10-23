@@ -99,6 +99,9 @@ export interface CriarFollowupInput {
   // Cadência (origem 'estagio'): posição do passo e se move o lead ao enviar.
   passoOrdem?: number | null;    // 0 = primeiro passo da cadência
   moverAposEnvio?: boolean;      // true só no último passo (default true p/ passo único)
+  // Avulso no número oficial: modelo aprovado que sai se a janela de 24h estiver fechada
+  // (migration 098). A cadência lê a reserva do followup_config do estágio.
+  modeloWhatsapp?: { nome: string; idioma?: string; variaveis?: string[]; cabecalho?: string | null } | null;
 }
 
 export const followupsService = {
@@ -107,7 +110,7 @@ export const followupsService = {
       leadId, usuarioId, empresaId, tipo, mensagem, instrucaoIa,
       mediaUrl, mediaMimetype, mediaFilename,
       origem = 'lead', modo = 'dias', atrasoDias, atrasoUnidade, dataFixa, horaEnvio,
-      diasSemana, base, agendadoPara, passoOrdem, moverAposEnvio,
+      diasSemana, base, agendadoPara, passoOrdem, moverAposEnvio, modeloWhatsapp,
     } = input;
 
     // Lead arquivado não entra em régua nenhuma. Sem este guard nascia um registro
@@ -133,8 +136,8 @@ export const followupsService = {
          (lead_id, usuario_id, empresa_id, agendado_para, tipo, mensagem, instrucao_ia,
           media_url, media_mimetype, media_filename,
           origem, modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana,
-          passo_ordem, mover_apos_envio)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+          passo_ordem, mover_apos_envio, modelo_whatsapp)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
        RETURNING *`,
       [
         leadId, usuarioId, empresaId, quando, tipo,
@@ -143,6 +146,7 @@ export const followupsService = {
         origem, modo, atrasoDias ?? null, atrasoUnidade || 'dia', dataFixa || null, horaEnvio || null,
         diasSemana?.length ? diasSemana : null,
         passoOrdem ?? null, moverAposEnvio ?? true,
+        modeloWhatsapp?.nome ? JSON.stringify(modeloWhatsapp) : null,
       ]
     );
     return result.rows[0];

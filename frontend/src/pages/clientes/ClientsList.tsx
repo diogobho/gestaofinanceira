@@ -3,11 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
 import { Button, MetricCard, Card, Spinner, Modal, ModalFooter, Input, Badge, MobileCard, MobileCardHeader, MobileCardRow, MobileCardActions, EstadoVazio } from '@/components/ui'
-import { Plus, Edit, Trash2, Mail, X, Send, Users, Cake } from 'lucide-react'
+import { Plus, Edit, Trash2, Mail, X, Send, Users, Cake, Upload } from 'lucide-react'
 import { clientsApi } from '@/api'
 import api from '@/api/client'
 import type { Client, CreateClientRequest } from '@/types'
 import EmailEditor from '@/components/crm/EmailEditor'
+import ImportClientesModal from '@/components/clientes/ImportClientesModal'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
 
 function applyVars(tpl: string, nome: string, email: string, telefone: string): string {
   const primeiro = nome.split(' ')[0] || ''
@@ -21,6 +23,7 @@ function applyVars(tpl: string, nome: string, email: string, telefone: string): 
 export const ClientsList: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Client | null>(null)
+  const [importando, setImportando] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<number | null>(null)
 
@@ -34,6 +37,7 @@ export const ClientsList: React.FC = () => {
   const [emailResult, setEmailResult] = useState<{ enviados: number; falhas: number; semEmail: number } | null>(null)
 
   const queryClient = useQueryClient()
+  const { Cliente, Clientes, cliente, clientes } = useTermoCliente()
 
   const { data: clients, isLoading } = useQuery({
     queryKey: ['clients-list'],
@@ -44,12 +48,12 @@ export const ClientsList: React.FC = () => {
     mutationFn: clientsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clients-list'] })
-      toast.success('Cliente criado com sucesso!')
+      toast.success(`${Cliente} criado com sucesso!`)
       setIsModalOpen(false)
       setEditingItem(null)
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Erro ao criar cliente')
+      toast.error(error.response?.data?.message || `Erro ao criar ${cliente}`)
     }
   })
 
@@ -57,12 +61,12 @@ export const ClientsList: React.FC = () => {
     mutationFn: ({ id, data }: { id: number; data: any }) => clientsApi.update(String(id), data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clients-list'] })
-      toast.success('Cliente atualizado com sucesso!')
+      toast.success(`${Cliente} atualizado com sucesso!`)
       setIsModalOpen(false)
       setEditingItem(null)
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Erro ao atualizar cliente')
+      toast.error(error.response?.data?.message || `Erro ao atualizar ${cliente}`)
     }
   })
 
@@ -70,12 +74,12 @@ export const ClientsList: React.FC = () => {
     mutationFn: (id: number) => clientsApi.delete(String(id)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clients-list'] })
-      toast.success('Cliente deletado com sucesso!')
+      toast.success(`${Cliente} deletado com sucesso!`)
       setIsDeleteModalOpen(false)
       setItemToDelete(null)
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Erro ao deletar cliente')
+      toast.error(error.response?.data?.message || `Erro ao deletar ${cliente}`)
     }
   })
 
@@ -222,14 +226,20 @@ export const ClientsList: React.FC = () => {
   return (
     <div>
       <Header
-        title="Gestão de Clientes"
-        subtitle="Gerencie seus clientes"
+        title={`Gestão de ${Clientes}`}
+        subtitle={`Gerencie seus ${clientes}`}
         tourId="clientes"
         action={
-          <Button data-tour="clientes-novo" variant="primary" onClick={handleOpenModal} size="sm" className="sm:size-md">
-            <Plus className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Novo Cliente</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportando(true)} size="sm" className="sm:size-md" title={`Importar ${clientes} de uma planilha`}>
+              <Upload className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Importar</span>
+            </Button>
+            <Button data-tour="clientes-novo" variant="primary" onClick={handleOpenModal} size="sm" className="sm:size-md">
+              <Plus className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Novo {Cliente}</span>
+            </Button>
+          </div>
         }
       />
 
@@ -237,7 +247,7 @@ export const ClientsList: React.FC = () => {
         {/* Métricas */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
           <MetricCard
-            title="Total de Clientes"
+            title={`Total de ${Clientes}`}
             value={clients?.length || 0}
             icon={Users}
           />
@@ -254,7 +264,7 @@ export const ClientsList: React.FC = () => {
         {selectedIds.size > 0 && (
           <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg">
             <span className="text-sm font-medium text-blue-800">
-              {selectedIds.size} cliente{selectedIds.size > 1 ? 's' : ''} selecionado{selectedIds.size > 1 ? 's' : ''}
+              {selectedIds.size} {selectedIds.size > 1 ? clientes : cliente} selecionado{selectedIds.size > 1 ? 's' : ''}
               {selectedWithEmail > 0 && (
                 <span className="ml-1 text-blue-600">({selectedWithEmail} com e-mail)</span>
               )}
@@ -352,11 +362,11 @@ export const ClientsList: React.FC = () => {
                     <td colSpan={8}>
                       <EstadoVazio
                         avatar="dupla"
-                        titulo="Nenhum cliente cadastrado ainda"
-                        descricao="O cliente é a base de receitas, despesas e parcelas. Cadastre o primeiro para começar a acompanhar o dinheiro dele."
+                        titulo={`Nenhum ${cliente} cadastrado ainda`}
+                        descricao={`O ${cliente} é a base de receitas, despesas e parcelas. Cadastre o primeiro para começar a acompanhar o dinheiro dele.`}
                         acao={
                           <Button variant="primary" onClick={handleOpenModal}>
-                            <Plus className="w-4 h-4 mr-2" /> Cadastrar primeiro cliente
+                            <Plus className="w-4 h-4 mr-2" /> Cadastrar primeiro {cliente}
                           </Button>
                         }
                       />
@@ -426,11 +436,11 @@ export const ClientsList: React.FC = () => {
             <Card>
               <EstadoVazio
                 avatar="dupla"
-                titulo="Nenhum cliente cadastrado ainda"
-                descricao="O cliente é a base de receitas, despesas e parcelas. Cadastre o primeiro para começar."
+                titulo={`Nenhum ${cliente} cadastrado ainda`}
+                descricao={`O ${cliente} é a base de receitas, despesas e parcelas. Cadastre o primeiro para começar.`}
                 acao={
                   <Button variant="primary" onClick={handleOpenModal}>
-                    <Plus className="w-4 h-4 mr-2" /> Cadastrar primeiro cliente
+                    <Plus className="w-4 h-4 mr-2" /> Cadastrar primeiro {cliente}
                   </Button>
                 }
               />
@@ -443,7 +453,7 @@ export const ClientsList: React.FC = () => {
       <Modal
         isOpen={isModalOpen}
         onClose={() => { setIsModalOpen(false); setEditingItem(null) }}
-        title={editingItem ? 'Editar Cliente' : 'Novo Cliente'}
+        title={editingItem ? `Editar ${Cliente}` : `Novo ${Cliente}`}
         size="lg"
       >
         <form onSubmit={handleSubmit}>
@@ -453,7 +463,7 @@ export const ClientsList: React.FC = () => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo *</label>
-                  <Input type="text" name="nome" defaultValue={editingItem?.nome} required placeholder="Nome completo do cliente" />
+                  <Input type="text" name="nome" defaultValue={editingItem?.nome} required placeholder={`Nome completo do ${cliente}`} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">CPF ou CNPJ *</label>
@@ -542,7 +552,7 @@ export const ClientsList: React.FC = () => {
         title="Confirmar Exclusão"
         size="sm"
       >
-        <p className="text-gray-700 mb-6">Tem certeza que deseja deletar este cliente? Esta ação não pode ser desfeita.</p>
+        <p className="text-gray-700 mb-6">Tem certeza que deseja deletar este {cliente}? Esta ação não pode ser desfeita.</p>
         <ModalFooter>
           <Button variant="outline" onClick={() => { setIsDeleteModalOpen(false); setItemToDelete(null) }}>Cancelar</Button>
           <Button variant="primary" onClick={confirmDelete} disabled={deleteMutation.isPending} className="bg-red-600 hover:bg-red-700">
@@ -555,7 +565,7 @@ export const ClientsList: React.FC = () => {
       <Modal
         isOpen={showEmailModal}
         onClose={() => { if (!emailSending) { setShowEmailModal(false); setEmailResult(null) } }}
-        title={emailTarget === 'selected' ? `Enviar E-mail para ${selectedIds.size} cliente${selectedIds.size > 1 ? 's' : ''}` : `Enviar E-mail para ${(emailTarget as Client).nome}`}
+        title={emailTarget === 'selected' ? `Enviar E-mail para ${selectedIds.size} ${selectedIds.size > 1 ? clientes : cliente}` : `Enviar E-mail para ${(emailTarget as Client).nome}`}
         size="lg"
       >
         {emailResult ? (
@@ -583,7 +593,7 @@ export const ClientsList: React.FC = () => {
             <div className="space-y-4 py-2">
               {emailTarget === 'selected' && (
                 <p className="text-sm text-gray-500">
-                  {selectedWithEmail} de {selectedIds.size} cliente{selectedIds.size > 1 ? 's' : ''} possui{selectedIds.size === 1 ? '' : 'm'} e-mail cadastrado.
+                  {selectedWithEmail} de {selectedIds.size} {selectedIds.size > 1 ? clientes : cliente} possui{selectedIds.size === 1 ? '' : 'm'} e-mail cadastrado.
                 </p>
               )}
 
@@ -655,6 +665,7 @@ export const ClientsList: React.FC = () => {
           </>
         )}
       </Modal>
+      <ImportClientesModal isOpen={importando} onClose={() => setImportando(false)} />
     </div>
   )
 }

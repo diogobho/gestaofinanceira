@@ -34,6 +34,7 @@ export const BotaoDoPlano: React.FC<{
   const temPlano = pode(capacidade)
   // Enquanto o canal carrega, não trava: a API é quem nega de verdade.
   const faltaOficial = temPlano && !!exigeOficial && !carregandoCanal && canal?.provedor !== 'cloud_api'
+    && !canal?.disparoQrLiberado
   if (temPlano && !faltaOficial) return children
 
   const doPlano = CATALOGO[capacidade]

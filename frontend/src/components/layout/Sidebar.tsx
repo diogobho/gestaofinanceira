@@ -13,14 +13,15 @@ import {
   MessageSquare, MessageSquareText,
   Kanban, KanbanSquare,
   BarChart3, ChartArea,
-  Sparkles, WandSparkles, LifeBuoy, Headset,
+  Sparkles, WandSparkles, LifeBuoy, Headset, Gift,
   Moon, Sun,
   Mail, MailOpen, PartyPopper,
   CreditCard, Wallet,
   HeartHandshake, Handshake,
-  UsersRound,
+  UsersRound, Radar, BellRing,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useUserPhoto } from '@/hooks/useUserPhoto'
 import { TourButton } from '@/components/tour/TourButton'
@@ -28,6 +29,7 @@ import { TourButton } from '@/components/tour/TourButton'
 // renderizava o símbolo minúsculo cercado de margem vazia.
 import logo from '/icons/icon-192.png'
 import { isAdminEmpresa, rotuloTipo } from '@/utils/roles'
+import { EMAILS_MONITOR } from '@/api/monitorSites'
 import { useCapacidades } from '@/hooks/useCapacidades'
 import type { Capacidade } from '@/utils/capacidades'
 
@@ -47,6 +49,8 @@ const navigationItems = [
   { name: 'Grupos',       href: '/grupos',             icon: UsersRound,      iconHover: UsersRound,        permissao: 'whatsapp',  capacidade: 'grupos_whatsapp' as const, tour: 'nav-grupos'     },
   // Varinha mágica (fada-madrinha): no hover ela "lança o feitiço" e viram faíscas
   { name: 'Agente IA',     href: '/agente-duo', icon: WandSparkles,    iconHover: Sparkles,          permissao: 'agente',    tour: 'nav-agente'         },
+  // Indicação (111): sem `permissao` — o link é da conta, e quem não pode indicar vê o porquê.
+  { name: 'Indique o Duo', href: '/indique',           icon: Gift,            iconHover: Gift,                                      tour: 'nav-indique'        },
   // Sem `permissao`: pedir ajuda não depende de papel nem de módulo liberado.
   { name: 'Suporte',      href: '/suporte',            icon: LifeBuoy,        iconHover: Headset,                                   tour: 'nav-suporte'        },
 ]
@@ -61,6 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { theme, toggleTheme } = useTheme()
   const { userPhoto } = useUserPhoto()
   const { pode } = useCapacidades()
+  const { Clientes } = useTermoCliente()
 
   // Verificar se é admin ou master (acesso total)
   const isAdminOrMaster = useMemo(() => {
@@ -197,7 +202,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               <item.icon className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out group-hover:opacity-0 group-hover:scale-75" />
               <item.iconHover className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100" />
             </span>
-            {item.name}
+            {item.href === '/clientes' ? Clientes : item.name}
           </NavLink>
         ))}
 
@@ -263,6 +268,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   <Sparkles className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100" />
                 </span>
                 Boas-vindas
+              </NavLink>
+            )}
+            {/* Monitoramento de sites (102): só a conta master@gestao.com. */}
+            {!!user?.email && EMAILS_MONITOR.includes(user.email.toLowerCase()) && (
+              <NavLink
+                to="/monitoramento"
+                onClick={handleNavClick}
+                className={({ isActive }) =>
+                  `group flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-200 shadow-[inset_3px_0_0_0_#D2B773]'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`
+                }
+              >
+                <span className="relative w-5 h-5 mr-3 flex-shrink-0">
+                  <Radar className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out group-hover:opacity-0 group-hover:scale-75" />
+                  <BellRing className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100" />
+                </span>
+                Monitoramento
               </NavLink>
             )}
             <NavLink

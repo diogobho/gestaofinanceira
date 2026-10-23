@@ -371,7 +371,8 @@ async function executarFerramenta(
           ? await tarefasService.update(reuniaoAtual.rows[0].id, ctx.empresaId, {
               titulo: tituloReuniao,
               data_vencimento: vencimento as any,
-              ...(detalhes ? { descricao: detalhes } : {})
+              ...(detalhes ? { descricao: detalhes } : {}),
+              ...(input.duracao_minutos ? { duracao_min: Number(input.duracao_minutos) } : {})
             })
           : await tarefasService.create(ctx.empresaId, ctx.usuarioId, {
               lead_id: ctx.leadId,
@@ -379,7 +380,8 @@ async function executarFerramenta(
               titulo: tituloReuniao,
               descricao: detalhes || undefined,
               data_vencimento: vencimento as any,
-              prioridade: 'alta'
+              prioridade: 'alta',
+              duracao_min: input.duracao_minutos ? Number(input.duracao_minutos) : undefined
             });
 
         // Extra, e só se o lead já for cliente: espelha na agenda do módulo de sessões.
@@ -1261,6 +1263,106 @@ Escreva uma mensagem de follow-up natural para este lead, levando em conta TUDO 
 - Mensagem curta, com propósito claro
 - Se há reunião marcada, trate-a como combinada: nunca proponha outro horário nem peça para remarcar por conta própria
 - Jamais mencione CRM, tarefas, sistemas ou automação`;
+  },
+
+  /**
+   * Variáveis de modelo escritas pela IA (13/10/2026). No número oficial, o FUP de quem
+   * parou de responder sai sempre com a janela de 24h fechada — só modelo aprovado. Os
+   * modelos de retomada do funil 74 (ret_*_ia) deixam o assunto e a pergunta como
+   * variáveis ("[IA:assunto]", "[IA:pergunta]"), e aqui a IA os escreve lendo a conversa,
+   * as anotações e a instrução do passo — o mesmo contexto do follow-up de texto livre.
+   * Devolve null quando a empresa não tem agente com chave (o despacho adia).
+   */
+  async gerarCamposDoModelo(followup: any, campos: string[]): Promise<Record<string, string> | null> {
+    const leadId = followup.lead_id;
+    const empresaId = followup.empresa_id;
+    const config = await this.getConfig(empresaId);
+    const isGemini = config?.provider === 'gemini';
+    if (!config || !(isGemini ? config.gemini_api_key : config.api_key)) return null;
+
+    const contexto = await this.getContextoHistorico(leadId, config.contexto_mensagens, undefined, followup.contato_whatsapp_id ?? null);
+    const anotacoes = (await query(
+      `SELECT conteudo, tipo, origem, created_at FROM anotacoes_lead
+       WHERE lead_id = $1 ORDER BY created_at DESC LIMIT 20`,
+      [leadId]
+    )).rows;
+    const tags = (await query(
+      `SELECT t.nome FROM tags t JOIN lead_tags lt ON lt.tag_id = t.id WHERE lt.lead_id = $1`,
+      [leadId]
+    )).rows.map((r: any) => r.nome);
+    const leadRow = (await query(
+      `SELECT l.*, u.nome AS remetente_nome
+         FROM leads l LEFT JOIN usuarios u ON u.id = COALESCE(l.responsavel_id, $2)
+        WHERE l.id = $1`,
+      [leadId, followup.usuario_id]
+    )).rows[0];
+    const [instrucaoEstagio, agenda] = await Promise.all([
+      this.getInstrucaoReativaEstagio(followup.estagio_id ?? leadRow?.estagio_id),
+      this.getAgendaLead(leadId, empresaId, followup.id),
+    ]);
+    const base = this.buildSystemPromptFollowUp(
+      config, { ...followup, ...(leadRow || {}) }, { nome: followup.estagio_nome }, followup.instrucao_ia,
+      anotacoes, tags, leadRow?.remetente_nome || undefined, instrucaoEstagio, agenda
+    );
+    const descricao: Record<string, string> = {
+      assunto: 'o assunto da conversa que vai ser retomado, em poucas palavras e minúsculo, para completar a frase "a nossa conversa sobre ___" (ex.: "a sua loja de perfumes", "organizar as finanças da casa"); até 60 caracteres',
+      pergunta: 'UMA pergunta aberta, curta, que continua a conversa de onde parou e segue o papel deste toque; até 160 caracteres; pode usar o primeiro nome do lead se ele tiver nome de verdade',
+    };
+    const systemPrompt = `${base}
+
+FORMATO DESTA MENSAGEM: a janela de 24h do WhatsApp está fechada, então sai um modelo aprovado com texto fixo em volta. Você escreve só os campos abaixo, que entram no meio do modelo. Sem quebra de linha, sem saudação (o modelo já cumprimenta) e sem assinatura.
+${campos.map((c) => `- ${c}: ${descricao[c] || 'texto curto, uma frase'}`).join('\n')}
+Responda SOMENTE com um JSON de uma linha com essas chaves, sem comentários.`;
+
+    const conversa: { role: 'user' | 'assistant'; content: string }[] = contexto.length > 0 ? [...contexto] : [];
+    conversa.push({ role: 'user', content: '(Escreva agora o JSON com os campos do modelo de retomada.)' });
+    if (conversa.length > 1 && conversa[conversa.length - 2].role === 'user') {
+      // Dois turnos de usuário seguidos: junta, que o Claude não aceita turno repetido.
+      const ultimo = conversa.pop()!;
+      conversa[conversa.length - 1] = { role: 'user', content: `${conversa[conversa.length - 1].content}\n\n${ultimo.content}` };
+    }
+
+    let texto = '';
+    try {
+      if (isGemini) {
+        const resp = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/${config.modelo || 'gemini-2.5-flash'}:generateContent?key=${config.gemini_api_key}`,
+          {
+            contents: conversa.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            generationConfig: { maxOutputTokens: 400, temperature: 0.6, responseMimeType: 'application/json' },
+          },
+          { headers: { 'Content-Type': 'application/json' }, timeout: TIMEOUT_PROVEDOR_MS }
+        );
+        texto = (resp.data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+      } else {
+        const anthropic = new Anthropic({ apiKey: config.api_key!, timeout: TIMEOUT_PROVEDOR_MS, maxRetries: 1 });
+        const response = await anthropic.messages.create({
+          model: config.modelo || 'claude-sonnet-4-6',
+          max_tokens: 400,
+          system: systemPrompt,
+          messages: conversa,
+        });
+        texto = response.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
+      }
+    } catch (err: any) {
+      throw marcarOrigemErro(err, 'ia');
+    }
+
+    const json = texto.match(/\{[\s\S]*\}/)?.[0];
+    let dados: any = null;
+    try { dados = json ? JSON.parse(json) : null; } catch { dados = null; }
+    if (!dados) throw new Error(`IA não devolveu os campos do modelo: ${texto.slice(0, 200)}`);
+    const limite: Record<string, number> = { assunto: 60, pergunta: 160 };
+    const saida: Record<string, string> = {};
+    for (const c of campos) {
+      // A Meta recusa parâmetro com quebra de linha, tab ou mais de 4 espaços seguidos.
+      const v = String(dados[c] ?? '').replace(/\s+/g, ' ').trim().slice(0, limite[c] ?? 200).trim();
+      if (!v) throw new Error(`IA deixou vazio o campo "${c}" do modelo`);
+      saida[c] = v;
+    }
+    await this.logarAcao(leadId, empresaId, 'followup_ia_modelo', { campos: saida, followup_id: followup.id }, true);
+    return saida;
   },
 
   async processarFollowUpIA(followup: any): Promise<'enviado' | 'adiado' | 'cancelado' | 'pausado' | 'config_ausente'> {

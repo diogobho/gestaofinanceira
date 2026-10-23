@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { contatosService } from './contatos.service';
 import { leadsService } from '../leads/leads.service';
 import { AuthRequest } from '../../../middlewares/auth.middleware';
+import { garantirLeadDaEmpresa, ErroEscopo } from '../_shared/escopo-empresa';
 
 export const contatosController = {
   async list(req: AuthRequest, res: Response, next: NextFunction) {
@@ -76,6 +77,13 @@ export const contatosController = {
       const { id } = req.params;
       const { mensagem, lead_id } = req.body;
 
+      // O lead vem do corpo: tem de ser desta conta, ou a mensagem ficaria ligada ao
+      // card de outra empresa.
+      if (lead_id) {
+        try { await garantirLeadDaEmpresa(lead_id, empresaId); }
+        catch (e) { if (e instanceof ErroEscopo) return res.status(e.status).json({ message: e.message }); throw e; }
+      }
+
       if (!mensagem) {
         return res.status(400).json({ message: 'mensagem é obrigatória' });
       }
@@ -139,6 +147,13 @@ export const contatosController = {
       const empresaId = req.user!.empresa_id;
       const { id } = req.params;
       const { caption, lead_id } = req.body;
+
+      // O lead vem do corpo: tem de ser desta conta, ou a mensagem ficaria ligada ao
+      // card de outra empresa.
+      if (lead_id) {
+        try { await garantirLeadDaEmpresa(lead_id, empresaId); }
+        catch (e) { if (e instanceof ErroEscopo) return res.status(e.status).json({ message: e.message }); throw e; }
+      }
       const file = (req as any).file;
 
       if (!file) {
@@ -198,6 +213,13 @@ export const contatosController = {
       const empresaId = req.user!.empresa_id;
       const { id } = req.params;
       const { lead_id } = req.body;
+
+      // O lead vem do corpo: tem de ser desta conta, ou a mensagem ficaria ligada ao
+      // card de outra empresa.
+      if (lead_id) {
+        try { await garantirLeadDaEmpresa(lead_id, empresaId); }
+        catch (e) { if (e instanceof ErroEscopo) return res.status(e.status).json({ message: e.message }); throw e; }
+      }
 
       await contatosService.marcarLido(
         parseInt(id),

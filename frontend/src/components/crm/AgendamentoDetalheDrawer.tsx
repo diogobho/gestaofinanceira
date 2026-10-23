@@ -84,7 +84,7 @@ export default function AgendamentoDetalheDrawer({ followup, onFechar, onVerLead
   const ehIA = followup.tipo === 'agente_ia'
   const ciclo = montarCicloVida(followup)
   const desc = followup.status === 'falhou' || followup.erro_categoria
-    ? descreverErroFollowup(followup.erro_categoria)
+    ? descreverErroFollowup(followup.erro_categoria, followup.erro)
     : null
 
   return (

@@ -83,19 +83,34 @@ const EMAIL_SUPORTE = process.env.EMAIL_SUPORTE || 'suporte@duofuturo.tech';
 // regras de acesso diferentes, e misturá-las tornaria a autorização ambígua.
 const ANEXOS_DIR = '/var/www/apps/gestao_financeira/uploads/suporte';
 const ANEXO_TAMANHO_MAX = 10 * 1024 * 1024; // 10 MB — print de tela não passa disso
-const ANEXO_EXTENSOES = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.pdf']);
-const ANEXO_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf']);
+// Planilha entrou em 06/10/2026 (#175): o cliente precisava mandar a planilha da
+// importação para repor as origens e o anexo recusava. O navegador declara MIME de
+// planilha de jeitos diferentes (CSV chega até como `application/vnd.ms-excel`), por
+// isso a palavra final é sempre a assinatura do conteúdo.
+const ANEXO_EXTENSOES = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.pdf', '.xlsx', '.xls', '.csv']);
+const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const MIME_XLS = 'application/vnd.ms-excel';
+export const ANEXO_MIMES = new Set([
+  'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf',
+  MIME_XLSX, MIME_XLS, 'text/csv', 'text/plain', 'application/csv', 'application/octet-stream', 'application/zip',
+]);
 const EXTENSAO_POR_MIME: Record<string, string> = {
   'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp',
   'image/gif': '.gif', 'application/pdf': '.pdf',
+  [MIME_XLSX]: '.xlsx', [MIME_XLS]: '.xls', 'text/csv': '.csv',
 };
 
 /**
  * Tipo REAL pelos primeiros bytes (magic number). Devolve null para qualquer coisa
  * que não seja imagem aceita ou PDF — inclusive script, ELF e ZIP disfarçados.
  */
-function tipoPelaAssinatura(b: Buffer): string | null {
+function tipoPelaAssinatura(b: Buffer, ext = ''): string | null {
   if (b.length < 4) return null;
+  // Planilha só vale com a extensão dela: um .png com cabeçalho de ZIP não passa.
+  if (ext === '.xlsx' && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04) return MIME_XLSX;
+  if (ext === '.xls' && b.subarray(0, 4).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0]))) return MIME_XLS;
+  // CSV não tem assinatura: é texto, e texto não tem byte nulo.
+  if (ext === '.csv') return b.includes(0) ? null : 'text/csv';
   if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
   if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
   if (b.subarray(0, 4).toString('ascii') === '%PDF') return 'application/pdf';
@@ -261,15 +276,12 @@ export const suporteService = {
 
     // Dois escopos, e só dois:
     //   Central (atendente)  → todos os chamados, de todas as empresas;
-    //   Meus chamados        → só os que o próprio usuário abriu.
+    //   Chamados da empresa  → os que qualquer pessoa da empresa abriu.
     //
-    // O filtro era por `empresa_id`, e `usuarioId` chegava aqui sem ser usado: na
-    // prática todo usuário da empresa lia o chamado dos colegas (na Panteras, a
-    // Débora veria os da Jéssica) — inclusive assunto de cobrança e acesso. O
-    // recorte por empresa continua no `getById` como defesa em profundidade.
+    // Entre 05 e 09/10/2026 cada um via só os próprios. O dono pediu o contrário
+    // (09/10): o chamado é da EMPRESA — a Hellen abre, a Débora acompanha. Quem quer
+    // só os seus filtra na tela por quem abriu (`usuario_nome` vem na linha).
     if (!params.todos) {
-      vals.push(params.usuarioId);
-      cond.push(`t.usuario_id = $${vals.length}`);
       vals.push(params.empresaId);
       cond.push(`t.empresa_id = $${vals.length}`);
     }
@@ -297,10 +309,9 @@ export const suporteService = {
   },
 
   /**
-   * `empresaId`/`usuarioId` ausentes = visão de atendente (Central), que lê
-   * qualquer chamado. Informados, valem juntos: a empresa é o recorte externo e o
-   * usuário é o dono do chamado. Sem o filtro por usuário, bastava trocar o id na
-   * URL para ler o chamado de um colega da mesma empresa.
+   * `empresaId` ausente = visão de atendente (Central), que lê qualquer chamado.
+   * Informado, é o recorte da empresa. `usuarioId` restringe ao dono do chamado —
+   * o controller não passa mais desde 09/10/2026 (chamado é da empresa toda).
    */
   async getById(id: number, empresaId?: number, usuarioId?: number): Promise<Ticket | null> {
     const cond: string[] = ['t.id = $1'];
@@ -709,10 +720,10 @@ export const suporteService = {
     }
     const ext = path.extname(arquivo.originalname || '').toLowerCase();
     if (!ANEXO_EXTENSOES.has(ext)) {
-      return { ok: false, erro: 'Formato não aceito. Envie imagem (PNG, JPG, WEBP, GIF) ou PDF.' };
+      return { ok: false, erro: 'Formato não aceito. Envie imagem (PNG, JPG, WEBP, GIF), PDF ou planilha (XLSX, XLS, CSV).' };
     }
     if (!ANEXO_MIMES.has(arquivo.mimetype)) {
-      return { ok: false, erro: 'Formato não aceito. Envie imagem (PNG, JPG, WEBP, GIF) ou PDF.' };
+      return { ok: false, erro: 'Formato não aceito. Envie imagem (PNG, JPG, WEBP, GIF), PDF ou planilha (XLSX, XLS, CSV).' };
     }
 
     // Assinatura real do conteúdo.
@@ -720,8 +731,8 @@ export const suporteService = {
     try {
       const fd = await fs.promises.open(arquivo.path, 'r');
       try {
-        const buf = Buffer.alloc(12);
-        const { bytesRead } = await fd.read(buf, 0, 12, 0);
+        const buf = Buffer.alloc(512);
+        const { bytesRead } = await fd.read(buf, 0, 512, 0);
         cabecalho = buf.subarray(0, bytesRead);
       } finally {
         await fd.close();
@@ -730,9 +741,9 @@ export const suporteService = {
       return { ok: false, erro: 'Não foi possível ler o arquivo enviado.' };
     }
 
-    const real = tipoPelaAssinatura(cabecalho);
+    const real = tipoPelaAssinatura(cabecalho, ext);
     if (!real) {
-      return { ok: false, erro: 'O conteúdo do arquivo não é uma imagem nem um PDF.' };
+      return { ok: false, erro: 'O conteúdo do arquivo não confere com o formato (imagem, PDF ou planilha).' };
     }
     // O MIME que vale é o DETECTADO, não o declarado: é ele que vai para o banco e
     // volta no Content-Type do download.

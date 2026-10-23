@@ -20,13 +20,14 @@ function ehSuporte(req: AuthRequest): boolean {
 /**
  * Escopo de leitura de UM chamado.
  *
- * Atendente (Central) lê qualquer um. Cliente lê só o que ele mesmo abriu — o par
- * empresa+usuário. Antes o recorte era só por empresa, então trocar o id na URL
- * dava acesso ao chamado de um colega da mesma empresa.
+ * Atendente (Central) lê qualquer um. Cliente lê os da empresa dele — qualquer
+ * colega acompanha e responde o chamado aberto por outro (pedido do dono em
+ * 09/10/2026; de 05 a 09/10 era só quem abriu). O segundo item fica `undefined`
+ * de propósito: é o recorte por dono do chamado, que `getById` ainda aceita.
  */
 function escopo(req: AuthRequest): [number | undefined, number | undefined] {
   if (ehSuporte(req)) return [undefined, undefined];
-  return [req.user?.empresa_id, req.user?.userId || req.user?.id];
+  return [req.user?.empresa_id, undefined];
 }
 
 /**
@@ -245,7 +246,9 @@ export const suporteController = {
       res.setHeader('Content-Type', anexo.mimetype);
       // `inline` para o print abrir na aba; o nome vai entre aspas porque pode ter
       // espaço. Sem `filename`, o navegador salvaria com o UUID.
-      res.setHeader('Content-Disposition', `inline; filename="${path.basename(anexo.nome_original).replace(/"/g, '')}"`);
+      // Planilha baixa (o navegador não a mostra, e CSV aberto na aba vira texto cru).
+      const modo = /^(image\/|application\/pdf)/.test(anexo.mimetype) ? 'inline' : 'attachment';
+      res.setHeader('Content-Disposition', `${modo}; filename="${path.basename(anexo.nome_original).replace(/"/g, '')}"`);
       return res.sendFile(absoluto);
     } catch (error: any) {
       return responderErro(res, error, 'baixarAnexo');

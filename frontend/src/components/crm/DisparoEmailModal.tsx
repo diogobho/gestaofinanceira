@@ -12,6 +12,7 @@ import type { EstagioFunil } from '@/types/crm'
 import { useAuth } from '@/contexts/AuthContext'
 import { gerarAssinaturaPadrao, montarEmailComAssinatura } from '@/utils/assinaturaEmail'
 import EmailEditor from './EmailEditor'
+import { useVideoAjuda } from '@/tutoriais/VideoAjuda'
 
 interface LeadEmail {
   id: number
@@ -65,6 +66,8 @@ const SIGNATURE_DRAFT_KEY = 'crm_email_signature_draft'
 
 export default function DisparoEmailModal({ isOpen, onClose, funilId, filtros }: DisparoEmailModalProps) {
   const [step, setStep] = useState<Step>('destinatarios')
+  // Fechou sem concluir: sinal de que travou. O Duo pode oferecer o vídeo (uma vez por sessão).
+  const { sinalizarDificuldade } = useVideoAjuda()
   const [modo, setModo] = useState<Modo>('todos')
   const [assunto, setAssunto] = useState('')
   const [corpo, setCorpo] = useState('')
@@ -291,6 +294,7 @@ export default function DisparoEmailModal({ isOpen, onClose, funilId, filtros }:
   }
 
   const handleClose = () => {
+    if (step === 'destinatarios' || step === 'mensagem') sinalizarDificuldade('email-marketing', 'Quer ver em 1 minuto como montar o e-mail, com banner e assinatura?')
     if (pollRef.current) clearInterval(pollRef.current)
     setStep('destinatarios')
     setAssunto('')

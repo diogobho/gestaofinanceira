@@ -53,7 +53,8 @@ export default function EmailEditor({
         HTMLAttributes: { class: 'text-blue-600 underline cursor-pointer' },
       }),
       Image.configure({
-        HTMLAttributes: { class: 'max-w-full rounded' },
+        // O estilo inline é o que vale no e-mail: Gmail e Outlook ignoram a classe (#58).
+        HTMLAttributes: { class: 'max-w-full rounded', style: 'max-width:100%;height:auto;' },
       }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TextStyle,

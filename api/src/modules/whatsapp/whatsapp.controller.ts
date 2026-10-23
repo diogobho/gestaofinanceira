@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import axios from 'axios';
 import { pool } from '../../config/database';
 import { instancia } from './canal/instancia';
-import { ehPortaVirtual, contaAtivaDoUsuario } from './canal/contas';
+import { ehPortaVirtual, contaAtivaDoUsuario, contaDoUsuario } from './canal/contas';
+import { portfolioDaEmpresa } from './canal/portfolio';
 import { temCapacidade } from '../../shared/capacidades';
 import { whatsappProvisionService } from '../../services/whatsapp-provision.service';
 
@@ -482,6 +483,23 @@ _Sistema DuoFuturo - Gestão Financeira_`;
       }
 
       const podeOficial = empresaId ? await temCapacidade(empresaId, 'whatsapp_oficial') : false;
+      // Oficial de cada um e se ele está no portfólio da empresa (13/10/2026): a Jéssica tinha
+      // QR e um oficial no portfólio pessoal, aparecia como "configurada" e o administrador
+      // não tinha onde conectar o número dela no portfólio da empresa.
+      const portfolio = podeOficial && empresaId ? await portfolioDaEmpresa(empresaId) : null;
+      const oficiais = new Map<number, any>();
+      if (podeOficial) {
+        for (const u of result.rows) {
+          const c = await contaDoUsuario(u.id);
+          if (c && c.empresa_id === Number(empresaId)) {
+            oficiais.set(u.id, {
+              numero: c.numero,
+              ativo: c.ativo,
+              naEmpresa: !!portfolio && c.business_id === portfolio.business_id,
+            });
+          }
+        }
+      }
 
       return res.json(result.rows.map((u: any) => ({
         id: u.id,
@@ -493,6 +511,7 @@ _Sistema DuoFuturo - Gestão Financeira_`;
         ultimaConexao: u.whatsapp_ultima_conexao,
         canal: ehPortaVirtual(u.whatsapp_porta) ? 'cloud_api' : u.whatsapp_porta ? 'baileys' : 'nenhum',
         podeOficial,
+        oficial: oficiais.get(u.id) ?? null,
       })));
 
     } catch (error: any) {

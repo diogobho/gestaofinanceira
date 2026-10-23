@@ -17,6 +17,11 @@ import { previaModelo } from '@/api/canalWhatsapp'
  */
 
 export const VARIAVEIS_CRM = ['[PrimeiroNome]', '[Nome]', '[Empresa]', '[Responsavel]', '[PrimeiroNomeResponsavel]']
+/**
+ * Só o follow-up resolve estas (o despacho lê os campos do card e a frase da origem); o
+ * disparo não — lá elas iriam escritas ao lead. Por isso entram só onde `extras` vem ligado.
+ */
+export const VARIAVEIS_FOLLOWUP = ['[OrigemFrase]', '[Negocio]', '[Objetivo]', '[Desafio]', '[Duvida]']
 
 interface Props {
   modelos: ModeloWhatsApp[]
@@ -29,6 +34,8 @@ interface Props {
   onRecarregar?: () => void
   permitirNenhum?: boolean
   rotuloNenhum?: string
+  /** Mostra também as variáveis que só o follow-up resolve (campos do card, origem em frase). */
+  variaveisDoFollowup?: boolean
 }
 
 export default function SeletorModeloWhatsApp({
@@ -41,7 +48,9 @@ export default function SeletorModeloWhatsApp({
   onRecarregar,
   permitirNenhum,
   rotuloNenhum = 'Nenhum',
+  variaveisDoFollowup = false,
 }: Props) {
+  const sugeridas = variaveisDoFollowup ? [...VARIAVEIS_CRM, ...VARIAVEIS_FOLLOWUP] : VARIAVEIS_CRM
   const modelo = useMemo(
     () => modelos.find((m) => m.nome === valor?.nome && (!valor?.idioma || m.idioma === valor.idioma)) ?? null,
     [modelos, valor?.nome, valor?.idioma]
@@ -125,6 +134,7 @@ export default function SeletorModeloWhatsApp({
               onChange={(t) => onChange({ ...valor, cabecalho: t })}
               modo={modo}
               onInserir={(v) => inserir('cab', v)}
+              sugeridas={sugeridas}
             />
           )}
           {modelo.variaveis.map((nome, i) => (
@@ -135,6 +145,7 @@ export default function SeletorModeloWhatsApp({
               onChange={(t) => setVar(i, t)}
               modo={modo}
               onInserir={(v) => inserir(i, v)}
+              sugeridas={sugeridas}
             />
           ))}
 
@@ -172,12 +183,14 @@ function CampoVariavel({
   onChange,
   modo,
   onInserir,
+  sugeridas,
 }: {
   rotulo: string
   valor: string
   onChange: (t: string) => void
   modo: 'literal' | 'variaveis'
   onInserir: (v: string) => void
+  sugeridas: string[]
 }) {
   return (
     <div>
@@ -190,7 +203,7 @@ function CampoVariavel({
       />
       {modo === 'variaveis' && (
         <div className="mt-1 flex flex-wrap gap-1">
-          {VARIAVEIS_CRM.map((v) => (
+          {sugeridas.map((v) => (
             <button
               key={v}
               type="button"

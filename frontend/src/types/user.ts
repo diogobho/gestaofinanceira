@@ -7,6 +7,8 @@ export interface EmpresaInfo {
   endereco?: string | null
   logo_url?: string | null
   cor_primaria?: string | null
+  // como a conta chama o "cliente" (ex.: loja maçônica = Associado). null = Cliente
+  rotulo_cliente?: { singular?: string; plural?: string } | null
 }
 
 export interface UserPermissoes {

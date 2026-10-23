@@ -6,6 +6,8 @@ import { PrivateRoute } from './PrivateRoute'
 import { Layout } from '@/components/layout'
 import { Login } from '@/pages/auth/Login'
 import { Register } from '@/pages/auth/Register'
+import CreditosDuo from '@/pages/agente/CreditosDuo'
+import Indique from '@/pages/indique/Indique'
 import { EsqueciSenha, RedefinirSenha } from '@/pages/auth/RecuperarSenha'
 import { DashboardComAbas } from '@/pages/dashboard/DashboardComAbas'
 import { LandingPage } from '@/pages/landing/LandingPage'
@@ -19,6 +21,7 @@ import { UserProfile } from '@/pages/perfil/UserProfile'
 import { WhatsAppConfig } from '@/pages/whatsapp/WhatsAppConfig'
 import { MetaCloudApi } from '@/pages/whatsapp/MetaCloudApi'
 import { OnboardingPainel } from '@/pages/onboarding/OnboardingPainel'
+import { MonitorSites } from '@/pages/monitoramento/MonitorSites'
 import { CRMDashboardComAbas, CRMComAbas } from '@/pages/crm'
 import { AgenteFinanceiro } from '@/pages/agente/AgenteFinanceiro'
 import { Suporte } from '@/pages/suporte/Suporte'
@@ -174,6 +177,11 @@ const AppRoutes: React.FC = () => {
           }
         />
 
+        {/* Créditos do Duo e indicação (111): de toda a conta, sem permissão de módulo —
+            o saldo é da empresa e o link de indicação também. */}
+        <Route path="/creditos-duo" element={<PrivateRoute><CreditosDuo /></PrivateRoute>} />
+        <Route path="/indique" element={<PrivateRoute><Indique /></PrivateRoute>} />
+
         {/* Suporte é de todo mundo: sem requiredPermission — quem usa o sistema
             precisa poder pedir ajuda, seja qual for o papel dele. */}
         <Route path="/suporte" element={<PrivateRoute><Suporte /></PrivateRoute>} />
@@ -199,6 +207,9 @@ const AppRoutes: React.FC = () => {
 
         {/* Perfil - todos os usuários autenticados */}
         <Route path="/perfil" element={<UserProfile />} />
+
+        {/* Monitoramento de sites (102): só master@gestao.com — a página e o backend barram. */}
+        <Route path="/monitoramento" element={<MonitorSites />} />
 
         {/* Boas-vindas de conta nova: acompanhamento e modelos. Quem barra e o
             backend (super_admin); a pagina mostra "acesso restrito" para nao

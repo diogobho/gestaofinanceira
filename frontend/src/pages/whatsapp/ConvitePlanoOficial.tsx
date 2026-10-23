@@ -6,6 +6,7 @@ import { Card, Button } from '@/components/ui'
 import { useCapacidades } from '@/hooks/useCapacidades'
 import { canalWhatsappApi } from '@/api/canalWhatsapp'
 import { ConectarNumeroOficial } from './ConectarNumeroOficial'
+import { LinkVideo } from '@/tutoriais/LinkVideo'
 
 /**
  * Faixa que aparece para quem TEM direito ao número oficial e ainda está no QR.
@@ -52,14 +53,27 @@ export const ConvitePlanoOficial: React.FC = () => {
             <BadgeCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
           </span>
           <div className="min-w-0 flex-1">
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100">
+            <h3 className="font-semibold text-gray-800 dark:text-gray-100 flex flex-wrap items-center gap-x-2">
               O seu plano inclui o WhatsApp Oficial da Meta
+              {/* String, não { oficial }: aqui a conta ainda está no QR, e é justamente quem vai conectar. */}
+              <LinkVideo video="conectar-whatsapp-oficial" />
             </h3>
+            {/* Com o portfólio da empresa já criado, quem chega aqui é a equipe: cadastro da
+                empresa e cartão já foram feitos pelo dono, e prometer isso de novo assusta. */}
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
               É o canal que pode <b>iniciar conversa</b> sem expor o seu número a bloqueio.
-              A conexão é feita por você, na janela da própria Meta: ela pede o cadastro da
-              sua empresa, a verificação do número e uma forma de pagamento na conta dela —
-              as mensagens iniciadas por você são cobradas pela Meta, direto.
+              {oficial?.portfolio ? (
+                <>
+                  {' '}A empresa já está na Meta, com o cadastro e o cartão de pagamento feitos pelo
+                  dono da conta. Você só conecta o seu número, seguindo os passos abaixo.
+                </>
+              ) : (
+                <>
+                  {' '}A conexão é feita por você, na janela da própria Meta: ela pede o cadastro da
+                  sua empresa, a verificação do número e uma forma de pagamento na conta dela —
+                  as mensagens iniciadas por você são cobradas pela Meta, direto.
+                </>
+              )}
             </p>
 
             <ul className="mt-3 grid sm:grid-cols-3 gap-2 text-xs text-gray-600 dark:text-gray-300">

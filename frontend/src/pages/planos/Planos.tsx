@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Check, Zap, Crown, Star, Loader2, CreditCard, Lock } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { assinaturasApi, Plano, Assinatura, cicloDe, cicloReferencia, ciclosDisponiveis, calcularCobranca, economiaAnual, ROTULO_CICLO, COMPROMISSO_CICLO } from '@/api/assinaturas'
+import { assinaturasApi, Plano, Assinatura, cicloDe, cicloReferencia, ciclosDisponiveis, calcularCobranca, calcularParcelamento, economiaAnual, ROTULO_CICLO, COMPROMISSO_CICLO } from '@/api/assinaturas'
 import type { Ciclo } from '@/api/assinaturas'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/contexts/AuthContext'
@@ -37,6 +37,9 @@ export const Planos: React.FC = () => {
   const [usuariosPorPlano, setUsuariosPorPlano] = useState<Record<number, number>>({})
   const [billingType, setBillingType] = useState<'BOLETO' | 'PIX' | 'CREDIT_CARD'>('PIX')
   const [cpfCnpj, setCpfCnpj] = useState('')
+  // Parcelas no cartão: só em ciclo de vários meses, até uma por mês do ciclo.
+  const [parcelasEscolhidas, setParcelas] = useState(1)
+  const [jurosAoMes, setJurosAoMes] = useState(0)
 
   // Credit card fields
   const [cardHolder, setCardHolder] = useState('')
@@ -59,6 +62,7 @@ export const Planos: React.FC = () => {
       setPlanos(p)
       setAssinatura(a)
     }).finally(() => setLoading(false))
+    assinaturasApi.getJurosParcelamento().then(setJurosAoMes).catch(() => {})
   }, [])
 
   const qtdDe = (plano: Plano) => usuariosPorPlano[plano.id] ?? plano.usuarios_base ?? 1
@@ -72,6 +76,10 @@ export const Planos: React.FC = () => {
   const CICLOS = ciclosDisponiveis(planoReferencia)
   const [cicloEscolhido, setCiclo] = useState<Ciclo | null>(null)
   const ciclo: Ciclo = cicloEscolhido && CICLOS.includes(cicloEscolhido) ? cicloEscolhido : (CICLOS[0] ?? 'semestral')
+  const mesesDoCiclo = planoReferencia ? cicloDe(planoReferencia, ciclo).meses : 1
+  const podeParcelar = billingType === 'CREDIT_CARD' && mesesDoCiclo > 1
+  // Trocar de ciclo ou de forma de pagamento não pode deixar uma escolha impossível.
+  const parcelas = podeParcelar ? Math.min(parcelasEscolhidas, mesesDoCiclo) : 1
   const descontoDoCiclo = (c: Ciclo) => {
     if (!planoReferencia) return 0
     const alvo = cicloDe(planoReferencia, c)
@@ -128,6 +136,7 @@ export const Planos: React.FC = () => {
         credit_card_holder_info: creditCardHolderInfo,
         usuarios: qtdDe(plano),
         ciclo,
+        parcelas: parcelas > 1 ? parcelas : undefined,
       })
 
       if (billingType === 'PIX' && (resultado.pixQrCodeImage || resultado.pixQrCode)) {
@@ -312,6 +321,27 @@ export const Planos: React.FC = () => {
             </div>
           )}
 
+          {podeParcelar && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parcelas no cartão</label>
+              <select
+                value={parcelas}
+                onChange={e => setParcelas(Number(e.target.value))}
+                className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                {Array.from({ length: mesesDoCiclo }, (_, i) => i + 1).map(n => (
+                  <option key={n} value={n}>{n === 1 ? 'À vista (1x, sem juros)' : `${n}x com juros`}</option>
+                ))}
+              </select>
+              {parcelas > 1 && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Juros de {(jurosAoMes * 100).toFixed(2).replace('.', ',')}% ao mês. O valor de cada parcela aparece no plano abaixo.
+                  O parcelado cobre {mesesDoCiclo} meses; para continuar depois, é só contratar de novo.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               CPF / CNPJ (obrigatório para cobrança)
@@ -419,6 +449,15 @@ export const Planos: React.FC = () => {
                       )}
                     </div>
                   )}
+                  {parcelas > 1 && (() => {
+                    const p = calcularParcelamento(calcularCobranca(plano, cicloDe(plano, ciclo), qtdDe(plano)).total, parcelas, jurosAoMes)
+                    return (
+                      <div className="mt-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                        No cartão: {p.parcelas}x de R$ {p.valorParcela.toFixed(2).replace('.', ',')}
+                        <span className="font-normal text-gray-500 dark:text-gray-400"> (total R$ {p.total.toFixed(2).replace('.', ',')})</span>
+                      </div>
+                    )
+                  })()}
                   {plano.customizavel && qtdDe(plano) > (plano.usuarios_base ?? 0) && (
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       R$ {Number(cicloDe(plano, ciclo).preco_mensal).toFixed(2).replace('.', ',')} do plano

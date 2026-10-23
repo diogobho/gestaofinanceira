@@ -1,3 +1,4 @@
+import { escopoDono } from '../../shared/escopoFinanceiro';
 import { query } from '../../config/database';
 import { buildPaginationQuery, buildPaginatedResponse, addMonthsClamped, dividirEmParcelas, statusParcela, dataVencimentoDe } from '../../shared/utils';
 
@@ -7,11 +8,8 @@ export const despesasService = {
     let where = '1=1';
     const params: any[] = [];
 
-    // Multi-tenancy: filtrar por usuario_id (super_admin vê tudo, outros veem apenas seus dados)
-    if (filters.usuario_id && filters.nivel !== 'super_admin') {
-      params.push(filters.usuario_id);
-      where += ` AND usuario_id = $${params.length}`;
-    }
+    // Quem vê o quê: ver shared/escopoFinanceiro.ts (master/creator veem a empresa inteira)
+    where += escopoDono(filters, params, 'usuario_id');
 
     // Suportar novo campo "status" e manter compatibilidade com "pago"
     if (filters.status !== undefined && filters.status !== '') {
@@ -27,6 +25,11 @@ export const despesasService = {
     if (filters.categoria) {
       params.push(filters.categoria);
       where += ` AND categoria ILIKE '%' || $${params.length} || '%'`;
+    }
+    // Busca pela descrição — o Duo usa para achar o lançamento que a pessoa quer editar.
+    if (filters.busca) {
+      params.push(filters.busca);
+      where += ` AND descricao ILIKE '%' || $${params.length} || '%'`;
     }
     if (filters.tipo || filters.tipo_pagamento) {
       params.push(filters.tipo || filters.tipo_pagamento);
@@ -55,10 +58,7 @@ export const despesasService = {
     const params: any[] = [id];
 
     // Multi-tenancy: verificar permissão de acesso
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      params.push(filters.usuario_id);
-      where += ` AND usuario_id = $${params.length}`;
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     const result = await query(`SELECT * FROM despesas WHERE ${where}`, params);
     if (result.rows.length === 0) throw new Error('Despesa não encontrada');
@@ -197,10 +197,7 @@ export const despesasService = {
     ];
 
     // Multi-tenancy: garantir que apenas o dono pode atualizar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ' AND usuario_id = $13';
-      params.push(filters.usuario_id);
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     const result = await query(
       `UPDATE despesas SET
@@ -245,10 +242,7 @@ export const despesasService = {
     const params: any[] = [id];
 
     // Multi-tenancy: garantir que apenas o dono pode deletar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ' AND usuario_id = $2';
-      params.push(filters.usuario_id);
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     const result = await query(`DELETE FROM despesas WHERE ${where} RETURNING *`, params);
     if (result.rows.length === 0) throw new Error('Despesa não encontrada ou sem permissão');

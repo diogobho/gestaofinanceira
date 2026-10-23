@@ -108,6 +108,7 @@ export const authController = {
         // consentimento (LGPD) — qualquer outra coisa é "não pediu".
         optinWhatsapp: whatsapp_optin === true || whatsapp_optin === 'true',
         aceiteIp: ip,
+        ref: typeof req.body?.ref === 'string' ? req.body.ref : undefined,
       });
       return res.status(201).json(result);
     } catch (error: any) {

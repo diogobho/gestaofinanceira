@@ -20,7 +20,8 @@ import { instancia } from '../whatsapp/canal/instancia';
 import { ehPortaVirtual } from '../whatsapp/canal/contas';
 import { leadsService } from '../crm/leads/leads.service';
 import { telefonePlausivel } from '../crm/_shared/telefone';
-import { ErroGrupos, erroDaInstancia, portaDo } from './grupos.service';
+import { ErroGrupos, erroDaInstancia, portaDo, garantirTabelaBotao, SQL_PORTA_GRUPOS } from './grupos.service';
+import { isAdminEmpresa } from '../../shared/roles';
 import {
   chipDaVez, grupoComVaga, nomeDoGrupo, precisaDeGrupoNovo, slugDe, slugValido, utmLimpo,
 } from './campanhas-regras';
@@ -50,17 +51,37 @@ export interface EntradaCampanha {
   ativa?: boolean;
 }
 
-/** Chips que podem entrar numa campanha: usuários ativos da empresa, no QR Code. */
+/** Chips que podem entrar numa campanha: usuários ativos da empresa, no QR Code ou com chip de Grupos. */
 export async function chipsDaEmpresa(empresaId: number) {
   const r = await query(
-    `SELECT id, nome, whatsapp_porta FROM usuarios
-      WHERE empresa_id = $1 AND ativo = true AND whatsapp_porta IS NOT NULL
-      ORDER BY nome`,
+    `SELECT u.id, u.nome, ${SQL_PORTA_GRUPOS} AS whatsapp_porta FROM usuarios u
+       LEFT JOIN whatsapp_chip_grupos cg ON cg.usuario_id = u.id
+      WHERE u.empresa_id = $1 AND u.ativo = true AND ${SQL_PORTA_GRUPOS} IS NOT NULL
+      ORDER BY u.nome`,
     [empresaId]
   );
   return r.rows
     .filter((u: any) => !ehPortaVirtual(Number(u.whatsapp_porta)))
     .map((u: any) => ({ id: u.id, nome: u.nome, porta: Number(u.whatsapp_porta) }));
+}
+
+/** Funil, etapa e responsável de quem entra no grupo — da mesma empresa, ou erro. */
+export async function destinoDoLead(empresaId: number, e: { funil_id?: any; estagio_id?: any; responsavel_id?: any }) {
+  const funilId = Number(e.funil_id) || null;
+  if (!funilId) throw new ErroGrupos('Escolha o funil em que os leads vão entrar.');
+  const f = await query(`SELECT 1 FROM funis WHERE id = $1 AND empresa_id = $2`, [funilId, empresaId]);
+  if (!f.rows.length) throw new ErroGrupos('Funil não encontrado.');
+  const estagioId = Number(e.estagio_id) || null;
+  if (estagioId) {
+    const s = await query(`SELECT 1 FROM estagios_funil WHERE id = $1 AND funil_id = $2`, [estagioId, funilId]);
+    if (!s.rows.length) throw new ErroGrupos('A etapa escolhida não é deste funil.');
+  }
+  const responsavelId = Number(e.responsavel_id) || null;
+  if (responsavelId) {
+    const r = await query(`SELECT 1 FROM usuarios WHERE id = $1 AND empresa_id = $2 AND ativo = true`, [responsavelId, empresaId]);
+    if (!r.rows.length) throw new ErroGrupos('Responsável não encontrado.');
+  }
+  return { funilId, estagioId, responsavelId };
 }
 
 async function validar(u: Usuario, e: EntradaCampanha, atualId?: number) {
@@ -86,22 +107,7 @@ async function validar(u: Usuario, e: EntradaCampanha, atualId?: number) {
   let funilId: number | null = null;
   let estagioId: number | null = null;
   let responsavelId: number | null = null;
-  if (e.criar_lead) {
-    funilId = Number(e.funil_id) || null;
-    if (!funilId) throw new ErroGrupos('Escolha o funil em que os leads vão entrar.');
-    const f = await query(`SELECT 1 FROM funis WHERE id = $1 AND empresa_id = $2`, [funilId, u.empresa_id]);
-    if (!f.rows.length) throw new ErroGrupos('Funil não encontrado.');
-    estagioId = Number(e.estagio_id) || null;
-    if (estagioId) {
-      const s = await query(`SELECT 1 FROM estagios_funil WHERE id = $1 AND funil_id = $2`, [estagioId, funilId]);
-      if (!s.rows.length) throw new ErroGrupos('A etapa escolhida não é deste funil.');
-    }
-    responsavelId = Number(e.responsavel_id) || null;
-    if (responsavelId) {
-      const r = await query(`SELECT 1 FROM usuarios WHERE id = $1 AND empresa_id = $2 AND ativo = true`, [responsavelId, u.empresa_id]);
-      if (!r.rows.length) throw new ErroGrupos('Responsável não encontrado.');
-    }
-  }
+  if (e.criar_lead) ({ funilId, estagioId, responsavelId } = await destinoDoLead(u.empresa_id, e));
 
   return {
     nome, slug, limite, chips, modelo,
@@ -411,10 +417,14 @@ async function nomeConhecido(numero: string, empresaId: number): Promise<string 
   return r.rows[0]?.nome || null;
 }
 
-async function leadDaEntrada(c: any, grupoNome: string | null, numero: string, nome: string | null): Promise<number | null> {
+async function leadDaEntrada(
+  c: any, grupoNome: string | null, numero: string, nome: string | null,
+  /** Rodízio: chamado só quando um card NOVO vai nascer — duplicata não gasta a vez de ninguém. */
+  responsavelDaVez?: () => Promise<number | null>
+): Promise<number | null> {
   if (!c.criar_lead || !c.funil_id || !telefonePlausivel(numero)) return null;
   const carimbo = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-  const nota = `Campanha de grupo: ${c.nome}${grupoNome ? `\nGrupo: ${grupoNome}` : ''}`;
+  const nota = c.titulo || `Campanha de grupo: ${c.nome}${grupoNome ? `\nGrupo: ${grupoNome}` : ''}`;
 
   const dup = await leadsService.telefoneExiste(numero, c.empresa_id, undefined, c.funil_id);
   if (dup.existe && dup.lead_id) {
@@ -426,7 +436,7 @@ async function leadDaEntrada(c: any, grupoNome: string | null, numero: string, n
   }
   const estagio = await estagioDeEntrada(c.funil_id, c.estagio_id);
   if (!estagio) return null;
-  const dono = c.responsavel_id || c.criado_por;
+  const dono = (responsavelDaVez && await responsavelDaVez()) || c.responsavel_id || c.criado_por;
   try {
     const lead = await leadsService.create(c.empresa_id, dono, {
       funil_id: c.funil_id,
@@ -507,10 +517,11 @@ export async function registrarMovimento(
  */
 export async function sincronizarContagens(): Promise<void> {
   const r = await query(
-    `SELECT g.id, g.grupo_id, g.usuario_id, g.campanha_id, c.limite_por_grupo, c.criar_grupos, u.whatsapp_porta
+    `SELECT g.id, g.grupo_id, g.usuario_id, g.campanha_id, c.limite_por_grupo, c.criar_grupos, ${SQL_PORTA_GRUPOS} AS whatsapp_porta
        FROM grupos_campanhas_grupos g
        JOIN grupos_campanhas c ON c.id = g.campanha_id AND c.ativa
        JOIN usuarios u ON u.id = g.usuario_id
+       LEFT JOIN whatsapp_chip_grupos cg ON cg.usuario_id = u.id
       WHERE g.ativo AND (g.participantes_em IS NULL OR g.participantes_em < now() - interval '10 minutes')`
   );
   const porPorta = new Map<number, any[]>();
@@ -532,7 +543,10 @@ export async function sincronizarContagens(): Promise<void> {
       const g = grupos.find((x: any) => x.id === l.grupo_id);
       if (!g) continue; // o chip saiu do grupo: a tela mostra a contagem antiga, e o dono decide
       await query(
-        `UPDATE grupos_campanhas_grupos SET participantes = $2, participantes_em = now(), cheio = ($2 >= $3) WHERE id = $1`,
+        // Cast explícito: o mesmo $2 grava a coluna e entra na comparação, e sem ele o
+        // Postgres deduz dois tipos ("inconsistent types deduced for parameter $2") —
+        // a contagem ficou parada de 30/09 a 02/10/2026 por isso.
+        `UPDATE grupos_campanhas_grupos SET participantes = $2::int, participantes_em = now(), cheio = ($2::int >= $3::int) WHERE id = $1`,
         [l.id, Number(g.participantCount || 0), l.limite_por_grupo]
       );
       if (l.criar_grupos) campanhasTocadas.add(l.campanha_id);
@@ -549,44 +563,307 @@ export async function sincronizarContagens(): Promise<void> {
 
 const DIA_BRT = `(created_at AT TIME ZONE 'America/Sao_Paulo')::date`;
 
-export async function painel(u: Usuario, id: number, dias = 30) {
+export interface FiltrosPainel {
+  /** `YYYY-MM-DD`, Brasília. Sem os dois, vale `dias` (padrão 30) até hoje. */
+  inicio?: string;
+  fim?: string;
+  dias?: number;
+  /** jid do grupo (`…@g.us`): cliques mandados para ele, entradas e saídas nele. */
+  grupo?: string;
+  /** utm_source do clique (`(sem utm)` = sem). Só existe no clique: entrada não sabe de onde veio. */
+  utm?: string;
+}
+
+/** `YYYY-MM-DD` que existe de verdade — "2026-13-99" tem o formato e derrubava a consulta. */
+function dataOk(v?: string): v is string {
+  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(`${v}T12:00:00Z`);
+  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
+/** Período do painel em datas de Brasília: o escolhido, ou os últimos `dias` até hoje (teto 366). */
+export function periodoDoPainel(f: FiltrosPainel, hoje: string): { inicio: string; fim: string } {
+  let inicio = dataOk(f.inicio) ? f.inicio : '';
+  let fim = dataOk(f.fim) ? f.fim : '';
+  if (!inicio && !fim) {
+    const dias = Math.min(366, Math.max(1, Math.round(Number(f.dias) || 30)));
+    const d = new Date(`${hoje}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - (dias - 1));
+    return { inicio: d.toISOString().slice(0, 10), fim: hoje };
+  }
+  if (!fim) fim = hoje;
+  if (!inicio) inicio = fim;
+  if (inicio > fim) [inicio, fim] = [fim, inicio];
+  // Teto de um ano: a série é dia a dia.
+  const teto = new Date(`${fim}T12:00:00Z`);
+  teto.setUTCDate(teto.getUTCDate() - 365);
+  if (inicio < teto.toISOString().slice(0, 10)) inicio = teto.toISOString().slice(0, 10);
+  return { inicio, fim };
+}
+
+export async function painel(u: Usuario, id: number, f: FiltrosPainel = {}) {
   await daEmpresa(u, id);
-  const janela = Math.min(180, Math.max(1, Math.round(dias)));
-  const [porDia, porUtm, porGrupo, leads] = await Promise.all([
+  const hoje = (await query(`SELECT to_char((now() AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS d`)).rows[0].d;
+  const { inicio, fim } = periodoDoPainel(f, hoje);
+  const grupo = f.grupo && f.grupo.endsWith('@g.us') ? f.grupo : null;
+  const utm = f.utm ? String(f.utm).slice(0, 100) : null;
+
+  // $1 campanha · $2 início · $3 fim · $4 grupo · $5 utm
+  const params = [id, inicio, fim, grupo, utm];
+  const noPeriodo = (a: string) => `(${a}.created_at AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $2::date AND $3::date`;
+  const doGrupo = (a: string) => `($4::text IS NULL OR ${a}.grupo_id = $4)`;
+  const daUtm = (a: string) => `($5::text IS NULL OR coalesce(${a}.utm_source, '(sem utm)') = $5)`;
+  const cliques = `SELECT k.* FROM grupos_campanhas_cliques k WHERE k.campanha_id = $1 AND ${noPeriodo('k')} AND ${doGrupo('k')} AND ${daUtm('k')}`;
+  const eventos = `SELECT v.* FROM grupos_campanhas_eventos v WHERE v.campanha_id = $1 AND ${noPeriodo('v')} AND ${doGrupo('v')}`;
+
+  const [porDia, porUtm, porGrupo, totais] = await Promise.all([
     query(
-      `WITH d AS (SELECT generate_series((now() AT TIME ZONE 'America/Sao_Paulo')::date - ($2::int - 1),
-                                         (now() AT TIME ZONE 'America/Sao_Paulo')::date, '1 day')::date AS dia)
+      `WITH d AS (SELECT generate_series($2::date, $3::date, '1 day')::date AS dia),
+            k AS (${cliques}), v AS (${eventos})
        SELECT to_char(d.dia, 'YYYY-MM-DD') AS dia,
-              (SELECT count(*)::int FROM grupos_campanhas_cliques k WHERE k.campanha_id = $1 AND ${DIA_BRT.replace('created_at', 'k.created_at')} = d.dia) AS cliques,
-              (SELECT count(*)::int FROM grupos_campanhas_eventos v WHERE v.campanha_id = $1 AND v.tipo = 'entrada' AND ${DIA_BRT.replace('created_at', 'v.created_at')} = d.dia) AS entradas,
-              (SELECT count(*)::int FROM grupos_campanhas_eventos v WHERE v.campanha_id = $1 AND v.tipo = 'saida' AND ${DIA_BRT.replace('created_at', 'v.created_at')} = d.dia) AS saidas
+              (SELECT count(*)::int FROM k WHERE ${DIA_BRT.replace('created_at', 'k.created_at')} = d.dia) AS cliques,
+              (SELECT count(*)::int FROM v WHERE v.tipo = 'entrada' AND ${DIA_BRT.replace('created_at', 'v.created_at')} = d.dia) AS entradas,
+              (SELECT count(*)::int FROM v WHERE v.tipo = 'saida' AND ${DIA_BRT.replace('created_at', 'v.created_at')} = d.dia) AS saidas
          FROM d ORDER BY d.dia`,
-      [id, janela]
+      params
     ),
+    // Origem: no período e no grupo, mas SEM o filtro de utm — é a lista de onde se escolhe.
     query(
-      `SELECT coalesce(utm_source, '(sem utm)') AS origem, count(*)::int AS cliques
-         FROM grupos_campanhas_cliques WHERE campanha_id = $1 GROUP BY 1 ORDER BY 2 DESC LIMIT 20`,
-      [id]
+      `SELECT coalesce(k.utm_source, '(sem utm)') AS origem, count(*)::int AS cliques
+         FROM grupos_campanhas_cliques k
+        WHERE k.campanha_id = $1 AND ${noPeriodo('k')} AND ${doGrupo('k')}
+        GROUP BY 1 ORDER BY 2 DESC LIMIT 30`,
+      params.slice(0, 4)
     ),
     query(
       `SELECT g.grupo_id, g.nome,
-              count(*) FILTER (WHERE v.tipo = 'entrada')::int AS entradas,
-              count(*) FILTER (WHERE v.tipo = 'saida')::int AS saidas
+              count(v.*) FILTER (WHERE v.tipo = 'entrada')::int AS entradas,
+              count(v.*) FILTER (WHERE v.tipo = 'saida')::int AS saidas
          FROM grupos_campanhas_grupos g
-         LEFT JOIN grupos_campanhas_eventos v ON v.campanha_id = g.campanha_id AND v.grupo_id = g.grupo_id
-        WHERE g.campanha_id = $1 GROUP BY g.grupo_id, g.nome, g.ordem ORDER BY g.ordem`,
-      [id]
+         LEFT JOIN grupos_campanhas_eventos v
+           ON v.campanha_id = g.campanha_id AND v.grupo_id = g.grupo_id AND ${noPeriodo('v')}
+        WHERE g.campanha_id = $1
+        GROUP BY g.grupo_id, g.nome, g.ordem ORDER BY g.ordem`,
+      params.slice(0, 3)
     ),
     query(
-      `SELECT count(DISTINCT lead_id)::int AS n FROM grupos_campanhas_eventos WHERE campanha_id = $1 AND lead_id IS NOT NULL`,
-      [id]
+      `WITH k AS (${cliques}), v AS (${eventos})
+       SELECT (SELECT count(*)::int FROM k) AS cliques,
+              (SELECT count(*)::int FROM v WHERE tipo = 'entrada') AS entradas,
+              (SELECT count(*)::int FROM v WHERE tipo = 'saida') AS saidas,
+              (SELECT count(DISTINCT lead_id)::int FROM v WHERE lead_id IS NOT NULL) AS leads`,
+      params
     ),
   ]);
-  return { porDia: porDia.rows, porUtm: porUtm.rows, porGrupo: porGrupo.rows, leads: leads.rows[0].n };
+  return {
+    periodo: { inicio, fim },
+    porDia: porDia.rows,
+    porUtm: porUtm.rows,
+    porGrupo: porGrupo.rows,
+    totais: totais.rows[0],
+    leads: totais.rows[0].leads,
+  };
 }
 
 /** Porta QR de um chip (para as mensagens da campanha, grupo a grupo). */
 export async function portaDoChip(usuarioId: number): Promise<number | null> {
   const p = await portaDo(usuarioId);
   return p && !ehPortaVirtual(p) ? p : null;
+}
+
+// ─── Levar para o CRM quem entra no grupo (01/10/2026) ────────────────────────
+// Regra por GRUPO, do chip que está nele: quem entrar vira lead no funil e etapa escolhidos.
+// Até aqui só a boas-vindas fazia isso, e só com ela ligada — levar a pessoa para o CRM
+// obrigava a mandar mensagem no grupo. O mesmo `leadDaEntrada` da campanha: duplicata no
+// funil ganha anotação, sem card novo e sem mudar de etapa.
+// Mora aqui, e não em grupos.service, porque este arquivo já importa aquele.
+
+export interface LevarParaCrm {
+  funil_id?: number | null;
+  estagio_id?: number | null;
+  responsavel_id?: number | null;
+  /** Rodízio: os leads se dividem por igual entre estes usuários (vazio = responsável fixo). */
+  distribuir_entre?: number[] | null;
+  origem?: string | null;
+  ativa?: boolean;
+}
+
+/**
+ * A vez do rodízio. O ponteiro anda num UPDATE atômico (3 instâncias no cluster, e duas
+ * entradas no mesmo segundo não podem cair na mesma pessoa). A roda é EXATAMENTE quem foi
+ * marcado (1, 2, 3…), na ordem marcada; só sai dela quem deixou a empresa ou foi
+ * desativado. Até 06/10/2026 quem estava no oficial tinha a preferência e passava por cima
+ * da escolha — marcar três pessoas e ver os leads irem para uma só não era o que a tela dizia.
+ */
+/** Da roda, quem tem chip de QR conectado agora (pergunta à instância; 3s de limite). */
+async function conectadosDaRoda(ids: number[], empresaId: number): Promise<number[]> {
+  const r = await query(
+    `SELECT u.id, ${SQL_PORTA_GRUPOS} AS porta FROM usuarios u
+       LEFT JOIN whatsapp_chip_grupos cg ON cg.usuario_id = u.id
+      WHERE u.id = ANY($1::int[]) AND u.empresa_id = $2`,
+    [ids, empresaId]
+  );
+  const porta = new Map<number, number | null>(r.rows.map((x: any) => [x.id, x.porta ? Number(x.porta) : null]));
+  const ok = await Promise.all(ids.map(async (id) => {
+    const p = porta.get(id);
+    if (!p || ehPortaVirtual(p)) return false;
+    const st = await instancia(p).get('/status', { timeout: 3000 }).catch(() => null);
+    return st?.data?.status === 'connected';
+  }));
+  return ids.filter((_, i) => ok[i]);
+}
+
+async function responsavelDoRodizio(usuarioId: number, grupoId: string, empresaId: number, lista: number[]): Promise<number | null> {
+  const ativos = (await query(
+    `SELECT id FROM usuarios WHERE id = ANY($1::int[]) AND empresa_id = $2 AND ativo`,
+    [lista, empresaId]
+  )).rows.map((a: any) => a.id);
+  const todos = lista.filter((id) => ativos.includes(id));
+  if (!todos.length) return null;
+  // Quem está com o chip desconectado sai da vez enquanto estiver (06/10/2026: a Hellen
+  // caiu e os leads iam para um WhatsApp que não manda nem recebe). Todos fora: roda inteira.
+  const conectados = await conectadosDaRoda(todos, empresaId);
+  const roda = conectados.length ? conectados : todos;
+  const r = await query(
+    `UPDATE grupos_crm_lead SET rodizio_pos = rodizio_pos + 1 WHERE usuario_id = $1 AND grupo_id = $2 RETURNING rodizio_pos`,
+    [usuarioId, grupoId]
+  );
+  const pos = Number(r.rows[0]?.rodizio_pos || 1) - 1;
+  return roda[pos % roda.length];
+}
+
+/**
+ * As regras do chip de quem pede, com os nomes de funil/etapa/responsável para a tela.
+ * Quem administra a empresa (creator/master) vê as de TODOS os chips (09/10/2026): a regra
+ * é por chip, e o dono da conta não enxergava a do Clube do Livro feita no número da Hellen
+ * — duas regras no mesmo grupo disputam a entrada e ninguém via as duas juntas.
+ */
+export async function listarLevarParaCrm(u: Usuario) {
+  await garantirTabelaBotao();
+  const todos = isAdminEmpresa(u);
+  const r = await query(
+    `SELECT g.usuario_id AS dono_id, d.nome AS dono_nome,
+            g.grupo_id, g.grupo_nome, g.funil_id, f.nome AS funil_nome, g.estagio_id, e.nome AS estagio_nome,
+            g.responsavel_id, r.nome AS responsavel_nome, g.origem, g.ativa,
+            COALESCE(g.distribuir_entre, '{}') AS distribuir_entre,
+            (SELECT array_agg(x.nome ORDER BY array_position(g.distribuir_entre, x.id)) FROM usuarios x
+              WHERE x.id = ANY(g.distribuir_entre)) AS distribuir_nomes
+       FROM grupos_crm_lead g
+       JOIN funis f ON f.id = g.funil_id
+       LEFT JOIN estagios_funil e ON e.id = g.estagio_id
+       LEFT JOIN usuarios r ON r.id = g.responsavel_id
+       JOIN usuarios d ON d.id = g.usuario_id
+      WHERE g.empresa_id = $2 AND ($3 OR g.usuario_id = $1)
+      ORDER BY (g.usuario_id = $1) DESC, d.nome, g.grupo_nome`,
+    [u.userId, u.empresa_id, todos]
+  );
+  return r.rows;
+}
+
+/**
+ * De quem é a regra que se quer mudar: a do próprio chip, ou — só para quem administra a
+ * empresa — a de outro usuário dela.
+ */
+async function donoDaRegra(u: Usuario, donoId?: number | null): Promise<number> {
+  const id = Number(donoId) || u.userId;
+  if (id === u.userId) return id;
+  if (!isAdminEmpresa(u)) throw new ErroGrupos('Só quem administra a conta altera a regra de outro número.', 403);
+  const ok = await query(`SELECT 1 FROM usuarios WHERE id = $1 AND empresa_id = $2`, [id, u.empresa_id]);
+  if (!ok.rows[0]) throw new ErroGrupos('Regra não encontrada.', 404);
+  return id;
+}
+
+/** Liga/atualiza (`regra` preenchida) ou apaga (`null`) a regra do grupo no chip de quem pede. */
+export async function salvarLevarParaCrm(u: Usuario, grupoId: string, grupoNome: string | null, regra: LevarParaCrm | null, donoId?: number | null) {
+  if (!/@g\.us$/.test(grupoId)) throw new ErroGrupos('Grupo inválido.');
+  await garantirTabelaBotao();
+  const dono = await donoDaRegra(u, donoId);
+  // Regra de outro número só se edita, não se cria: o grupo novo sai da lista do PRÓPRIO chip.
+  if (dono !== u.userId && regra) {
+    const existe = await query(`SELECT 1 FROM grupos_crm_lead WHERE usuario_id = $1 AND grupo_id = $2`, [dono, grupoId]);
+    if (!existe.rows[0]) throw new ErroGrupos('Regra não encontrada.', 404);
+  }
+  if (!regra) {
+    await query(`DELETE FROM grupos_crm_lead WHERE usuario_id = $1 AND grupo_id = $2`, [dono, grupoId]);
+    return { success: true };
+  }
+  const d = await destinoDoLead(u.empresa_id, regra);
+  const origem = String(regra.origem || '').trim().slice(0, 50) || null;
+  const pedidos = [...new Set((Array.isArray(regra.distribuir_entre) ? regra.distribuir_entre : []).map(Number).filter((n) => n > 0))];
+  let distribuir: number[] | null = null;
+  if (pedidos.length) {
+    const ok = (await query(`SELECT id FROM usuarios WHERE id = ANY($1::int[]) AND empresa_id = $2 AND ativo`, [pedidos, u.empresa_id])).rows.map((r: any) => r.id);
+    if (ok.length !== pedidos.length) throw new ErroGrupos('Alguém do rodízio não é usuário ativo desta empresa.');
+    distribuir = pedidos;
+  }
+  await query(
+    `INSERT INTO grupos_crm_lead (usuario_id, grupo_id, empresa_id, grupo_nome, funil_id, estagio_id, responsavel_id, origem, ativa, distribuir_entre)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     ON CONFLICT (usuario_id, grupo_id) DO UPDATE SET grupo_nome = COALESCE($4, grupos_crm_lead.grupo_nome),
+       funil_id = $5, estagio_id = $6, responsavel_id = $7, origem = $8, ativa = $9, distribuir_entre = $10, atualizado_em = now()`,
+    [dono, grupoId, u.empresa_id, grupoNome ? String(grupoNome).slice(0, 255) : null,
+     d.funilId, d.estagioId, distribuir ? null : d.responsavelId, origem, regra.ativa !== false, distribuir]
+  );
+  // Um grupo, uma regra ligada (09/10/2026): com o chip 2 da Jéssica e o número da Débora
+  // no Desafio 52, cada entrada virava DOIS cards (funil 24 e 74), um por chip. Ligar
+  // aqui desliga a dos outros números no mesmo grupo — o rodízio é o jeito de dividir.
+  let desligadas = 0;
+  if (regra.ativa !== false) {
+    const r = await query(
+      `UPDATE grupos_crm_lead SET ativa = false, atualizado_em = now()
+        WHERE empresa_id = $1 AND grupo_id = $2 AND usuario_id <> $3 AND ativa`,
+      [u.empresa_id, grupoId, dono]
+    );
+    desligadas = r.rowCount || 0;
+  }
+  return { success: true, desligadas };
+}
+
+/**
+ * Evento de entrada no grupo: quem entrou vira lead, se o dono da porta ligou "Levar para
+ * o CRM" nesse grupo. Grupo de campanha que já cria lead fica de fora — senão a mesma
+ * entrada seria anotada duas vezes no card.
+ */
+export async function leadsDoGrupo(donoId: number, empresaId: number, grupoId: string, participantes: any[]): Promise<number> {
+  await garantirTabelaBotao();
+  const r = await query(
+    `SELECT g.* FROM grupos_crm_lead g
+      WHERE g.empresa_id = $1 AND g.usuario_id = $2 AND g.grupo_id = $3 AND g.ativa
+        AND NOT EXISTS (SELECT 1 FROM grupos_campanhas_grupos cg JOIN grupos_campanhas c ON c.id = cg.campanha_id
+                         WHERE cg.grupo_id = g.grupo_id AND cg.usuario_id = g.usuario_id AND c.ativa AND c.criar_lead)`,
+    [empresaId, donoId, grupoId]
+  );
+  const a = r.rows[0];
+  if (!a) return 0;
+  // Cada chip no grupo recebe o mesmo evento de entrada. Se ainda houver mais de uma regra
+  // ligada (de antes da trava em salvarLevarParaCrm), só a mais recente cria o card.
+  const vencedora = await query(
+    `SELECT g.usuario_id FROM grupos_crm_lead g
+      WHERE g.empresa_id = $1 AND g.grupo_id = $2 AND g.ativa
+        AND NOT EXISTS (SELECT 1 FROM grupos_campanhas_grupos cg JOIN grupos_campanhas c ON c.id = cg.campanha_id
+                         WHERE cg.grupo_id = g.grupo_id AND cg.usuario_id = g.usuario_id AND c.ativa AND c.criar_lead)
+      ORDER BY g.atualizado_em DESC, g.usuario_id LIMIT 1`,
+    [empresaId, grupoId]
+  );
+  if (Number(vencedora.rows[0]?.usuario_id) !== Number(donoId)) return 0;
+  const nomeGrupo = a.grupo_nome || 'grupo do WhatsApp';
+  const c = {
+    empresa_id: empresaId, nome: nomeGrupo, criar_lead: true, funil_id: a.funil_id, estagio_id: a.estagio_id,
+    responsavel_id: a.responsavel_id, criado_por: a.usuario_id, origem: a.origem || nomeGrupo.slice(0, 50),
+    titulo: `Entrou no grupo do WhatsApp: ${nomeGrupo}`,
+  };
+  let n = 0;
+  for (const p of participantes || []) {
+    const jid = String(p?.jid || '');
+    if (!/@(s\.whatsapp\.net|c\.us)$/.test(jid)) continue; // @lid sem número não vira lead
+    const vez = a.distribuir_entre?.length
+      ? () => responsavelDoRodizio(a.usuario_id, a.grupo_id, empresaId, a.distribuir_entre)
+      : undefined;
+    const id = await leadDaEntrada(c, nomeGrupo, jid.replace(/@.*$/, ''), p?.nome || null, vez).catch((e: any) => {
+      console.error(`${PREFIXO} lead do grupo (${jid}):`, e?.message);
+      return null;
+    });
+    if (id) n++;
+  }
+  return n;
 }

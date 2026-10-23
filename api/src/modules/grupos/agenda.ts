@@ -57,17 +57,27 @@ export function montarBoasVindas(
   modelo: string,
   entrantes: Entrante[],
   nomeGrupo: string | null,
-  mencionar: boolean
+  mencionar: boolean,
+  privado = false
 ): { texto: string; mencoes: string[] } {
   const numeros = entrantes.map((e) => e.jid.replace(/@.*$/, ''));
   const nomes = entrantes.map((e, i) => (e.nome || '').trim() || (mencionar ? `@${numeros[i]}` : ''));
   const primeiros = nomes.map((n) => (n.startsWith('@') ? n : n.split(/\s+/)[0]));
   const arrobas = numeros.map((n) => `@${n}`).join(' ');
 
-  let texto = modelo
-    .replace(/\{\{\s*nome\s*\}\}/gi, juntarNomes(nomes) || 'pessoal')
-    .replace(/\{\{\s*primeiro_nome\s*\}\}/gi, juntarNomes(primeiros) || 'pessoal')
-    .replace(/\{\{\s*nome_grupo\s*\}\}/gi, nomeGrupo || 'grupo');
+  // No grupo, sem nome vira "pessoal". No privado é UMA pessoa: "Olá pessoal, como
+  // você está?" denunciava a automação (#322). Lá o nome sai e a frase se ajusta.
+  let texto = modelo;
+  for (const [variavel, valor] of [['nome', juntarNomes(nomes)], ['primeiro_nome', juntarNomes(primeiros)]] as const) {
+    const v = `\\{\\{\\s*${variavel}\\s*\\}\\}`;
+    texto = valor || !privado
+      ? texto.replace(new RegExp(v, 'gi'), valor || 'pessoal')
+      : texto
+          .replace(new RegExp(`,[ \\t]*${v}`, 'gi'), '')       // "ao Clube, {{v}}!" → "ao Clube!"
+          .replace(new RegExp(`[ \\t]+${v}`, 'gi'), '')        // "Olá {{v}}, tudo" → "Olá, tudo"
+          .replace(new RegExp(`${v}[ \\t]*,?[ \\t]*`, 'gi'), ''); // "{{v}}, tudo" → "tudo"
+  }
+  texto = texto.replace(/\{\{\s*nome_grupo\s*\}\}/gi, nomeGrupo || 'grupo');
 
   if (!mencionar) return { texto: texto.replace(/\{\{\s*mencoes\s*\}\}/gi, '').trim(), mencoes: [] };
 

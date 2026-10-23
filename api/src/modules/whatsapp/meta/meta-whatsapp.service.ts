@@ -485,6 +485,12 @@ export interface NovoTemplate {
 export function problemaNoTemplate(novo: NovoTemplate): string | null {
   if (!/^[a-z0-9_]{1,512}$/.test(novo.nome)) return 'O nome só aceita letras minúsculas, números e _';
   if (novo.corpo.length > 1024) return 'O corpo pode ter no máximo 1024 caracteres';
+  // A Meta recusa ("Variables can't be at the start or end") e não conta pontuação como
+  // texto: "… {{2}} ou {{3}}?" foi recusado em 06/10/2026.
+  const corpoSemPontas = novo.corpo.trim().replace(/^[\s.,;:!?¿¡]+|[\s.,;:!?¿¡]+$/g, '');
+  if (/^\{\{\s*\w+\s*\}\}|\{\{\s*\w+\s*\}\}$/.test(corpoSemPontas)) {
+    return 'O corpo não pode começar nem terminar com variável (pontuação não conta): escreva um texto depois dela';
+  }
   const cab = (novo.cabecalho ?? '').trim();
   if (cab) {
     if (cab.length > 60) return 'O cabeçalho pode ter no máximo 60 caracteres';

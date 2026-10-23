@@ -1,6 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
 import { leadsService, FiltrosLead, normalizarOrdem } from './leads.service';
+
+/** `?tags=12,25` → [12, 25]. Só inteiros positivos; o resto é ignorado. */
+export function lerTagIds(valor: unknown): number[] | undefined {
+  const ids = String(Array.isArray(valor) ? valor.join(',') : valor ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter((x) => /^\d{1,9}$/.test(x))
+    .map(Number)
+    .filter((n) => n > 0);
+  return ids.length ? [...new Set(ids)].slice(0, 50) : undefined;
+}
 import { contatosService } from '../contatos/contatos.service';
+import { isAdminEmpresa } from '../../../shared/roles';
+
+/** funil_id obrigatório, estagio_id opcional (sem ele = funil inteiro). */
+export function lerAlvoEmMassa(fonte: any): { funilId: number; estagioId?: number } | null {
+  const funilId = Number(fonte?.funil_id);
+  const estagioId = fonte?.estagio_id != null && fonte.estagio_id !== '' ? Number(fonte.estagio_id) : undefined;
+  if (!Number.isInteger(funilId) || funilId <= 0) return null;
+  if (estagioId !== undefined && (!Number.isInteger(estagioId) || estagioId <= 0)) return null;
+  return { funilId, estagioId };
+}
 
 export const leadsController = {
   async listByFunil(req: Request, res: Response, next: NextFunction) {
@@ -13,6 +34,7 @@ export const leadsController = {
         responsavel_id,
         temperatura,
         origem,
+        tags,
         com_tarefa_atrasada,
         com_tarefa_hoje,
         sem_tarefa,
@@ -28,6 +50,7 @@ export const leadsController = {
         responsavel_id: responsavel_id ? parseInt(responsavel_id as string) : undefined,
         temperatura: temperatura as string,
         origem: origem ? (origem as string).trim() : undefined,
+        tag_ids: lerTagIds(tags),
         com_tarefa_atrasada: com_tarefa_atrasada === 'true',
         com_tarefa_hoje: com_tarefa_hoje === 'true',
         sem_tarefa: sem_tarefa === 'true',
@@ -56,7 +79,7 @@ export const leadsController = {
       const empresaId = (req as any).user.empresa_id;
       const { estagioId } = req.params;
       const {
-        arquivados, responsavel_id, temperatura, origem,
+        arquivados, responsavel_id, temperatura, origem, tags,
         com_tarefa_atrasada, com_tarefa_hoje, sem_tarefa,
         aguardando_resposta, com_mensagens_nao_lidas,
         com_telefone, sem_nome_real, search, ordenar,
@@ -68,6 +91,7 @@ export const leadsController = {
         responsavel_id: responsavel_id ? parseInt(responsavel_id as string) : undefined,
         temperatura: temperatura as string,
         origem: origem ? (origem as string).trim() : undefined,
+        tag_ids: lerTagIds(tags),
         com_tarefa_atrasada: com_tarefa_atrasada === 'true',
         com_tarefa_hoje: com_tarefa_hoje === 'true',
         sem_tarefa: sem_tarefa === 'true',
@@ -199,7 +223,8 @@ export const leadsController = {
       const {
         responsavel_id, nome, telefone, email, empresa, cargo, titulo, cpf_cnpj,
         valor_potencial, temperatura, probabilidade,
-        data_previsao_fechamento, notas, arquivado, origem
+        data_previsao_fechamento, notas, arquivado, origem,
+        negocio, objetivo, desafio, duvida
       } = req.body;
 
       const lead = await leadsService.update(parseInt(id), empresaId, usuarioId, {
@@ -217,7 +242,11 @@ export const leadsController = {
         data_previsao_fechamento,
         notas,
         arquivado,
-        origem
+        origem,
+        negocio,
+        objetivo,
+        desafio,
+        duvida
       });
 
       if (!lead) {
@@ -326,6 +355,38 @@ export const leadsController = {
       }
 
       res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /leads/excluir-em-massa?funil_id=&estagio_id= → quantos sairiam (para a confirmação)
+  async previaExclusaoEmMassa(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!isAdminEmpresa(user)) return res.status(403).json({ message: 'Só quem administra a conta pode excluir leads em massa' });
+      const alvo = lerAlvoEmMassa(req.query);
+      if (!alvo) return res.status(400).json({ message: 'Informe o funil' });
+      const r = await leadsService.alvoExclusaoEmMassa(user.empresa_id, alvo.funilId, alvo.estagioId);
+      if (!r) return res.status(404).json({ message: 'Funil ou estágio não encontrado' });
+      res.json(r);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /leads/excluir-em-massa { funil_id, estagio_id? }
+  async excluirEmMassa(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!isAdminEmpresa(user)) return res.status(403).json({ message: 'Só quem administra a conta pode excluir leads em massa' });
+      const alvo = lerAlvoEmMassa(req.body);
+      if (!alvo) return res.status(400).json({ message: 'Informe o funil' });
+      const r = await leadsService.excluirEmMassa(user.empresa_id, alvo.funilId, alvo.estagioId);
+      if (!r) return res.status(404).json({ message: 'Funil ou estágio não encontrado' });
+      console.log(`[leads] exclusão em massa: empresa ${user.empresa_id}, usuário ${user.id}, funil ${alvo.funilId}` +
+        `${alvo.estagioId ? `, estágio ${alvo.estagioId}` : ''} → ${r.excluidos} leads`);
+      res.json(r);
     } catch (error) {
       next(error);
     }
@@ -482,6 +543,8 @@ export const leadsController = {
         );
       }
 
+      contatoId = await contatosService.contatoDoRemetente(parseInt(id), contatoId!, remetenteId, empresaId);
+
       const resultado = await contatosService.enviarMensagem(
         remetenteId,
         empresaId,
@@ -552,6 +615,8 @@ export const leadsController = {
         ]);
       }
 
+      contatoId = await contatosService.contatoDoRemetente(leadId, contatoId!, remetenteId, empresaId);
+
       const resultado = await contatosService.enviarModeloWhatsApp(
         remetenteId,
         empresaId,
@@ -616,6 +681,8 @@ export const leadsController = {
           [contatoId, parseInt(id), empresaId]
         );
       }
+
+      contatoId = await contatosService.contatoDoRemetente(parseInt(id), contatoId!, remetenteId, empresaId);
 
       const resultado = await contatosService.enviarMedia(
         remetenteId,
@@ -704,7 +771,7 @@ export const leadsController = {
         return res.json([]);
       }
 
-      const mensagens = await contatosService.getHistoricoMensagens(
+      const mensagens = await contatosService.getHistoricoDoNumero(
         lead.contato_whatsapp_id,
         empresaId,
         limit ? parseInt(limit as string) : 50

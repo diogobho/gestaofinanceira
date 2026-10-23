@@ -11,7 +11,7 @@ import { normalizarOrdem } from '../src/modules/crm/leads/leads.service';
 describe('normalizarOrdem', () => {
   test('aceita todas as ordens da tela', () => {
     for (const o of ['manual', 'recentes', 'antigos', 'mensagem', 'mais_recebidas',
-      'nome_az', 'nome_za', 'valor', 'temperatura']) {
+      'nome_az', 'nome_za', 'valor', 'temperatura', 'janela_24h']) {
       assert.equal(normalizarOrdem(o), o);
     }
   });

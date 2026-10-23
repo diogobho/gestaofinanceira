@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { X, Trash2, MessageSquare, Send, UserPlus, Bot } from 'lucide-react'
 import { useUpdateEstagio, useDeleteEstagio, useCreateEstagio, useUsuariosEmpresa } from '@/hooks/useCRM'
-import { estagiosApi } from '@/api/crm'
-import type { EstagioFunil } from '@/types/crm'
+import { estagiosApi, respostasBotaoApi, type RegraRespostaBotao } from '@/api/crm'
+import toast from 'react-hot-toast'
+import RespostasBotaoConfig from './RespostasBotaoConfig'
+import type { EstagioFunil, TarefaDoEstagio } from '@/types/crm'
 import CadenciaConfig, {
   CadenciaValue,
   cadenciaPadrao,
@@ -16,6 +18,8 @@ import ReuniaoLembretesConfig, {
   configParaLembretes,
   lembretesParaConfig,
 } from './ReuniaoLembretesConfig'
+import TarefasEntradaConfig from './TarefasEntradaConfig'
+import { LinkVideo } from '@/tutoriais/LinkVideo'
 
 interface EstagioSettingsModalProps {
   isOpen: boolean
@@ -66,6 +70,11 @@ export default function EstagioSettingsModal({
   const [instrucoesAgenteIa, setInstrucoesAgenteIa] = useState('')
   // Lembretes de reunião (−24h/−1h + resgate de no-show)
   const [reuniaoLembretes, setReuniaoLembretes] = useState<ReuniaoLembretesValue>(reuniaoLembretesPadrao())
+  // Tarefas criadas ao entrar no estágio (108)
+  const [tarefasEntrada, setTarefasEntrada] = useState<TarefaDoEstagio[]>([])
+  // Respostas por botão (094): tabela própria, salva junto com o estágio.
+  const [respostasBotao, setRespostasBotao] = useState<RegraRespostaBotao[]>([])
+  const [respostasCarregadas, setRespostasCarregadas] = useState(false)
 
   const updateEstagio = useUpdateEstagio()
   const deleteEstagio = useDeleteEstagio()
@@ -87,6 +96,7 @@ export default function EstagioSettingsModal({
       setAgenteIaAtivo(estagio.agente_ia_ativo ?? false)
       setInstrucoesAgenteIa(estagio.instrucoes_agente_ia ?? '')
       setReuniaoLembretes(configParaLembretes(estagio.reuniao_lembretes))
+      setTarefasEntrada(estagio.tarefas_entrada ?? [])
       const base = followupConfigParaCadencia(estagio.followup_config)
       if (appendPassoOnOpen) {
         // "+ Adicionar passo" vindo do Fluxo: preserva os passos existentes e anexa um novo.
@@ -109,10 +119,21 @@ export default function EstagioSettingsModal({
       setAutoCriarUsuarios([])
       setAgenteIaAtivo(false)
       setReuniaoLembretes(reuniaoLembretesPadrao())
+      setTarefasEntrada([])
       setCadencia(cadenciaPadrao())
     }
     setShowDeleteConfirm(false)
   }, [estagio, mode, isOpen, appendPassoOnOpen])
+
+  useEffect(() => {
+    setRespostasBotao([])
+    setRespostasCarregadas(false)
+    if (isOpen && mode === 'edit' && estagio?.id) {
+      respostasBotaoApi.listar(estagio.id)
+        .then(r => { setRespostasBotao(r); setRespostasCarregadas(true) })
+        .catch(() => {})
+    }
+  }, [isOpen, mode, estagio?.id])
 
   // Carregar estágios do funil para o seletor de automação
   useEffect(() => {
@@ -127,6 +148,17 @@ export default function EstagioSettingsModal({
     if (!nome.trim()) return
 
     if (mode === 'edit' && estagio) {
+      // Primeiro as respostas: é onde a validação recusa ("escreva o texto do botão"), e
+      // falhar antes de gravar o resto deixa o modal aberto com tudo que a pessoa digitou.
+      // Sem ter carregado a lista, não grava — gravaria [] por cima das regras existentes.
+      if (respostasCarregadas) {
+        try {
+          await respostasBotaoApi.salvar(estagio.id, respostasBotao)
+        } catch (e: any) {
+          toast.error(e?.response?.data?.message || 'Não foi possível salvar as respostas por botão')
+          return
+        }
+      }
       await updateEstagio.mutateAsync({
         id: estagio.id,
         data: {
@@ -139,6 +171,7 @@ export default function EstagioSettingsModal({
           agente_ia_ativo: agenteIaAtivo,
           instrucoes_agente_ia: instrucoesAgenteIa,
           reuniao_lembretes: lembretesParaConfig(reuniaoLembretes),
+          tarefas_entrada: tarefasEntrada.filter(t => t.titulo.trim()),
         }
       })
     } else {
@@ -160,7 +193,7 @@ export default function EstagioSettingsModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl">
         {/* Header */}
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-800">
@@ -310,6 +343,7 @@ export default function EstagioSettingsModal({
                   <span className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
                     <Bot size={15} className="text-primary-500" />
                     Agente de IA reativo neste estágio
+                    <LinkVideo video="agente-ia-etapa" />
                   </span>
                   <span className="block text-xs text-gray-400 mt-0.5">
                     Quando ligado, o agente <strong>responde</strong> às mensagens que o lead enviar enquanto estiver neste estágio,
@@ -360,6 +394,7 @@ export default function EstagioSettingsModal({
                   <span className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
                     <UserPlus size={15} className="text-emerald-500" />
                     Criar lead automaticamente
+                    <LinkVideo video="leads-automaticos" />
                   </span>
                   <span className="block text-xs text-gray-400 mt-0.5">
                     Quando um contato mandar mensagem no WhatsApp, cria um lead neste estágio.
@@ -414,6 +449,21 @@ export default function EstagioSettingsModal({
                 onChange={setCadencia}
                 titulo="Follow-up automático"
               />
+            </div>
+          )}
+
+          {/* Respostas por botão — o clique do lead dispara sequência + tarefa */}
+          {mode === 'edit' && (
+            <div className="pt-4 border-t">
+              <RespostasBotaoConfig value={respostasBotao} onChange={setRespostasBotao}
+                etapas={estagiosList.filter(e => e.id !== estagio?.id).map(e => ({ id: e.id, nome: e.nome }))} />
+            </div>
+          )}
+
+          {/* Tarefas criadas ao entrar no estágio */}
+          {mode === 'edit' && (
+            <div className="pt-4 border-t">
+              <TarefasEntradaConfig value={tarefasEntrada} onChange={setTarefasEntrada} />
             </div>
           )}
 

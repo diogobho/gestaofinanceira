@@ -33,6 +33,13 @@ export const isCreator = (u?: RoleCarrier | null): boolean => u?.tipo_usuario ==
 export const isAdminEmpresa = (u?: RoleCarrier | null): boolean =>
   isSuperAdmin(u) || u?.tipo_usuario === 'master' || u?.tipo_usuario === 'creator';
 
+/**
+ * Conecta e usa a importação do Conta Azul em Receitas/Despesas — só a dona da conta
+ * (pedido do dono em 20/10/2026; antes era quem administra).
+ */
+export const podeUsarContaAzul = (u?: RoleCarrier | null): boolean =>
+  isSuperAdmin(u) || isCreator(u);
+
 /** Pode configurar o agente de IA (prompt geral, tom, chave de API, modelo). */
 export const podeConfigurarAgenteIA = (u?: RoleCarrier | null): boolean =>
   isSuperAdmin(u) || isCreator(u);

@@ -20,10 +20,14 @@ import FunilSelector from '@/components/crm/FunilSelector'
 import { TourHelpButton } from '@/components/tour/TourHelpButton'
 import FunilFormModal from '@/components/crm/FunilFormModal'
 import DeleteFunilModal from '@/components/crm/DeleteFunilModal'
+import ExcluirLeadsEmMassaModal from '@/components/crm/ExcluirLeadsEmMassaModal'
+import { useAuth } from '@/contexts/AuthContext'
+import { isAdminEmpresa } from '@/utils/roles'
 import ConversaoGanhoModal, { type ConversaoGanhoData } from '@/components/crm/ConversaoGanhoModal'
 import type { Lead, EstagioFunil, Funil } from '@/types/crm'
 import type { FiltrosLead } from '@/api/crm'
 import { BotaoDoPlano } from '@/components/plano/BotaoDoPlano'
+import { DicaVideo } from '@/tutoriais/DicaVideo'
 
 export default function CRMKanban() {
   const [filtros, setFiltros] = useState<FiltrosLead>({})
@@ -36,6 +40,11 @@ export default function CRMKanban() {
   const [showFunilFormModal, setShowFunilFormModal] = useState(false)
   const [editingFunil, setEditingFunil] = useState<Funil | null>(null)
   const [deletingFunil, setDeletingFunil] = useState<Funil | null>(null)
+  // Exclusão em massa (estágio ou funil inteiro): só quem administra a conta.
+  const { user } = useAuth()
+  const podeExcluirEmMassa = isAdminEmpresa(user)
+  const [excluindoEmMassa, setExcluindoEmMassa] =
+    useState<{ funil: { id: number; nome: string }; estagio?: { id: number; nome: string } } | null>(null)
 
   const { data: funisCarregados } = useFunisAquisicao()
   const funisList = funisCarregados ?? []
@@ -252,6 +261,7 @@ export default function CRMKanban() {
                   setShowFunilFormModal(true)
                 }}
                 onDelete={(f) => setDeletingFunil(f)}
+                onEsvaziar={podeExcluirEmMassa ? (f) => setExcluindoEmMassa({ funil: f }) : undefined}
               />
               {totalNaoLidas > 0 && (
                 <span className="flex items-center gap-1 px-2 py-1 bg-green-500 text-white text-xs font-bold rounded-full animate-pulse">
@@ -348,6 +358,7 @@ export default function CRMKanban() {
             </div>
 
             {/* Filtros */}
+            <DicaVideo video="organizar-quadro" alinhar="inicio" className="inline-flex shrink-0">
             <div className="shrink-0" data-tour="crm-filtros">
               <KanbanFilters
                 filtros={filtros}
@@ -357,6 +368,7 @@ export default function CRMKanban() {
                 funilId={funil?.id}
               />
             </div>
+            </DicaVideo>
 
             <button
               data-tour="crm-contatos"
@@ -368,6 +380,7 @@ export default function CRMKanban() {
               <span className="hidden md:inline">Contatos</span>
             </button>
 
+            <DicaVideo video="importar-planilha" className="inline-flex shrink-0">
             <button
               data-tour="crm-importar"
               onClick={() => setShowImportModal(true)}
@@ -377,10 +390,12 @@ export default function CRMKanban() {
               <Upload size={16} />
               <span className="hidden md:inline">Importar</span>
             </button>
+            </DicaVideo>
 
             {/* Disparo em massa por WhatsApp é do Enterprise (API Oficial da Meta):
                 num número comum ele é o que mais causa bloqueio. O botão fica no
                 lugar, apagado, explicando — quem não pode precisa saber por quê. */}
+            <DicaVideo video={{ oficial: 'disparo-oficial' }} className="inline-flex shrink-0">
             <BotaoDoPlano capacidade="disparo_whatsapp" exigeOficial>
               <button
                 data-tour="crm-disparar"
@@ -397,7 +412,9 @@ export default function CRMKanban() {
                 )}
               </button>
             </BotaoDoPlano>
+            </DicaVideo>
 
+            <DicaVideo video="email-marketing" className="inline-flex shrink-0">
             <button
               data-tour="crm-email"
               onClick={() => setShowDisparoEmailModal(true)}
@@ -407,7 +424,9 @@ export default function CRMKanban() {
               <Mail size={16} />
               <span className="hidden md:inline">E-mail</span>
             </button>
+            </DicaVideo>
 
+            <DicaVideo video="cadastrar-lead" className="inline-flex shrink-0">
             <button
               data-tour="crm-novo-lead"
               title="Novo lead"
@@ -420,6 +439,7 @@ export default function CRMKanban() {
               <Plus size={16} />
               <span className="hidden sm:inline">Novo Lead</span>
             </button>
+            </DicaVideo>
 
             <button
               data-tour="crm-config"
@@ -453,6 +473,9 @@ export default function CRMKanban() {
             onCardClick={handleCardClick}
             onAddClick={handleAddClick}
             onEditEstagio={handleEditEstagio}
+            onExcluirLeadsEstagio={podeExcluirEmMassa && funil
+              ? (e) => setExcluindoEmMassa({ funil: { id: funil.id, nome: funil.nome }, estagio: { id: e.id, nome: e.nome } })
+              : undefined}
             onLoadMore={loadMore}
             loadingMore={loadingMore}
           />
@@ -535,6 +558,8 @@ export default function CRMKanban() {
         }}
         funil={editingFunil}
       />
+
+      <ExcluirLeadsEmMassaModal alvo={excluindoEmMassa} onClose={() => setExcluindoEmMassa(null)} />
 
       <DeleteFunilModal
         isOpen={!!deletingFunil}

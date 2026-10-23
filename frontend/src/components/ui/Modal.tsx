@@ -44,11 +44,14 @@ export const Modal: React.FC<ModalProps> = ({
           <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
           {showCloseButton && (
             <button
+              type="button"
               onClick={onClose}
               data-tour="modal-fechar"
+              aria-label="Fechar"
+              title="Fechar"
               className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors p-1"
             >
-              <X size={20} className="sm:w-6 sm:h-6" />
+              <X size={20} className="sm:w-6 sm:h-6" aria-hidden />
             </button>
           )}
         </div>

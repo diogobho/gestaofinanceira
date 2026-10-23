@@ -30,7 +30,9 @@ export function lerPlanilha(buf: Buffer): XLSX.WorkBook {
   } catch {
     texto = new TextDecoder('latin1').decode(buf);
   }
-  return XLSX.read(texto.replace(/^\uFEFF/, ''), { type: 'string' });
+  // `raw`: o CSV é texto e fica texto. Sem isso o SheetJS "adivinha" datas no formato
+  // americano — "05/10/1985" virava 10 de maio — e ainda come o zero do CPF e do CEP.
+  return XLSX.read(texto.replace(/^\uFEFF/, ''), { type: 'string', raw: true });
 }
 
 // Origem da planilha é do cliente, não nossa: ela classifica o lead ("Diagnóstico",

@@ -9,7 +9,7 @@ const upload = multer({
   fileFilter: (_req, file, cb) => {
     const allowedMimes = [
       'image/jpeg', 'image/png', 'image/webp', 'image/gif',
-      'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/webm',
+      'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/aac', 'audio/ogg', 'audio/wav', 'audio/webm',
       'video/mp4', 'video/webm',
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

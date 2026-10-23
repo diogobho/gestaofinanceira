@@ -6,7 +6,7 @@ import CRMDashboard from './CRMDashboard'
 import { IntegracoesDashboard } from './integracoes/IntegracoesDashboard'
 
 /**
- * /gestao/crm/dashboard — "Visão Geral" (o dashboard de sempre, intocado) +
+ * /gestao/crm/dashboard — "Visão Geral" (o CRM Dashboard) +
  * "Integrações".
  *
  * A aba de integrações é aberta a **qualquer usuário com acesso ao CRM**: pedir
@@ -30,7 +30,10 @@ export const CRMDashboardComAbas: React.FC = () => {
       </div>
 
       {/* O dashboard de sempre fica montado: trocar de aba não recarrega os gráficos. */}
-      <div className={aba === 'geral' ? 'flex-1 overflow-y-auto' : 'hidden'}>
+      {/* Sem overflow próprio: a barra de filtros (sticky) precisa grudar na área
+          que de fato rola, a do Layout — um ancestral com overflow vira o
+          "trilho" do sticky mesmo sem rolar, e a barra não acompanhava. */}
+      <div className={aba === 'geral' ? 'flex-1' : 'hidden'}>
         <CRMDashboard />
       </div>
 

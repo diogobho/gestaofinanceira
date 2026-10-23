@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
-import { X, Send, Loader2, Maximize2, Trash2 } from 'lucide-react'
+import { X, Send, Loader2, Maximize2, Trash2, Coins } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { agenteApi } from '@/api/agente'
 import { useAuth } from '@/contexts/AuthContext'
 import DuoFace from '@/components/avatar/DuoFace'
 import toast from 'react-hot-toast'
+import { useVideoAjuda } from '@/tutoriais/VideoAjuda'
+import { BotoesDeVideo, separarVideos } from '@/tutoriais/VideosNaResposta'
 
 interface Mensagem {
   id: number
@@ -39,6 +41,9 @@ export default function DuoWidget() {
   const [loading, setLoading] = useState(false)
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // O player de tutorial abre ao lado do painel quando ele está aberto.
+  const { setChatAberto } = useVideoAjuda()
+  useEffect(() => { setChatAberto(open); return () => setChatAberto(false) }, [open, setChatAberto])
 
   useEffect(() => {
     if (open && !hasLoadedHistory) {
@@ -155,6 +160,15 @@ export default function DuoWidget() {
             </div>
             <div className="flex items-center gap-1">
               <Link
+                to="/creditos-duo"
+                onClick={() => setOpen(false)}
+                title="Créditos do Duo"
+                aria-label="Créditos do Duo"
+                className="rounded-lg p-1.5 transition-colors hover:bg-white/20"
+              >
+                <Coins className="h-4 w-4" />
+              </Link>
+              <Link
                 to="/agente-duo"
                 onClick={() => setOpen(false)}
                 title="Abrir em tela cheia"
@@ -247,7 +261,8 @@ export default function DuoWidget() {
                           de segurança para o que escapar.
                         */
                         <div className="prose prose-sm max-w-none text-inherit [&_*]:!text-inherit [&_ol]:my-1 [&_ol]:pl-4 [&_p]:my-1 [&_ul]:my-1 [&_ul]:pl-4 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                          <ReactMarkdown>{m.conteudo}</ReactMarkdown>
+                          <ReactMarkdown>{separarVideos(m.conteudo).texto}</ReactMarkdown>
+                          <BotoesDeVideo ids={separarVideos(m.conteudo).ids} />
                         </div>
                       ) : (
                         m.conteudo

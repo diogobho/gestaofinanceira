@@ -36,10 +36,16 @@ export interface PassoFollowupConfig {
   dias_semana?: number[] | null; // 0=Dom..6=Sáb, null = todos os dias
   // Número oficial: modelo aprovado que sai no lugar do passo com a janela de 24h fechada.
   modelo_whatsapp?: { nome: string; idioma?: string; variaveis: string[]; cabecalho?: string | null } | null;
+  // Passo só para algumas origens do lead (ex.: Clube do Livro e Desafio na Entrada do funil 74).
+  origens?: { modo: 'so' | 'exceto'; contem: string[] } | null;
 }
 
 export interface EstagioFollowupConfig {
   ativo: boolean;
+  /** Nutrição: quem responde volta para a etapa de onde veio. */
+  voltar_ao_responder?: boolean;
+  /** A cadência conta do silêncio do lead: cada resposta recomeça os toques (funil 74, 13/10/2026). */
+  reiniciar_ao_responder?: boolean;
   // Cadência de vários toques. Configs antigas (campos no topo) continuam válidas
   // e são lidas como um passo único.
   passos?: PassoFollowupConfig[];
@@ -155,6 +161,7 @@ export interface EstagioFunil {
   agente_ia_ativo?: boolean;
   instrucoes_agente_ia?: string | null;   // orientação do agente reativo neste estágio
   reuniao_lembretes?: ReuniaoLembretesConfig | null;
+  tarefas_entrada?: TarefaDoEstagio[];
   created_at: string;
   updated_at: string;
   total_leads?: number;
@@ -174,6 +181,11 @@ export interface Lead {
   cargo?: string;
   titulo?: string;
   cpf_cnpj?: string;
+  // O que o lead contou (migration 100): variáveis dos modelos do número oficial.
+  negocio?: string | null;
+  objetivo?: string | null;
+  desafio?: string | null;
+  duvida?: string | null;
   valor_potencial?: number;
   temperatura: 'frio' | 'morno' | 'quente';
   probabilidade?: number;
@@ -216,6 +228,9 @@ export interface Lead {
   total_disparos?: number;
   /** Mensagens recebidas na conversa — só vem com a ordem "Mais mensagens recebidas". */
   total_recebidas?: number;
+  /** Segundos até a janela de 24h do oficial fechar (0 = fechada) — só com a ordem "janela_24h". */
+  janela_resta_seg?: number | null;
+  ultima_entrada_at?: string | null;
   ultimo_estagio_disparo?: string | null;
   total_no_estagio?: number;
   followup_pendente_count?: number;
@@ -312,6 +327,10 @@ export interface UpdateLeadDto {
   cargo?: string;
   titulo?: string;
   cpf_cnpj?: string;
+  negocio?: string | null;
+  objetivo?: string | null;
+  desafio?: string | null;
+  duvida?: string | null;
   valor_potencial?: number;
   temperatura?: 'frio' | 'morno' | 'quente';
   probabilidade?: number;
@@ -407,6 +426,8 @@ export interface FunilDiarioEntry {
 
 export interface FunilAnalytics {
   acumulado: FunilEstagioAcumulado[];
+  /** Perda e etapas depois do ganho (Nutrição): fora da sequência do funil. */
+  laterais?: Array<{ estagio_id: number; estagio_nome: string; estagio_cor: string; tipo: 'perda' | 'paralela'; leads: number }>;
   diario: FunilDiarioEntry[];
   boca_funil: number;
   taxa_conversao_geral: number;
@@ -446,6 +467,11 @@ export interface Tarefa {
   status_visual?: TarefaStatusVisual;
   created_at: string;
   updated_at: string;
+  /** Meet/Teams da reunião, quando ela está na agenda do responsável (agenda externa, 103). */
+  link_reuniao?: string | null;
+  agenda_provedor?: 'google' | 'microsoft' | null;
+  /** Duração da reunião em minutos (104); null = 60. */
+  duracao_min?: number | null;
 }
 
 export interface CreateTarefaDto {
@@ -456,6 +482,7 @@ export interface CreateTarefaDto {
   data_vencimento: string;
   prioridade?: TarefaPrioridade;
   responsavel_id?: number;
+  duracao_min?: number | null;
 }
 
 export interface UpdateTarefaDto {
@@ -466,6 +493,7 @@ export interface UpdateTarefaDto {
   prioridade?: TarefaPrioridade;
   status?: TarefaStatus;
   responsavel_id?: number;
+  duracao_min?: number | null;
 }
 
 // Anotacoes
@@ -556,4 +584,15 @@ export interface AgenteIAConfig {
 export interface AgenteIALeadStatus {
   ativo: boolean;
   fonte: 'lead' | 'estagio' | 'inativo';
+}
+
+/** Tarefa criada sozinha quando o card entra no estágio (108). */
+export interface TarefaDoEstagio {
+  titulo: string;
+  descricao?: string | null;
+  tipo?: 'ligacao' | 'email' | 'follow_up' | 'proposta' | 'visita' | 'outros';
+  prioridade?: 'baixa' | 'normal' | 'alta' | 'urgente';
+  prazo?: number;
+  unidade?: 'hora' | 'dia';
+  hora?: string | null;
 }

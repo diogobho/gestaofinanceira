@@ -18,6 +18,7 @@ import dashboardRoutes from './dashboard/dashboard.routes';
 import integracoesRoutes from './integracoes/integracoes.routes';
 import agenteIaRoutes from '../agente-ia/agente-ia.routes';
 import followupsRoutes from './followups/followups.routes';
+import respostasBotaoRoutes from './respostas-botao/respostas-botao.routes';
 import { webhookController } from './webhook/webhook.controller';
 
 const router = Router();
@@ -48,6 +49,7 @@ router.use(dashboardRoutes);  // /dashboard
 router.use(integracoesRoutes); // /integracoes/dashboard
 router.use(agenteIaRoutes);  // /agente-ia/*
 router.use(followupsRoutes); // /leads/:leadId/followups e /followups/:id
+router.use(respostasBotaoRoutes); // /estagios/:id/respostas-botao
 
 // Listar usuários da empresa (acessível por todos os usuários da empresa)
 router.get('/usuarios', async (req: Request, res: Response) => {

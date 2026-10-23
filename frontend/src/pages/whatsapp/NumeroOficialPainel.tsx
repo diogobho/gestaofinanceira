@@ -138,6 +138,38 @@ export const NumeroOficialPainel: React.FC<{ canal: CanalWhatsApp }> = ({ canal 
             )}
           </div>
         </div>
+        {conta?.coexistencia && (
+          <div className="mt-3 text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+            <p>
+              <strong>Junto com o app do celular.</strong> O que você manda pelo WhatsApp Business do
+              celular também aparece aqui. Grupos e listas de transmissão continuam só no celular.
+            </p>
+            {conta.historico?.status === 'importando' && (
+              <p className="mt-1.5 text-gray-600 dark:text-gray-400">
+                Trazendo as conversas dos últimos 6 meses
+                {conta.historico.progresso != null ? ` — ${conta.historico.progresso}%` : ''}
+                {conta.historico.mensagens > 0 ? ` (${conta.historico.mensagens.toLocaleString('pt-BR')} mensagens até agora)` : ''}.
+              </p>
+            )}
+            {conta.historico?.status === 'concluido' && (
+              <p className="mt-1.5 text-gray-600 dark:text-gray-400">
+                Histórico importado: {conta.historico.mensagens.toLocaleString('pt-BR')} mensagens. Fotos e áudios
+                antigos aparecem como aviso no card; os arquivos continuam no celular.
+              </p>
+            )}
+            {conta.historico?.status === 'recusado' && (
+              <p className="mt-1.5 text-amber-700 dark:text-amber-400">
+                O compartilhamento do histórico foi recusado no app, então as conversas antigas não vieram.
+                As novas chegam normalmente.
+              </p>
+            )}
+            {conta.historico?.erro && conta.historico.status !== 'recusado' && (
+              <p className="mt-1.5 text-amber-700 dark:text-amber-400">
+                A Meta não entregou parte da sincronização: {conta.historico.erro}
+              </p>
+            )}
+          </div>
+        )}
         {qualidade && canal.qualidade !== 'GREEN' && (
           <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">{qualidade.dica}</p>
         )}

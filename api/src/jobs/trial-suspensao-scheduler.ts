@@ -7,7 +7,7 @@
  */
 
 import cron from 'node-cron';
-import { suspenderTrialsVencidos } from '../modules/assinaturas/assinaturas.service';
+import { suspenderTrialsVencidos, suspenderParceladosVencidos } from '../modules/assinaturas/assinaturas.service';
 import { isMainInstance } from '../shared/utils';
 
 const PREFIXO = '[TrialSuspensao]';
@@ -18,6 +18,9 @@ if (isMainInstance) {
       const suspensas = await suspenderTrialsVencidos();
       for (const e of suspensas) {
         console.log(`${PREFIXO} empresa ${e.empresa_id} (${e.nome}) → suspensa: teste grátis encerrado`);
+      }
+      for (const e of await suspenderParceladosVencidos()) {
+        console.log(`${PREFIXO} empresa ${e.empresa_id} (${e.nome}) → suspensa: ciclo parcelado encerrado`);
       }
     } catch (err: any) {
       console.error(`${PREFIXO} Erro:`, err?.message || err);

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { query } from '../../../config/database';
-import { contaAtivaDoUsuario } from './contas';
+import { contaAtivaDoUsuario, contaDeModelos, disparoQrLiberado } from './contas';
+import { textoParaModelo, proximaVersao } from './versao-modelo';
 import { instancia } from './instancia';
 import { estadoJanela } from './janela';
 import { listarModelos, invalidarCacheModelos } from './modelos';
@@ -21,7 +22,7 @@ export const canalController = {
   async getCanal(req: Request, res: Response) {
     const empresaId = (req as any).user?.empresa_id;
     const conta = await contaAtivaDoUsuario((req as any).user?.userId, empresaId);
-    if (!conta) return res.json({ provedor: 'baileys' });
+    if (!conta) return res.json({ provedor: 'baileys', disparoQrLiberado: disparoQrLiberado((req as any).user?.userId) });
 
     let status: any = null;
     try {
@@ -42,13 +43,59 @@ export const canalController = {
 
   async getModelos(req: Request, res: Response) {
     const empresaId = (req as any).user?.empresa_id;
-    const conta = await contaAtivaDoUsuario((req as any).user?.userId, empresaId);
+    const conta = await contaDeModelos((req as any).user?.userId, empresaId);
     if (!conta) return res.json({ modelos: [] });
     try {
       const modelos = await listarModelos(conta, req.query.forcar === '1');
       return res.json({ modelos });
     } catch (err: any) {
       return res.status(502).json({ message: `A Meta não devolveu os modelos: ${err.message}` });
+    }
+  },
+
+  /**
+   * Nova versão de um modelo do fluxo, com o texto editado (`versao-modelo.ts`). Copia
+   * cabeçalho, rodapé, botões (todos de resposta rápida no fluxo) e categoria do atual,
+   * manda para a Meta e devolve o nome novo e os campos, para a tela trocar no passo.
+   */
+  async novaVersaoModelo(req: Request, res: Response) {
+    const empresaId = (req as any).user?.empresa_id;
+    const conta = await contaDeModelos((req as any).user?.userId, empresaId);
+    if (!conta) return res.status(409).json({ message: 'A empresa não tem número oficial da Meta conectado.' });
+    const nomeAtual = String(req.body?.nome || '').trim();
+    const texto = String(req.body?.texto || '').trim();
+    if (!nomeAtual || !texto) return res.status(400).json({ message: 'Informe o modelo e o texto novo.' });
+
+    const modelos = await listarModelos(conta, true);
+    const atual = modelos.find((m) => m.nome === nomeAtual);
+    if (!atual) return res.status(404).json({ message: `O modelo ${nomeAtual} não existe nesta conta.` });
+    const { corpo, variaveis, exemplos } = textoParaModelo(texto);
+    const exigidos: string[] | null = Array.isArray(req.body?.campos) ? req.body.campos.map(String) : null;
+    if (exigidos && (exigidos.length !== variaveis.length || exigidos.some((c, i) => c !== variaveis[i]))) {
+      return res.status(400).json({
+        message: `Este modelo precisa usar exatamente estes campos, nesta ordem: ${exigidos.join(', ')}.`,
+      });
+    }
+    const nome = proximaVersao(atual.nome, modelos.map((m) => m.nome));
+    try {
+      const criado = await criarTemplate(
+        {
+          nome,
+          corpo,
+          categoria: (atual.categoria as any) || 'MARKETING',
+          idioma: atual.idioma || 'pt_BR',
+          exemplos,
+          cabecalho: atual.cabecalho || undefined,
+          exemploCabecalho: atual.variavelCabecalho ? 'Maria' : undefined,
+          rodape: atual.rodape || undefined,
+          botoes: atual.botoes.map((t) => ({ tipo: 'QUICK_REPLY' as const, texto: t })),
+        },
+        credenciaisDa(conta)
+      );
+      invalidarCacheModelos(conta);
+      return res.status(201).json({ nome, idioma: atual.idioma, variaveis, status: criado?.status ?? 'PENDING' });
+    } catch (err: any) {
+      return res.status(422).json({ message: err?.message || 'A Meta recusou o modelo' });
     }
   },
 

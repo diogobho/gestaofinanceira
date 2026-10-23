@@ -12,6 +12,8 @@ export const parcelasApi = {
     cliente_id?: number
     data_ini?: string
     data_fim?: string
+    /** 'pagamento' = período pela data em que foi pago (só parcelas pagas) */
+    base?: 'vencimento' | 'pagamento'
   }): Promise<ParcelaReceita[]> => {
     try {
       const { data } = await api.get<ParcelaReceita[]>('/parcelas/receitas', { params: filters })
@@ -26,6 +28,7 @@ export const parcelasApi = {
     status?: string
     data_ini?: string
     data_fim?: string
+    base?: 'vencimento' | 'pagamento'
   }): Promise<ParcelaDespesa[]> => {
     try {
       const { data } = await api.get<ParcelaDespesa[]>('/parcelas/despesas', { params: filters })

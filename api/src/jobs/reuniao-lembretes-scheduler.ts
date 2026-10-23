@@ -24,6 +24,11 @@ import { query } from '../config/database';
 import { contatosService } from '../modules/crm/contatos/contatos.service';
 import { aplicarVariaveisLead } from '../modules/crm/_shared/agendamento';
 import { isMainInstance } from '../shared/utils';
+import { aplicarVariaveisReuniao, DadosReuniao } from './reuniao-variaveis';
+import { leadSaiu } from '../modules/crm/optout/optout.service';
+import { contaAtivaDoUsuario } from '../modules/whatsapp/canal/contas';
+import { estadoJanela } from '../modules/whatsapp/canal/janela';
+import { leadsService } from '../modules/crm/leads/leads.service';
 
 const TOLERANCIA_PADRAO_MIN = 120;
 
@@ -37,6 +42,28 @@ interface Marco {
   tolerancia_min?: number;
   grupo?: string;
   mensagem: string;
+  /**
+   * Base do offset: 'reuniao' (padrão) = início da reunião; 'criacao' = quando a tarefa
+   * foi criada — é a confirmação "assim que a reunião é marcada" (06/10/2026).
+   */
+  base?: 'reuniao' | 'criacao';
+  /** Número oficial com a janela de 24h fechada: sai este modelo no lugar da mensagem. */
+  modelo_whatsapp?: { nome: string; idioma?: string; variaveis?: string[] } | null;
+  /** Depois de enviar, move o card para `estagio_apos_envio_id` da etapa (ex.: no-show D+6 → Perda). */
+  mover_apos?: boolean;
+}
+
+/**
+ * Este remetente precisa de modelo para falar com este contato agora? Só no número
+ * oficial e com a janela de 24h fechada — a mesma pergunta do despacho do follow-up.
+ */
+async function precisaDeModelo(remetenteId: number, empresaId: number, contatoId: number): Promise<boolean> {
+  const conta = await contaAtivaDoUsuario(remetenteId, empresaId);
+  if (!conta) return false;
+  const c = await query(`SELECT whatsapp_id, numero FROM contatos_whatsapp WHERE id = $1`, [contatoId]);
+  const destino = c.rows[0]?.whatsapp_id || c.rows[0]?.numero;
+  if (!destino) return false;
+  return !(await estadoJanela(empresaId, destino)).aberta;
 }
 
 async function processar(): Promise<void> {
@@ -74,7 +101,18 @@ async function processar(): Promise<void> {
         (ABS(EXTRACT(EPOCH FROM (t.data_vencimento::time - t.created_at::time))) > 120)
           AS hora_definida,
         EXTRACT(EPOCH FROM (NOW() - (t.data_vencimento AT TIME ZONE 'UTC'))) / 60.0 AS min_desde,
-        ef.reuniao_lembretes AS cfg
+        ef.reuniao_lembretes AS cfg,
+        ef.estagio_apos_envio_id,
+        to_char(t.data_vencimento AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo',
+                'YYYY-MM-DD') AS reuniao_dia_iso,
+        to_char(NOW() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS hoje_iso,
+        t.titulo AS tarefa_titulo, t.descricao AS tarefa_descricao,
+        -- created_at é naive em UTC, como data_vencimento.
+        EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'UTC') - t.created_at)) / 60.0 AS min_desde_criacao,
+        to_jsonb(l) AS lead_json,
+        -- Ambos naive em UTC: o lead escreveu depois do horário da reunião?
+        (l.ultima_resposta_cliente_at IS NOT NULL AND l.ultima_resposta_cliente_at > t.data_vencimento)
+          AS respondeu_apos_reuniao
      FROM estagios_funil ef
      JOIN leads l        ON l.estagio_id = ef.id AND l.arquivado = false
      LEFT JOIN usuarios ur ON ur.id = l.responsavel_id
@@ -109,7 +147,11 @@ async function processar(): Promise<void> {
 
     for (const m of marcos) {
       const tol = m.tolerancia_min ?? TOLERANCIA_PADRAO_MIN;
-      const dentroDaJanela = minDesde >= m.offset_min && minDesde < m.offset_min + tol;
+      const desde = m.base === 'criacao' ? Number(c.min_desde_criacao) : minDesde;
+      // No-show: se o lead escreveu depois da reunião, o vendedor assume a conversa e a
+      // régua de remarcação para (vale só para marcos depois da reunião).
+      if (m.base !== 'criacao' && m.offset_min >= 0 && c.respondeu_apos_reuniao) continue;
+      const dentroDaJanela = desde >= m.offset_min && desde < m.offset_min + tol;
       if (!dentroDaJanela) continue;
 
       // Sem contato de WhatsApp não há como enviar — não reivindica o marco (tenta de novo
@@ -118,6 +160,9 @@ async function processar(): Promise<void> {
         console.log(`[ReuniaoLembretes] Lead #${c.lead_id} sem contato WhatsApp — marco ${m.marco} adiado`);
         break;
       }
+
+      // Pediu para parar de receber: nenhum lembrete sai mais.
+      if (await leadSaiu(c.lead_id)) break;
 
       // Reivindica o marco (idempotência). Se já foi enviado, rowCount = 0.
       const claim = await query(
@@ -130,17 +175,43 @@ async function processar(): Promise<void> {
       if (claim.rowCount === 0) continue; // já enviado antes
 
       const remetenteId = c.responsavel_id || c.tarefa_responsavel_id;
-      const texto = aplicarVariaveisLead(
-        (m.mensagem || '')
-          .replace(/\[Horario\]/gi, c.reuniao_hora || '')
-          .replace(/\[Data\]/gi, c.reuniao_data || ''),
-        c
-      );
+      const dados: DadosReuniao = {
+        diaIso: c.reuniao_dia_iso, hora: c.reuniao_hora, data: c.reuniao_data, hojeIso: c.hoje_iso,
+        titulo: c.tarefa_titulo, descricao: c.tarefa_descricao,
+      };
+      const lead = { ...(c.lead_json || {}), responsavel_nome: c.responsavel_nome };
+      const resolver = (t: string) => aplicarVariaveisLead(aplicarVariaveisReuniao(t, dados), lead);
+      const texto = resolver(m.mensagem || '');
 
       try {
-        // Lança em falha de envio → cai no catch e o marco é liberado para retry.
-        await contatosService.enviarMensagemOuFalhar(remetenteId, c.empresa_id, c.contato_whatsapp_id, texto, c.lead_id, 'lembrete');
+        if (m.modelo_whatsapp?.nome && await precisaDeModelo(remetenteId, c.empresa_id, c.contato_whatsapp_id)) {
+          const corpo = (m.modelo_whatsapp.variaveis || []).map((v) => resolver(String(v ?? '')).trim());
+          const faltando = (m.modelo_whatsapp.variaveis || []).filter((_, i) => !corpo[i] || /\[[a-zA-ZÀ-ÿ_0-9]+\]/.test(corpo[i]));
+          if (faltando.length) {
+            // Dado que falta não aparece sozinho no minuto seguinte (link da reunião, campo do
+            // card): o marco fica marcado como tratado e o motivo vai para o log.
+            console.warn(`[ReuniaoLembretes] ${m.marco} → lead #${c.lead_id}: modelo ${m.modelo_whatsapp.nome} não enviado, falta ${faltando.join(', ')}`);
+            break;
+          }
+          const envio = await contatosService.enviarModeloWhatsApp(
+            remetenteId, c.empresa_id, c.contato_whatsapp_id,
+            { nome: m.modelo_whatsapp.nome, idioma: m.modelo_whatsapp.idioma, valores: { corpo } },
+            c.lead_id, 'lembrete'
+          );
+          if (!envio.success) throw new Error(envio.error || 'Falha ao enviar o modelo');
+        } else {
+          if (!texto.trim()) break;
+          // Lança em falha de envio → cai no catch e o marco é liberado para retry.
+          await contatosService.enviarMensagemOuFalhar(remetenteId, c.empresa_id, c.contato_whatsapp_id, texto, c.lead_id, 'lembrete');
+        }
         console.log(`[ReuniaoLembretes] Enviado ${m.marco} → lead #${c.lead_id} (remetente user #${remetenteId})`);
+        if (m.mover_apos && c.estagio_apos_envio_id) {
+          await leadsService.moverPorAutomacao(
+            c.lead_id, c.empresa_id, remetenteId, c.estagio_apos_envio_id,
+            'Movido automaticamente após o último lembrete da reunião, sem resposta',
+            { trigger: 'reuniao_lembrete', marco: m.marco }
+          ).catch((e: any) => console.error(`[ReuniaoLembretes] lead #${c.lead_id}: não moveu — ${e.message}`));
+        }
       } catch (err: any) {
         // Falhou o envio: libera o marco para nova tentativa no próximo ciclo.
         await query(`DELETE FROM reuniao_lembretes_enviados WHERE tarefa_id = $1 AND marco = $2`, [c.tarefa_id, m.marco]);

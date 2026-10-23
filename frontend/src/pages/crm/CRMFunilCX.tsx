@@ -17,6 +17,10 @@ import EstagioSettingsModal from '@/components/crm/EstagioSettingsModal'
 import FunilSelector from '@/components/crm/FunilSelector'
 import FunilFormModal from '@/components/crm/FunilFormModal'
 import DeleteFunilModal from '@/components/crm/DeleteFunilModal'
+import ExcluirLeadsEmMassaModal from '@/components/crm/ExcluirLeadsEmMassaModal'
+import { useAuth } from '@/contexts/AuthContext'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
+import { isAdminEmpresa } from '@/utils/roles'
 import ConversaoGanhoModal, { type ConversaoGanhoData } from '@/components/crm/ConversaoGanhoModal'
 import ContatosWhatsAppModal from '@/components/crm/ContatosWhatsAppModal'
 import ImportLeadsModal from '@/components/crm/ImportLeadsModal'
@@ -50,6 +54,7 @@ interface ListViewProps {
 }
 
 function CRMListView({ colunas, onCardClick, ordem = 'manual' }: ListViewProps) {
+  const { Cliente, cliente } = useTermoCliente()
   const leads = colunas.flatMap(col =>
     col.leads.map(l => ({ ...l, estagio_nome: l.estagio_nome ?? col.nome, estagio_cor: l.estagio_cor ?? col.cor }))
   )
@@ -60,7 +65,7 @@ function CRMListView({ colunas, onCardClick, ordem = 'manual' }: ListViewProps) 
     return (
       <div className="flex flex-col items-center justify-center h-64 text-gray-400">
         <LayoutList size={40} className="mb-2 opacity-40" />
-        <p>Nenhum cliente no funil CX</p>
+        <p>Nenhum {cliente} no funil CX</p>
       </div>
     )
   }
@@ -70,7 +75,7 @@ function CRMListView({ colunas, onCardClick, ordem = 'manual' }: ListViewProps) 
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-            <th className="px-4 py-3">Cliente</th>
+            <th className="px-4 py-3">{Cliente}</th>
             <th className="px-4 py-3">Estágio</th>
             <th className="px-4 py-3">Valor</th>
             <th className="px-4 py-3">Temperatura</th>
@@ -191,6 +196,12 @@ export default function CRMFunilCX() {
   const [showFunilFormModal, setShowFunilFormModal] = useState(false)
   const [editingFunil, setEditingFunil] = useState<Funil | null>(null)
   const [deletingFunil, setDeletingFunil] = useState<Funil | null>(null)
+  // Exclusão em massa (estágio ou funil inteiro): só quem administra a conta.
+  const { user } = useAuth()
+  const { cliente, clientes } = useTermoCliente()
+  const podeExcluirEmMassa = isAdminEmpresa(user)
+  const [excluindoEmMassa, setExcluindoEmMassa] =
+    useState<{ funil: { id: number; nome: string }; estagio?: { id: number; nome: string } } | null>(null)
 
   const { data: funisCXCarregados } = useFunisCX()
   const funisCXList = funisCXCarregados ?? []
@@ -369,6 +380,7 @@ export default function CRMFunilCX() {
                   setShowFunilFormModal(true)
                 }}
                 onDelete={(f) => setDeletingFunil(f)}
+                onEsvaziar={podeExcluirEmMassa ? (f) => setExcluindoEmMassa({ funil: f }) : undefined}
               />
               {totalNaoLidas > 0 && (
                 <span className="flex items-center gap-1 px-2 py-1 bg-green-500 text-white text-xs font-bold rounded-full animate-pulse">
@@ -379,7 +391,7 @@ export default function CRMFunilCX() {
             </div>
             <p className="text-xs text-gray-500 md:text-sm">
               {Object.keys(filtros).length > 0 ? (
-                <span className="text-primary-600">({totalLeadsFiltrados} clientes encontrados)</span>
+                <span className="text-primary-600">({totalLeadsFiltrados} {clientes} encontrados)</span>
               ) : (
                 <span className="text-gray-400">Funil pós-venda / Customer Experience</span>
               )}
@@ -500,7 +512,7 @@ export default function CRMFunilCX() {
                 data-tour="cx-importar"
                 onClick={() => setShowImportModal(true)}
                 className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border border-amber-500 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 text-sm"
-                title="Importar clientes de CSV/Excel"
+                title={`Importar ${clientes} de CSV/Excel`}
               >
                 <Upload size={15} />
                 <span className="hidden md:inline">Importar</span>
@@ -545,7 +557,7 @@ export default function CRMFunilCX() {
             {/* Novo cliente CX */}
             <button
               data-tour="cx-novo"
-              title="Novo cliente"
+              title={`Novo ${cliente}`}
               onClick={() => {
                 setSelectedEstagioId(colunas[0]?.id)
                 setShowLeadFormModal(true)
@@ -587,6 +599,9 @@ export default function CRMFunilCX() {
             onCardClick={handleCardClick}
             onAddClick={handleAddClick}
             onEditEstagio={handleEditEstagio}
+            onExcluirLeadsEstagio={podeExcluirEmMassa && funil
+              ? (e) => setExcluindoEmMassa({ funil: { id: funil.id, nome: funil.nome }, estagio: { id: e.id, nome: e.nome } })
+              : undefined}
             onLoadMore={loadMore}
             loadingMore={loadingMore}
           />
@@ -670,6 +685,8 @@ export default function CRMFunilCX() {
         funil={editingFunil}
         defaultTipo="cx"
       />
+
+      <ExcluirLeadsEmMassaModal alvo={excluindoEmMassa} onClose={() => setExcluindoEmMassa(null)} />
 
       <DeleteFunilModal
         isOpen={!!deletingFunil}

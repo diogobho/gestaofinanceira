@@ -9,20 +9,39 @@ const VARIAVEIS: Record<string, string> = {
 
 const escapar = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-/** Formatação do WhatsApp sobre texto ESCAPADO — o texto é de quem digitou, e a tela é da empresa inteira. */
-export const previaWhatsApp = (texto: string) => renderWhatsAppFormatting(escapar(texto))
-  // `{Oi|Olá}` sorteia por grupo no envio. Na prévia mostra a primeira opção, marcada,
-  // com todas no title — as chaves cruas pareciam erro de digitação.
-  .replace(/\{([^{}|]*(?:\|[^{}|]*)+)\}/g, (_m, dentro: string) => {
-    const opcoes = dentro.split('|')
-    // O texto já veio escapado (< > &), mas aspa não: dentro do atributo, ela fecharia o title.
-    const titulo = opcoes.map(o => o.replace(/<[^>]*>/g, '').replace(/"/g, '&quot;')).join(' / ')
-    return `<span class="rounded bg-amber-100 dark:bg-amber-900/40 px-1" title="Varia por grupo: ${titulo}">${opcoes[0]}</span>`
-  })
-  // `{{primeiro_nome}}` na lista: vira etiqueta legível em vez do código cru.
-  .replace(/\{\{(\w+)\}\}/g, (m, v: string) => VARIAVEIS[v]
-    ? `<span class="rounded bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200 px-1 text-[0.9em]" title="${m}">${VARIAVEIS[v]}</span>`
-    : m)
+/**
+ * Formatação do WhatsApp sobre texto ESCAPADO — o texto é de quem digitou, e a tela é da empresa inteira.
+ * `{{nome_grupo}}` sai do caminho ANTES da formatação: o `_` do nome da variável era lido como
+ * itálico, e `*{{nome_grupo}}*` aparecia como "{{nomegrupo}}" inclinado.
+ */
+export const previaWhatsApp = (texto: string) => {
+  const guardadas: string[] = []
+  const semVariaveis = escapar(texto).replace(/\{\{\s*(\w+)\s*\}\}/g, (m) => { guardadas.push(m); return `\u0001${guardadas.length - 1}\u0001` })
+  return renderWhatsAppFormatting(semVariaveis)
+    // `{Oi|Olá}` sorteia por grupo no envio. Na prévia mostra a primeira opção, marcada,
+    // com todas no title — as chaves cruas pareciam erro de digitação.
+    .replace(/\{([^{}|]*(?:\|[^{}|]*)+)\}/g, (_m, dentro: string) => {
+      const opcoes = dentro.split('|')
+      // O texto já veio escapado (< > &), mas aspa não: dentro do atributo, ela fecharia o title.
+      const titulo = opcoes.map(o => o.replace(/<[^>]*>/g, '').replace(/"/g, '&quot;')).join(' / ')
+      return `<span class="rounded bg-amber-100 dark:bg-amber-900/40 px-1" title="Varia por grupo: ${titulo}">${opcoes[0]}</span>`
+    })
+    // `{{primeiro_nome}}` na lista: vira etiqueta legível em vez do código cru.
+    .replace(/\u0001(\d+)\u0001/g, (_m, i: string) => {
+      const original = guardadas[Number(i)]
+      const v = original.replace(/[{}\s]/g, '')
+      return VARIAVEIS[v]
+        ? `<span class="rounded bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200 px-1 text-[0.9em]" title="${original}">${VARIAVEIS[v]}</span>`
+        : original
+    })
+}
+
+/** "5511912345678" → "+55 11 91234-5678"; o que não for celular BR sai com "+" e os dígitos. */
+export function telefoneLegivel(numero?: string | null): string {
+  const d = String(numero || '').replace(/\D/g, '')
+  const m = /^55(\d{2})(\d{4,5})(\d{4})$/.exec(d)
+  return m ? `+55 ${m[1]} ${m[2]}-${m[3]}` : d ? `+${d}` : ''
+}
 
 /** ISO → valor de `<input type="datetime-local">` no fuso do navegador. */
 export function paraInputLocal(iso: string | null): string {

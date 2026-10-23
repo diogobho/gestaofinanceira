@@ -1,4 +1,6 @@
 import { query } from '../../../config/database';
+import { aoMudarTarefa } from '../../agenda-externa/agenda-externa.service';
+import { garantirLeadDaEmpresa, garantirUsuarioDaEmpresa } from '../_shared/escopo-empresa';
 
 // Datas vindas do frontend como "YYYY-MM-DD" são armazenadas como meia-noite UTC,
 // que em UTC-3 vira o dia anterior. Forçar meio-dia UTC evita esse cruzamento.
@@ -25,6 +27,11 @@ export interface Tarefa {
   updated_at: Date;
   responsavel_nome?: string;
   criado_por_nome?: string;
+  /** Meet/Teams da reunião, quando está na agenda do responsável (103). */
+  link_reuniao?: string | null;
+  agenda_provedor?: 'google' | 'microsoft' | null;
+  /** Só reunião (104); null = 60 min. */
+  duracao_min?: number | null;
 }
 
 export interface CreateTarefaDto {
@@ -35,6 +42,8 @@ export interface CreateTarefaDto {
   descricao?: string;
   data_vencimento: Date;
   prioridade?: 'baixa' | 'normal' | 'alta' | 'urgente';
+  /** Duração da reunião em minutos (104) — vai para a agenda externa. */
+  duracao_min?: number | null;
 }
 
 export interface UpdateTarefaDto {
@@ -45,6 +54,23 @@ export interface UpdateTarefaDto {
   data_vencimento?: Date;
   status?: 'pendente' | 'em_andamento' | 'concluida' | 'cancelada';
   prioridade?: 'baixa' | 'normal' | 'alta' | 'urgente';
+  /** Duração da reunião em minutos (104) — vai para a agenda externa. */
+  duracao_min?: number | null;
+}
+
+/** Duração da reunião (104): grava, troca ou apaga (null). `undefined` = não mexe. */
+async function gravarDuracao(tarefaId: number, minutos: number | null | undefined): Promise<void> {
+  if (minutos === undefined) return;
+  const m = Math.round(Number(minutos));
+  if (!minutos || !(m >= 5 && m <= 480)) {
+    await query(`DELETE FROM tarefas_reuniao WHERE tarefa_id = $1`, [tarefaId]);
+    return;
+  }
+  await query(
+    `INSERT INTO tarefas_reuniao (tarefa_id, duracao_min) VALUES ($1, $2)
+     ON CONFLICT (tarefa_id) DO UPDATE SET duracao_min = $2`,
+    [tarefaId, m]
+  );
 }
 
 export const tarefasService = {
@@ -53,10 +79,13 @@ export const tarefasService = {
       `SELECT
         t.*,
         ur.nome as responsavel_nome,
-        uc.nome as criado_por_nome
+        uc.nome as criado_por_nome,
+        ae.link_reuniao, ae.provedor AS agenda_provedor, tr.duracao_min
        FROM tarefas_lead t
        LEFT JOIN usuarios ur ON t.responsavel_id = ur.id
        LEFT JOIN usuarios uc ON t.criado_por_id = uc.id
+       LEFT JOIN agenda_eventos ae ON ae.tarefa_id = t.id
+       LEFT JOIN tarefas_reuniao tr ON tr.tarefa_id = t.id
        WHERE t.lead_id = $1 AND t.empresa_id = $2
        ORDER BY t.data_vencimento ASC`,
       [leadId, empresaId]
@@ -124,10 +153,13 @@ export const tarefasService = {
       `SELECT
         t.*,
         ur.nome as responsavel_nome,
-        uc.nome as criado_por_nome
+        uc.nome as criado_por_nome,
+        ae.link_reuniao, ae.provedor AS agenda_provedor, tr.duracao_min
        FROM tarefas_lead t
        LEFT JOIN usuarios ur ON t.responsavel_id = ur.id
        LEFT JOIN usuarios uc ON t.criado_por_id = uc.id
+       LEFT JOIN agenda_eventos ae ON ae.tarefa_id = t.id
+       LEFT JOIN tarefas_reuniao tr ON tr.tarefa_id = t.id
        WHERE t.id = $1 AND t.empresa_id = $2`,
       [id, empresaId]
     );
@@ -135,6 +167,9 @@ export const tarefasService = {
   },
 
   async create(empresaId: number, usuarioId: number, data: CreateTarefaDto): Promise<Tarefa> {
+    // Lead e responsável vêm do corpo da requisição: os dois têm de ser desta conta.
+    await garantirLeadDaEmpresa(data.lead_id, empresaId);
+    if (data.responsavel_id) await garantirUsuarioDaEmpresa(data.responsavel_id, empresaId);
     const result = await query(
       `INSERT INTO tarefas_lead (
         lead_id, empresa_id, responsavel_id, criado_por_id,
@@ -167,12 +202,16 @@ export const tarefasService = {
       ]
     );
 
+    await gravarDuracao(result.rows[0].id, data.duracao_min);
+    // Reunião vai para a agenda do responsável (Google/Microsoft, migration 103).
+    aoMudarTarefa(result.rows[0].id);
     return this.getById(result.rows[0].id, empresaId) as Promise<Tarefa>;
   },
 
   async update(id: number, empresaId: number, data: UpdateTarefaDto): Promise<Tarefa | null> {
     const tarefa = await this.getById(id, empresaId);
     if (!tarefa) return null;
+    if (data.responsavel_id) await garantirUsuarioDaEmpresa(data.responsavel_id, empresaId);
 
     const fields: string[] = [];
     const values: any[] = [];
@@ -203,7 +242,11 @@ export const tarefasService = {
       fields.push(`data_conclusao = CURRENT_TIMESTAMP`);
     }
 
-    if (fields.length === 0) return tarefa;
+    await gravarDuracao(id, data.duracao_min);
+    if (fields.length === 0) {
+      if (data.duracao_min !== undefined) aoMudarTarefa(id);
+      return this.getById(id, empresaId);
+    }
 
     values.push(id, empresaId);
 
@@ -213,6 +256,7 @@ export const tarefasService = {
       values
     );
 
+    aoMudarTarefa(id);
     return this.getById(id, empresaId);
   },
 
@@ -224,6 +268,8 @@ export const tarefasService = {
       `DELETE FROM tarefas_lead WHERE id = $1 AND empresa_id = $2`,
       [id, empresaId]
     );
+    await query(`DELETE FROM tarefas_reuniao WHERE tarefa_id = $1`, [id]);
+    aoMudarTarefa(id); // tarefa sumiu → o evento sai da agenda
     return true;
   },
 

@@ -4,12 +4,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   Megaphone, Plus, Pencil, Trash2, Copy, Link2, ArrowLeft, UsersRound, MousePointerClick, LogIn, LogOut, UserPlus,
-  Send, History, RefreshCw, ShieldCheck, Check,
+  Send, History, RefreshCw, ShieldCheck, Check, Search,
 } from 'lucide-react'
+import { DicaVideo } from '@/tutoriais/DicaVideo'
 import { Badge, Button, Card, EstadoVazio, Input, Modal, ModalFooter, Select, Spinner, Switch } from '@/components/ui'
 import { funisApi, estagiosApi, usuariosEmpresaApi } from '@/api/crm'
 import {
   gruposApi, linkDaCampanha, type Campanha, type CampanhaDetalhe, type EntradaCampanha, type GrupoWhatsApp, type MensagemGrupo,
+  type FiltrosPainelCampanha,
 } from '@/api/grupos'
 import { MensagemGrupoModal } from './MensagemGrupoModal'
 import { dataHora, descreverQuando } from './util'
@@ -36,6 +38,28 @@ const proximoNome = (modelo: string, n: number) =>
 /** "2026-09-28" → "28/09", sem passar por Date (fuso). */
 const diaCurto = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
 
+/** Busca sem caixa e sem acento: "clube" acha "Clube do Livro", "reuniao" acha "Reunião". */
+export const semAcento = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+export const casa = (texto: string | null | undefined, busca: string) => !busca.trim() || semAcento(texto || '').includes(semAcento(busca.trim()))
+
+const classeCampo = 'px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+
+/** Chips de filtro de uma escolha só (Todas / Ativas / Pausadas…). */
+export function Opcoes<T extends string>({ valor, onChange, opcoes, rotulo }: { valor: T; onChange: (v: T) => void; opcoes: [T, string][]; rotulo: string }) {
+  return (
+    <div role="radiogroup" aria-label={rotulo} className="inline-flex rounded-lg bg-gray-100 dark:bg-gray-700 p-0.5">
+      {opcoes.map(([v, r]) => (
+        <button key={v} type="button" role="radio" aria-checked={valor === v} onClick={() => onChange(v)}
+          className={`px-2.5 py-1 text-xs rounded-md whitespace-nowrap ${valor === v
+            ? 'bg-white dark:bg-gray-800 shadow text-primary-700 dark:text-primary-200 font-medium'
+            : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}>
+          {r}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const Numero: React.FC<{ icone: React.ReactNode; rotulo: string; valor: number | string; dica?: string }> = ({ icone, rotulo, valor, dica }) => (
   <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3" title={dica}>
     <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">{icone}{rotulo}</p>
@@ -54,6 +78,10 @@ export const CampanhasAba: React.FC<{ grupos: GrupoWhatsApp[]; meuId?: number; m
   })
   const lista = useQuery({ queryKey: ['grupos', 'campanhas'], queryFn: gruposApi.campanhas, refetchInterval: 60_000 })
   const [modal, setModal] = useState<{ editando?: Campanha | null } | null>(null)
+  const [buscaCampanha, setBuscaCampanha] = useState('')
+  const [situacao, setSituacao] = useState<'todas' | 'ativas' | 'pausadas'>('todas')
+  const campanhasFiltradas = (lista.data || []).filter(c =>
+    casa(c.nome, buscaCampanha) && (situacao === 'todas' || (situacao === 'ativas' ? c.ativa : !c.ativa)))
 
   const excluir = useMutation({
     mutationFn: (id: number) => gruposApi.excluirCampanha(id),
@@ -74,14 +102,23 @@ export const CampanhasAba: React.FC<{ grupos: GrupoWhatsApp[]; meuId?: number; m
         <p className="text-sm text-gray-600 dark:text-gray-400">
           Um link só para divulgar: cada pessoa cai no grupo com vaga, e quando ele enche o próximo abre sozinho.
         </p>
-        <Button onClick={() => setModal({})} className="shrink-0"><Plus className="w-4 h-4 mr-1" /> Nova campanha</Button>
+        <DicaVideo video="campanhas-grupo" className="inline-flex shrink-0"><Button onClick={() => setModal({})} className="shrink-0"><Plus className="w-4 h-4 mr-1" /> Nova campanha</Button></DicaVideo>
       </div>
       {lista.isLoading ? <Spinner /> : !lista.data?.length ? (
         <EstadoVazio avatar="duo" titulo="Nenhuma campanha ainda"
           descricao="Crie uma campanha para um lançamento, uma turma ou um evento: você recebe um link para o anúncio e a bio, e o sistema cuida dos grupos." />
       ) : (
+        <>
+        {lista.data.length > 1 && (
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex-1"><Input placeholder="Buscar campanha" icon={<Search className="w-4 h-4" />} value={buscaCampanha} onChange={e => setBuscaCampanha(e.target.value)} /></div>
+            <Opcoes rotulo="Situação da campanha" valor={situacao} onChange={setSituacao}
+              opcoes={[['todas', 'Todas'], ['ativas', 'Ativas'], ['pausadas', 'Pausadas']]} />
+          </div>
+        )}
+        {!campanhasFiltradas.length && <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">Nenhuma campanha com esse filtro.</p>}
         <ul className="space-y-3">
-          {lista.data.map(c => (
+          {campanhasFiltradas.map(c => (
             <li key={c.id}>
               <Card>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -106,6 +143,7 @@ export const CampanhasAba: React.FC<{ grupos: GrupoWhatsApp[]; meuId?: number; m
             </li>
           ))}
         </ul>
+        </>
       )}
       {modal && <CampanhaModal editando={modal.editando} meuId={meuId} onFechar={() => setModal(null)} onCriada={(id) => abrir(id)} />}
     </section>
@@ -124,9 +162,26 @@ const DetalheCampanha: React.FC<{
   fecharModal: () => void
 }> = ({ id, voltar, grupos, meuId, mensagens, editar, excluir, modal, fecharModal }) => {
   const qc = useQueryClient()
-  const [dias, setDias] = useState(30)
+  // Período: atalho em dias, ou datas escolhidas ('personalizado'). Grupo e origem são filtros do painel.
+  const [periodo, setPeriodo] = useState<'1' | '7' | '30' | '90' | 'personalizado'>('30')
+  const [inicio, setInicio] = useState('')
+  const [fim, setFim] = useState('')
+  const [grupoFiltro, setGrupoFiltro] = useState('')
+  const [utmFiltro, setUtmFiltro] = useState('')
+  const filtrosPainel: FiltrosPainelCampanha = {
+    ...(periodo === 'personalizado' ? { inicio: inicio || undefined, fim: fim || undefined } : { dias: Number(periodo) }),
+    grupo: grupoFiltro || undefined,
+    utm: utmFiltro || undefined,
+  }
+  const [buscaGrupo, setBuscaGrupo] = useState('')
+  const [estadoGrupo, setEstadoGrupo] = useState<'todos' | 'no_link' | 'fora' | 'cheios'>('todos')
   const c = useQuery({ queryKey: ['grupos', 'campanha', id], queryFn: () => gruposApi.campanha(id), refetchInterval: 30_000 })
-  const painel = useQuery({ queryKey: ['grupos', 'campanha', id, 'painel', dias], queryFn: () => gruposApi.painelCampanha(id, dias), refetchInterval: 60_000 })
+  const painel = useQuery({
+    queryKey: ['grupos', 'campanha', id, 'painel', filtrosPainel],
+    queryFn: () => gruposApi.painelCampanha(id, filtrosPainel),
+    refetchInterval: 60_000,
+    placeholderData: (anterior) => anterior,
+  })
   const [adicionar, setAdicionar] = useState(false)
   const [novaMsg, setNovaMsg] = useState<{ editando?: MensagemGrupo | null } | null>(null)
 
@@ -142,6 +197,12 @@ const DetalheCampanha: React.FC<{
   const link = linkDaCampanha(cp.slug)
   const ativos = cp.grupos.filter(g => g.ativo)
   const diasComMovimento = (painel.data?.porDia || []).filter(d => d.cliques || d.entradas || d.saidas).reverse()
+  const gruposFiltrados = cp.grupos.filter(g => casa(g.nome || g.grupo_id, buscaGrupo) && (
+    estadoGrupo === 'todos' ? true
+      : estadoGrupo === 'no_link' ? g.ativo
+      : estadoGrupo === 'fora' ? !g.ativo
+      : g.ativo && g.cheio))
+  const temFiltroPainel = periodo !== '30' || !!grupoFiltro || !!utmFiltro
 
   return (
     <section aria-label={`Campanha ${cp.nome}`}>
@@ -181,10 +242,10 @@ const DetalheCampanha: React.FC<{
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Numero icone={<UsersRound className="w-3.5 h-3.5" />} rotulo="Nos grupos" valor={cp.total_participantes} dica="Soma dos participantes dos grupos ativos" />
         <Numero icone={<Megaphone className="w-3.5 h-3.5" />} rotulo="Grupos" valor={ativos.length} />
-        <Numero icone={<MousePointerClick className="w-3.5 h-3.5" />} rotulo="Cliques" valor={cp.total_cliques} dica="Pessoas que abriram o link (robôs de pré-visualização não contam)" />
-        <Numero icone={<LogIn className="w-3.5 h-3.5" />} rotulo="Entradas" valor={cp.total_entradas} />
-        <Numero icone={<LogOut className="w-3.5 h-3.5" />} rotulo="Saídas" valor={cp.total_saidas} />
-        <Numero icone={<UserPlus className="w-3.5 h-3.5" />} rotulo="Leads" valor={painel.data?.leads ?? '—'} dica="Leads criados ou atualizados por entradas" />
+        <Numero icone={<MousePointerClick className="w-3.5 h-3.5" />} rotulo="Cliques (total)" valor={cp.total_cliques} dica="Desde o início. Pessoas que abriram o link (robôs de pré-visualização não contam)" />
+        <Numero icone={<LogIn className="w-3.5 h-3.5" />} rotulo="Entradas (total)" valor={cp.total_entradas} dica="Desde o início" />
+        <Numero icone={<LogOut className="w-3.5 h-3.5" />} rotulo="Saídas (total)" valor={cp.total_saidas} dica="Desde o início" />
+        <Numero icone={<UserPlus className="w-3.5 h-3.5" />} rotulo="Leads (período)" valor={painel.data?.totais.leads ?? '—'} dica="Leads criados ou atualizados por entradas no período do Movimento" />
       </div>
 
       {/* Grupos */}
@@ -209,8 +270,17 @@ const DetalheCampanha: React.FC<{
             {cp.criar_grupos ? ' — sem grupo, quem abrir primeiro espera alguns segundos enquanto ele é criado.' : ' — sem grupo, o link mostra "lotado".'}
           </p>
         ) : (
+          <>
+          {cp.grupos.length > 1 && (
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex-1"><Input placeholder="Buscar grupo da campanha" icon={<Search className="w-4 h-4" />} value={buscaGrupo} onChange={e => setBuscaGrupo(e.target.value)} /></div>
+              <Opcoes rotulo="Situação do grupo" valor={estadoGrupo} onChange={setEstadoGrupo}
+                opcoes={[['todos', 'Todos'], ['no_link', 'No link'], ['fora', 'Fora'], ['cheios', 'Cheios']]} />
+            </div>
+          )}
+          {!gruposFiltrados.length && <p className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">Nenhum grupo com esse filtro.</p>}
           <ul className="divide-y divide-gray-100 dark:divide-gray-700">
-            {cp.grupos.map(g => {
+            {gruposFiltrados.map(g => {
               const pct = Math.min(100, Math.round((g.participantes / cp.limite_por_grupo) * 100))
               return (
                 <li key={g.id} className="py-3 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -248,6 +318,7 @@ const DetalheCampanha: React.FC<{
               )
             })}
           </ul>
+          </>
         )}
       </Card>
 
@@ -287,18 +358,56 @@ const DetalheCampanha: React.FC<{
 
       {/* Painel */}
       <Card>
-        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-3 flex flex-col gap-2">
           <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2"><History className="w-4 h-4" /> Movimento</h3>
-          <div className="flex items-center gap-2">
-            <select aria-label="Período" value={dias} onChange={e => setDias(Number(e.target.value))}
-              className="px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
-              <option value={7}>Últimos 7 dias</option>
-              <option value={30}>Últimos 30 dias</option>
-              <option value={90}>Últimos 90 dias</option>
+          <div className="flex flex-wrap items-center gap-2">
+            <select aria-label="Período" value={periodo} onChange={e => setPeriodo(e.target.value as typeof periodo)} className={classeCampo}>
+              <option value="1">Hoje</option>
+              <option value="7">Últimos 7 dias</option>
+              <option value="30">Últimos 30 dias</option>
+              <option value="90">Últimos 90 dias</option>
+              <option value="personalizado">Escolher datas…</option>
             </select>
-            <Button size="sm" variant="ghost" onClick={() => painel.refetch()} title="Atualizar"><RefreshCw className="w-4 h-4" /><span className="sr-only">Atualizar</span></Button>
+            {periodo === 'personalizado' && (
+              <>
+                <input type="date" aria-label="De" value={inicio} max={fim || undefined} onChange={e => setInicio(e.target.value)} className={classeCampo} />
+                <span className="text-xs text-gray-500">até</span>
+                <input type="date" aria-label="Até" value={fim} min={inicio || undefined} onChange={e => setFim(e.target.value)} className={classeCampo} />
+              </>
+            )}
+            {cp.grupos.length > 1 && (
+              <select aria-label="Grupo" value={grupoFiltro} onChange={e => setGrupoFiltro(e.target.value)} className={`${classeCampo} max-w-[12rem]`}>
+                <option value="">Todos os grupos</option>
+                {cp.grupos.map(g => <option key={g.grupo_id} value={g.grupo_id}>{g.nome || g.grupo_id}</option>)}
+              </select>
+            )}
+            {(painel.data?.porUtm.length || utmFiltro) ? (
+              <select aria-label="Origem do clique" value={utmFiltro} onChange={e => setUtmFiltro(e.target.value)} className={`${classeCampo} max-w-[10rem]`}>
+                <option value="">Todas as origens</option>
+                {painel.data?.porUtm.map(u => <option key={u.origem} value={u.origem}>{u.origem}</option>)}
+                {utmFiltro && !painel.data?.porUtm.some(u => u.origem === utmFiltro) && <option value={utmFiltro}>{utmFiltro}</option>}
+              </select>
+            ) : null}
+            {temFiltroPainel && (
+              <Button size="sm" variant="ghost" onClick={() => { setPeriodo('30'); setInicio(''); setFim(''); setGrupoFiltro(''); setUtmFiltro('') }}>Limpar</Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={() => painel.refetch()} title="Atualizar"><RefreshCw className={`w-4 h-4 ${painel.isFetching ? 'animate-spin' : ''}`} /><span className="sr-only">Atualizar</span></Button>
           </div>
         </div>
+        {painel.data && (
+          <div className="mb-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Numero icone={<MousePointerClick className="w-3.5 h-3.5" />} rotulo="Cliques no período" valor={painel.data.totais.cliques} />
+              <Numero icone={<LogIn className="w-3.5 h-3.5" />} rotulo="Entradas no período" valor={painel.data.totais.entradas} />
+              <Numero icone={<LogOut className="w-3.5 h-3.5" />} rotulo="Saídas no período" valor={painel.data.totais.saidas} />
+              <Numero icone={<UserPlus className="w-3.5 h-3.5" />} rotulo="Leads no período" valor={painel.data.totais.leads} />
+            </div>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              De {diaCurto(painel.data.periodo.inicio)} a {diaCurto(painel.data.periodo.fim)}
+              {utmFiltro ? ' · a origem (utm) filtra só os cliques: quem entra no grupo não diz de onde veio' : ''}
+            </p>
+          </div>
+        )}
         {painel.isLoading ? <Spinner /> : (
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2">
@@ -336,7 +445,7 @@ const DetalheCampanha: React.FC<{
                 )}
               </div>
               <div>
-                <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Por grupo (desde o início)</p>
+                <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Por grupo (no período)</p>
                 {!painel.data?.porGrupo.length ? <p className="text-sm text-gray-500 dark:text-gray-400">Sem grupos.</p> : (
                   <ul className="space-y-1 text-sm">
                     {painel.data.porGrupo.map(g => (
@@ -366,7 +475,12 @@ const DetalheCampanha: React.FC<{
 const AdicionarGrupoModal: React.FC<{ campanha: CampanhaDetalhe; grupos: GrupoWhatsApp[]; meuId?: number; onFechar: () => void }> = ({ campanha, grupos, meuId, onFechar }) => {
   const qc = useQueryClient()
   const ja = useMemo(() => new Set(campanha.grupos.map(g => g.grupo_id)), [campanha.grupos])
-  const candidatos = grupos.filter(g => !ja.has(g.id))
+  const [busca, setBusca] = useState('')
+  const [soAdmin, setSoAdmin] = useState(true)
+  const disponiveis = grupos.filter(g => !ja.has(g.id))
+  const candidatos = disponiveis
+    .filter(g => casa(g.nome, busca) && (!soAdmin || g.souAdmin))
+    .sort((a, b) => b.participantes - a.participantes)
   const adicionar = useMutation({
     mutationFn: (g: GrupoWhatsApp) => gruposApi.adicionarGrupoCampanha(campanha.id, meuId!, g.id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['grupos'] }); toast.success('Grupo adicionado à campanha') },
@@ -377,7 +491,18 @@ const AdicionarGrupoModal: React.FC<{ campanha: CampanhaDetalhe; grupos: GrupoWh
       <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">
         Grupos do seu WhatsApp. Só dá para usar grupo em que você é administrador — é o admin que gera o link de convite.
       </p>
-      {!candidatos.length ? <p className="text-sm text-gray-500 dark:text-gray-400">Nenhum grupo disponível.</p> : (
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex-1"><Input placeholder="Buscar grupo" icon={<Search className="w-4 h-4" />} value={busca} onChange={e => setBusca(e.target.value)} autoFocus /></div>
+        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+          <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-primary-600" checked={soAdmin} onChange={e => setSoAdmin(e.target.checked)} />
+          Só onde sou admin
+        </label>
+      </div>
+      {!candidatos.length ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {!disponiveis.length ? 'Nenhum grupo disponível.' : busca.trim() ? `Nenhum grupo com “${busca.trim()}”.` : 'Você não é administrador de nenhum grupo disponível.'}
+        </p>
+      ) : (
         <ul className="max-h-[55vh] overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
           {candidatos.map(g => (
             <li key={g.id} className="py-2 flex items-center gap-3">

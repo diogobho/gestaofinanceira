@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { registrarEntradas } from '../../grupos/grupos.service';
-import { registrarMovimento } from '../../grupos/campanhas.service';
+import { registrarMovimento, leadsDoGrupo } from '../../grupos/campanhas.service';
+import { aplicarCliqueDeBotao, aplicarRespostaEscrita, origemTemFluxoDeRespostas } from '../respostas-botao/respostas-botao.service';
+import { ehPedidoDeSaida, registrarSaida } from '../optout/optout.service';
 import { query } from '../../../config/database';
 import { adicionarJobAgente } from '../../agente-ia/agente-ia.queue';
 import { automacoesGrupoService as automacoesService } from '../../automacoes/automacoes-grupo.service';
@@ -8,7 +10,7 @@ import { leadsService } from '../leads/leads.service';
 import { variantesTelefone, telefonePlausivel, podeSerContatoNovo } from '../_shared/telefone';
 import { nomeDoPush } from '../_shared/nome';
 import { normalizarUtmSource } from '../_shared/utm';
-import { campanhaDoEvento, donoPedidoNaUrl } from '../_shared/sendflow';
+import { campanhaDoEvento, donoPedidoNaUrl, ORIGENS_CAMPANHAS } from '../_shared/sendflow';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -80,6 +82,33 @@ const CAIXA_FORM_FUNIL_ID = Number(process.env.CAIXA_RAPIDO_FORM_FUNIL_ID) || 24
 const CAIXA_FORM_ESTAGIO_ID = Number(process.env.CAIXA_RAPIDO_FORM_ESTAGIO_ID) || 208;
 const CAIXA_FORM_RESPONSAVEL_ID = Number(process.env.CAIXA_RAPIDO_FORM_RESPONSAVEL_ID) || 22;
 const CAIXA_FORM_ORIGEM = process.env.CAIXA_RAPIDO_FORM_ORIGEM || 'Caixa Rápido';
+// Funis onde a inscrição procura o card antes de criar outro (o de destino primeiro).
+const CAIXA_FORM_FUNIS_DEDUP = [
+  CAIXA_FORM_FUNIL_ID,
+  ...(process.env.CAIXA_RAPIDO_FORM_FUNIS_DEDUP || '74').split(',').map(Number).filter((n) => n > 0),
+].filter((n, i, a) => a.indexOf(n) === i);
+// Rodízio do responsável (13/10/2026): o formulário é a inscrição do Workshop "Seu plano de
+// Liberdade Financeira" e o dono quer os leads divididos entre Jéssica e Hellen. A vez sai do
+// último card que o formulário criou para alguém da roda — sem tabela de estado. Vazio = fixo.
+const CAIXA_FORM_RODIZIO = (process.env.CAIXA_RAPIDO_FORM_RODIZIO || '').split(',').map(Number).filter((n) => n > 0);
+
+async function responsavelDoFormCaixa(): Promise<number> {
+  if (!CAIXA_FORM_RODIZIO.length) return CAIXA_FORM_RESPONSAVEL_ID;
+  const ativos = (await query(
+    `SELECT id FROM usuarios WHERE id = ANY($1::int[]) AND empresa_id = $2 AND ativo`,
+    [CAIXA_FORM_RODIZIO, CAIXA_FORM_EMPRESA_ID]
+  )).rows.map((r: any) => Number(r.id));
+  const roda = CAIXA_FORM_RODIZIO.filter((id) => ativos.includes(id));
+  if (!roda.length) return CAIXA_FORM_RESPONSAVEL_ID;
+  const ultimo = await query(
+    `SELECT responsavel_id FROM leads
+      WHERE empresa_id = $1 AND funil_id = $2 AND notas LIKE 'Formulário Caixa Rápido%'
+        AND responsavel_id = ANY($3::int[])
+      ORDER BY id DESC LIMIT 1`,
+    [CAIXA_FORM_EMPRESA_ID, CAIXA_FORM_FUNIL_ID, roda]
+  );
+  return roda[(roda.indexOf(Number(ultimo.rows[0]?.responsavel_id)) + 1) % roda.length];
+}
 
 // Monta o bloco de notas do Caixa Rápido, pulando o que não veio preenchido.
 function notasCaixaRapido(campos: {
@@ -116,12 +145,37 @@ function notasCaixaRapido(campos: {
 // escolher onde o token viaja, então aceitamos os três — e a URL entregue ao cliente
 // já leva ?sendtok= embutido, que funciona mesmo se a plataforma não mandar nada.
 const SENDFLOW_SENDTOK = process.env.SENDFLOW_WEBHOOK_SENDTOK || '';
+const SENDFLOW_DESLIGADO = /^(1|true|sim)$/i.test(process.env.SENDFLOW_DESLIGADO || '');
 const SENDFLOW_EMPRESA_ID = Number(process.env.SENDFLOW_EMPRESA_ID) || 5;
 const SENDFLOW_FUNIL_ID = Number(process.env.SENDFLOW_FUNIL_ID) || 24;
 const SENDFLOW_ESTAGIO_ID = Number(process.env.SENDFLOW_ESTAGIO_ID) || 208;
 const SENDFLOW_RESPONSAVEL_ID = Number(process.env.SENDFLOW_RESPONSAVEL_ID) || 22;
 // leads.origem é VARCHAR(50) — curta e idêntica à que já está no banco.
 const SENDFLOW_ORIGEM = (process.env.SENDFLOW_ORIGEM || 'Desafio 52 semanas').slice(0, 50);
+const ORIGENS_SENDFLOW = [SENDFLOW_ORIGEM, ...ORIGENS_CAMPANHAS];
+
+/**
+ * O evento do SendFlow não diz por qual número a automação falou (#195) — mas a mensagem
+ * dela sai por um chip nosso e volta para cá como `fromMe`. A PRIMEIRA saída para um lead
+ * do SendFlow, nos 7 dias depois de ele nascer, diz quem é o dono: o card passa para o
+ * dono do chip que falou primeiro. Depois disso nada muda sozinho — conversa seguinte por
+ * outro chip, ou troca feita à mão, vencem.
+ */
+async function primeiraSaidaDeLeadDoSendflow(leadId: number, contatoId: number, messageId: string | null): Promise<boolean> {
+  const r = await query(
+    `SELECT 1 FROM leads l
+      WHERE l.id = $1 AND l.origem = ANY($2::text[])
+        AND l.created_at > NOW() - INTERVAL '7 days'
+        AND NOT EXISTS (
+          SELECT 1 FROM historico_mensagens h
+           WHERE h.contato_whatsapp_id = $3 AND h.direcao = 'saida'
+             AND h.grupo_whatsapp_id IS NULL AND NOT h.copia_indevida
+             AND h.created_at >= l.created_at
+             AND h.whatsapp_message_id IS DISTINCT FROM $4)`,
+    [leadId, ORIGENS_SENDFLOW, contatoId, messageId]
+  );
+  return r.rows.length > 0;
+}
 const SENDFLOW_CAMPANHA = process.env.SENDFLOW_CAMPANHA || 'Desafio 52 Semanas';
 
 // O dono do lead vem da URL (`&dono=<id>`): o evento do SendFlow não diz por qual
@@ -556,6 +610,10 @@ export const webhookController = {
         // Porta da instância que recebeu a mensagem — é o que amarra a mensagem a UM dono
         port
       } = req.body;
+      // Conversa do intervalo em que o número esteve fora, recuperada do histórico do
+      // pareamento (23/10/2026). Já aconteceu: entra no card e para aí — não cria
+      // contato nem lead, não conta como não lida e não aciona automação nem agente.
+      const historico = req.body.historico === true;
 
       if (!from) {
         return res.status(400).json({ error: 'Campo "from" obrigatorio' });
@@ -579,7 +637,22 @@ export const webhookController = {
         `SELECT id, empresa_id FROM usuarios WHERE whatsapp_porta = $1 AND ativo = true LIMIT 1`,
         [Number(port)]
       );
-      const donoInstancia: { id: number; empresa_id: number } | null = donoResult.rows[0] ?? null;
+      let donoInstancia: { id: number; empresa_id: number } | null = donoResult.rows[0] ?? null;
+      // Chip de Grupos (101): o QR de quem está no número oficial. Serve só aos grupos —
+      // a conversa 1:1 dessa pessoa é no oficial, e gravar a do chip misturaria dois números.
+      if (!donoInstancia) {
+        const chip = await query(
+          `SELECT u.id, u.empresa_id FROM whatsapp_chip_grupos cg JOIN usuarios u ON u.id = cg.usuario_id
+            WHERE cg.porta = $1 AND u.ativo = true`,
+          [Number(port)]
+        );
+        if (chip.rows[0]) {
+          if (req.body.event !== 'group_participants') {
+            return res.json({ success: true, processed: false, reason: 'chip_de_grupos' });
+          }
+          donoInstancia = chip.rows[0];
+        }
+      }
       if (!donoInstancia) {
         console.warn(`[Webhook] Porta ${port} sem usuário dono — mensagem descartada (from=${from})`);
         return res.json({ success: true, processed: false, reason: 'porta_sem_dono' });
@@ -601,7 +674,12 @@ export const webhookController = {
           : 0;
         const naCampanha = await registrarMovimento(donoInstancia.id, donoInstancia.empresa_id, grupoId, acao, participantes)
           .catch((e: any) => { console.error('[Campanhas] movimento:', e?.message); return 0; });
-        return res.json({ success: true, processed: n > 0 || naCampanha > 0, enfileirados: n, campanha: naCampanha });
+        // "Levar para o CRM" do grupo: o lead nasce na entrada, sem depender de boas-vindas.
+        const leads = acao === 'add'
+          ? await leadsDoGrupo(donoInstancia.id, donoInstancia.empresa_id, grupoId, participantes)
+              .catch((e: any) => { console.error('[Grupos] lead de quem entrou:', e?.message); return 0; })
+          : 0;
+        return res.json({ success: true, processed: n > 0 || naCampanha > 0 || leads > 0, enfileirados: n, campanha: naCampanha, leads });
       }
 
       if (req.body.event === 'reaction') {
@@ -710,7 +788,7 @@ export const webhookController = {
           // haver como saber de quem é a instância; desde 15/09 o `port` é obrigatório e o
           // dono está resolvido. Só vale para número que um estágio da empresa pediu para
           // capturar — sem isso, toda conversa pessoal do chip viraria contato no CRM.
-          const contatoNovo = direcao === 'entrada' && !isGroup
+          const contatoNovo = direcao === 'entrada' && !isGroup && !historico
             ? await contatoParaPrimeiraMensagem(donoInstancia, contatoIdentifier || from, numero)
             : null;
           if (!contatoNovo) {
@@ -893,6 +971,23 @@ export const webhookController = {
         // somava mensagem não lida, registrava atividade e — o pior — disparava a
         // automação de estagio_apos_resposta_id, movendo o lead de estágio porque
         // alguém falou num grupo. A conversa individual é a única que conta.
+        if (historico) {
+          const principal = await query(
+            `SELECT id FROM leads WHERE contato_whatsapp_id = $1 AND empresa_id = $2 AND arquivado = false
+              ORDER BY updated_at DESC NULLS LAST LIMIT 1`,
+            [contatoId, empresaId]
+          );
+          if (principal.rows[0] && messageId) {
+            await query(
+              `UPDATE historico_mensagens SET lead_id = $1
+                WHERE contato_whatsapp_id = $2 AND whatsapp_message_id = $3`,
+              [principal.rows[0].id, contatoId, messageId]
+            );
+          }
+          console.log(`[Webhook] Mensagem do histórico registrada (contato ${contatoId}, ${direcao}) — sem efeito no lead`);
+          continue;
+        }
+
         if (isGroup) {
           console.log(`[Webhook] Mensagem de grupo registrada (contato ${contatoId}, grupo ${groupId}) — sem efeito no lead`);
           continue;
@@ -929,7 +1024,7 @@ export const webhookController = {
         // com o último do loop (aleatório) e o agente era enfileirado para TODOS os
         // leads, podendo responder em dobro.
         const leadsResult = await query(
-          `SELECT l.id, COALESCE(l.agente_ia_ativo, ef.agente_ia_ativo, false) AS agente_ativo
+          `SELECT l.id, l.origem, COALESCE(l.agente_ia_ativo, ef.agente_ia_ativo, false) AS agente_ativo
            FROM leads l
            LEFT JOIN estagios_funil ef ON ef.id = l.estagio_id
            WHERE l.contato_whatsapp_id = $1 AND l.arquivado = false
@@ -938,6 +1033,26 @@ export const webhookController = {
           [contatoId]
         );
         const leadPrincipal = leadsResult.rows[0] || null;
+
+        // "Parar de receber" (botão dos modelos de marketing) ou a mensagem sendo só
+        // "parar"/"sair": registra a saída, leva os cards para a perda e NÃO roda a
+        // automação de resposta abaixo — ela moveria o card e semearia outra cadência.
+        const pediuSaida = direcao === 'entrada' && ehPedidoDeSaida(body, req.body.botao === true);
+        if (pediuSaida) {
+          const contatoRow = (await query(`SELECT numero, whatsapp_id FROM contatos_whatsapp WHERE id = $1`, [contatoId])).rows[0];
+          await registrarSaida(
+            contato.empresa_id,
+            contatoRow?.numero || contatoRow?.whatsapp_id,
+            leadsResult.rows.map((l: any) => l.id),
+            req.body.botao === true ? 'botao' : 'texto',
+            String(body),
+            (leadId, estagioId) => leadsService.moverPorAutomacao(
+              leadId, contato.empresa_id, usuarioId, estagioId,
+              'Movido para a perda: o lead pediu para parar de receber mensagens',
+              { trigger: 'optout' }
+            )
+          );
+        }
 
         for (const lead of leadsResult.rows) {
           if (direcao === 'entrada') {
@@ -953,9 +1068,10 @@ export const webhookController = {
             );
 
             // Automação: se o estágio atual tem estagio_apos_resposta_id configurado, migrar lead
-            try {
+            if (!pediuSaida) try {
               const estagioResult = await query(
                 `SELECT l.estagio_id, ef.estagio_apos_resposta_id,
+                        (ef.followup_config->>'voltar_ao_responder') = 'true' AS voltar_ao_responder,
                         ef.nome AS estagio_nome, ef2.nome AS estagio_destino_nome
                  FROM leads l
                  JOIN estagios_funil ef ON l.estagio_id = ef.id
@@ -964,6 +1080,21 @@ export const webhookController = {
                 [lead.id]
               );
               const estagioInfo = estagioResult.rows[0];
+              // Nutrição do funil oficial (06/10/2026): quem responde volta para a etapa em
+              // que estava antes de cair aqui, não para uma etapa fixa.
+              if (estagioInfo?.voltar_ao_responder) {
+                const anterior = await leadsService.etapaAnterior(lead.id, estagioInfo.estagio_id);
+                if (anterior) {
+                  estagioInfo.estagio_apos_resposta_id = anterior.id;
+                  estagioInfo.estagio_destino_nome = anterior.nome;
+                }
+              }
+              // Origem com fluxo de respostas próprio nesta etapa: quem decide é a regra da
+              // resposta (pode mover ou não), não o "ao responder" genérico da etapa.
+              if (estagioInfo?.estagio_apos_resposta_id
+                  && await origemTemFluxoDeRespostas(estagioInfo.estagio_id, lead.origem ?? null)) {
+                estagioInfo.estagio_apos_resposta_id = null;
+              }
               if (estagioInfo?.estagio_apos_resposta_id &&
                   estagioInfo.estagio_id !== estagioInfo.estagio_apos_resposta_id) {
                 // moverPorAutomacao também encerra a cadência pendente do estágio
@@ -982,6 +1113,30 @@ export const webhookController = {
             } catch (autoErr: any) {
               console.error(`[Webhook] Erro na automação de estágio para lead #${lead.id}:`, autoErr.message);
             }
+
+            // Etapa cuja cadência conta do silêncio do lead: a resposta recomeça os toques.
+            if (!pediuSaida) {
+              try {
+                if (await leadsService.reiniciarCadenciaAoResponder(lead.id, contato.empresa_id)) {
+                  console.log(`[Webhook] Lead #${lead.id}: cadência da etapa recomeçada pela resposta`);
+                }
+              } catch (e: any) {
+                console.error(`[Webhook] Cadência do lead #${lead.id} ao responder:`, e.message);
+              }
+            }
+
+            // Clique em botão (o oficial marca `botao` desde 01/10; o QR, pelo /send-escolha,
+            // desde 05/10): a regra do estágio em
+            // que o lead está AGORA — já movido acima — manda a sequência e cria o FUP.
+            // Sem await: são várias mensagens com pausa, e o webhook não pode esperar.
+            if (pediuSaida) {
+              // Saída já registrada acima: nem regra de botão, nem resposta escrita.
+            } else if (req.body.botao === true && body) {
+              aplicarCliqueDeBotao(lead.id, contato.empresa_id, String(body));
+            } else if (body && String(body).length <= 60) {
+              // Resposta escrita ("sim"): só nas regras marcadas "vale também a resposta escrita".
+              aplicarRespostaEscrita(lead.id, contato.empresa_id, String(body));
+            }
           } else {
             // Mensagem enviada pelo app: atualizar data do ultimo contato e marcar aguardando resposta
             await query(
@@ -991,6 +1146,14 @@ export const webhookController = {
               WHERE id = $1`,
               [lead.id]
             );
+            try {
+              if (await primeiraSaidaDeLeadDoSendflow(lead.id, contatoId, messageId || null)
+                  && await leadsService.transferirPropriedadeSeDiferente(lead.id, donoInstancia.id, contato.empresa_id, 'mensagem_sendflow')) {
+                console.log(`[Webhook] Lead #${lead.id} (SendFlow) passou para o usuário ${donoInstancia.id}, dono do chip que falou primeiro`);
+              }
+            } catch (e: any) {
+              console.error(`[Webhook] Dono do lead #${lead.id} pelo chip:`, e.message);
+            }
           }
 
           // Registrar atividade
@@ -1311,13 +1474,22 @@ export const webhookController = {
       // O funil 24 recebe outras campanhas: se a pessoa já está lá, as respostas são
       // anexadas ao card existente em vez de virar lead duplicado — o estágio e a origem
       // do card antigo ficam intactos (um lead em "Fechamento" não volta para a entrada).
-      const duplicata = await leadsService.telefoneExiste(
-        telefone,
-        CAIXA_FORM_EMPRESA_ID,
-        undefined,
-        CAIXA_FORM_FUNIL_ID
-      );
+      // 15/10/2026 (creator da Panteras): o card pode estar também no funil oficial da
+      // Escola (74), para onde os leads convidados ao Workshop foram levados — sem olhar
+      // lá, a inscrição criava um gêmeo no 24 com outra vendedora e outra boas-vindas.
+      let duplicata: { existe: boolean; lead_id?: number } = { existe: false };
+      for (const funil of CAIXA_FORM_FUNIS_DEDUP) {
+        duplicata = await leadsService.telefoneExiste(telefone, CAIXA_FORM_EMPRESA_ID, undefined, funil);
+        if (duplicata.existe) break;
+      }
       if (duplicata.existe && duplicata.lead_id) {
+        // Inscrito: a tag é o que o "é hoje" e os filtros do Workshop leem.
+        await query(
+          `INSERT INTO lead_tags (lead_id, tag_id)
+           SELECT $1, t.id FROM tags t WHERE t.empresa_id = $2 AND t.nome = $3
+           ON CONFLICT DO NOTHING`,
+          [duplicata.lead_id, CAIXA_FORM_EMPRESA_ID, CAIXA_FORM_ORIGEM]
+        ).catch((e) => console.error('[CaixaRapido] tag no card existente:', e?.message));
         const carimbo = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
         await query(
           `UPDATE leads
@@ -1336,13 +1508,14 @@ export const webhookController = {
         return res.status(500).json({ error: 'Funil de destino sem estágios' });
       }
 
+      const responsavel = await responsavelDoFormCaixa();
       const lead = await leadsService.create(
         CAIXA_FORM_EMPRESA_ID,
-        CAIXA_FORM_RESPONSAVEL_ID,
+        responsavel,
         {
           funil_id: CAIXA_FORM_FUNIL_ID,
           estagio_id: estagio,
-          responsavel_id: CAIXA_FORM_RESPONSAVEL_ID,
+          responsavel_id: responsavel,
           nome: nomeCompleto,
           telefone,
           email: email || undefined,
@@ -1393,6 +1566,14 @@ export const webhookController = {
       if (enviado.toUpperCase() !== SENDFLOW_SENDTOK.toUpperCase()) {
         console.warn('[SendFlow] Sendtok ausente ou inválido');
         return res.status(401).json({ error: 'Sendtok invalido' });
+      }
+
+      // Desligado pelo dono em 13/10/2026: a regra de Criar lead do grupo já leva o
+      // Desafio 52 ao funil 74 (e o Clube do Livro ao 24), e o SendFlow criava o gêmeo no 24.
+      // Responde 200 para a plataforma não marcar o webhook como quebrado; o corpo fica no log.
+      if (SENDFLOW_DESLIGADO) {
+        console.log('[SendFlow] desligado (SENDFLOW_DESLIGADO), evento ignorado:', JSON.stringify(body).slice(0, 600));
+        return res.json({ success: true, ignorado: true, motivo: 'desligado' });
       }
 
       const campos = achatarPayload(body);

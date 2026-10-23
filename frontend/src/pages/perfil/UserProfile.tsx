@@ -11,6 +11,7 @@ import { useUserPhoto } from '@/hooks/useUserPhoto'
 import { authApi } from '@/api'
 import { gerarAssinaturaPadrao } from '@/utils/assinaturaEmail'
 import { rotuloTipo } from '@/utils/roles'
+import { AgendaExternaCard } from '@/components/perfil/AgendaExternaCard'
 
 const profileSchema = z.object({
   nome: z.string().min(3, 'Nome deve ter no mínimo 3 caracteres'),
@@ -318,6 +319,9 @@ export const UserProfile: React.FC = () => {
             </div>
           </div>
         </Card>
+
+        {/* Agenda externa (103): reuniões do CRM no Google/Microsoft */}
+        <AgendaExternaCard />
 
         {/* Alterar Senha */}
         <Card title="Alterar Senha">

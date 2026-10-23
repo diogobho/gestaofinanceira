@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useAbaNaUrl } from '@/hooks/useEstadoNaUrl'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
+import { BotoesDeVideo, separarVideos } from '@/tutoriais/VideosNaResposta'
 import {
   Send, Trash2, Bot, User, Loader2, WandSparkles,
   Key, Eye, EyeOff, Save, Info,
@@ -270,7 +271,8 @@ function AssistenteChat() {
                 >
                   {msg.role === 'assistant' ? (
                     <div className="prose prose-sm max-w-none text-gray-900 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                      <ReactMarkdown>{msg.conteudo}</ReactMarkdown>
+                      <ReactMarkdown>{separarVideos(msg.conteudo).texto}</ReactMarkdown>
+                      <BotoesDeVideo ids={separarVideos(msg.conteudo).ids} />
                     </div>
                   ) : (
                     <p className="text-sm whitespace-pre-wrap break-words">{msg.conteudo}</p>

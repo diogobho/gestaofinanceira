@@ -55,7 +55,7 @@ export default function FollowupFalhadoItem({ followup }: Props) {
   })
   const reagendar = useReagendarFollowup()
 
-  const desc = descreverErroFollowup(followup.erro_categoria)
+  const desc = descreverErroFollowup(followup.erro_categoria, followup.erro)
   const teto = esgotouTentativas(followup.erro)
 
   const confirmar = () => {

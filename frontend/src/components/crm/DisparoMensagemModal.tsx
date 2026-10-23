@@ -11,6 +11,7 @@ import { estagiosApi } from '@/api/crm'
 import type { FiltrosLead } from '@/api/crm'
 import type { EstagioFunil } from '@/types/crm'
 import { WhatsAppFormatToolbar } from '@/components/ui/WhatsAppFormatToolbar'
+import { useVideoAjuda } from '@/tutoriais/VideoAjuda'
 
 interface LeadDisparo {
   id: number
@@ -88,6 +89,8 @@ function aplicarPreview(template: string, lead: LeadDisparo): string {
 
 export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros }: DisparoMensagemModalProps) {
   const [step, setStep] = useState<Step>('destinatarios')
+  // Fechou sem concluir: sinal de que travou. O Duo pode oferecer o vídeo (uma vez por sessão).
+  const { sinalizarDificuldade } = useVideoAjuda()
   const [modo, setModo] = useState<Modo>('todos')
   const [template, setTemplate] = useState('')
   // Número oficial: disparo para quem não escreveu nas últimas 24h só chega com
@@ -336,6 +339,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
   }
 
   const handleClose = () => {
+    if (step === 'destinatarios' || step === 'mensagem') sinalizarDificuldade({ oficial: 'disparo-oficial' }, 'Quer ver em 1 minuto como montar o disparo, do filtro ao relatório de quem recebeu?')
     setModeloDisp(null)
     if (pollRef.current) clearInterval(pollRef.current)
     setStep('destinatarios')

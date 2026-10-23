@@ -12,6 +12,7 @@ import { agenteApi } from '@/api/agente'
 import { assinaturasApi } from '@/api/assinaturas'
 import { useAuth } from '@/contexts/AuthContext'
 import type { User, CreateUserRequest, UpdateUserRequest, UserPermissoes } from '@/types'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
 import { isAdminEmpresa, rankTipo, type TipoUsuario } from '@/utils/roles'
 
 // ─── Tipos de permissão ──────────────────────────────────────────────────────
@@ -346,7 +347,8 @@ const TabUsuarios: React.FC<{ isAdmin: boolean; isMaster: boolean }> = ({ isAdmi
     onError: (error: any) => toast.error(error.response?.data?.message || 'Erro ao deletar usuário'),
   })
 
-  const permissoesDisponíveis   = PERMISSOES_PJ
+  const { Clientes } = useTermoCliente()
+  const permissoesDisponíveis   = PERMISSOES_PJ.map(p => p.key === 'clientes' ? { ...p, label: Clientes } : p)
 
   const isSelf = (user: User) => String(user.id) === String(currentUser?.id)
   const meuRank = rankTipo(currentUser?.tipo_usuario)
@@ -650,7 +652,7 @@ const TabUsuarios: React.FC<{ isAdmin: boolean; isMaster: boolean }> = ({ isAdmi
         <div className="space-y-4">
           <p className="text-sm text-gray-600">Selecione os módulos que este usuário pode acessar:</p>
           <div className="grid grid-cols-2 gap-3 p-4 bg-gray-50 rounded-lg">
-            {Object.entries(PERMISSOES_LABELS).map(([key, label]) => (
+            {Object.entries({ ...PERMISSOES_LABELS, clientes: Clientes }).map(([key, label]) => (
               <label key={key} className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={editingPermissoes[key as keyof UserPermissoes] !== false}
                   onChange={e => setEditingPermissoes(prev => ({ ...prev, [key]: e.target.checked }))}

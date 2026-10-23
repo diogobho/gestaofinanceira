@@ -1,5 +1,6 @@
 import React from 'react'
 import { Calendar } from 'lucide-react'
+import { toInputDate } from '@/utils'
 
 export type DateRangePreset = 'hoje' | '7dias' | '30dias' | 'mes' | 'personalizado'
 
@@ -13,7 +14,8 @@ interface DateRangePresetsProps {
 }
 
 const formatDateForInput = (date: Date): string => {
-  return date.toISOString().split('T')[0]
+  // Data LOCAL: depois das 21h no Brasil o ISO (UTC) já é o dia seguinte.
+  return toInputDate(date)
 }
 
 const getPresetRange = (preset: DateRangePreset): { inicio: string; fim: string } => {

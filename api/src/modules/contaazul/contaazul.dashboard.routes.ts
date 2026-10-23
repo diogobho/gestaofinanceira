@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { authRequired, AuthRequest } from '../../middlewares/auth.middleware';
 import { contaazulDashboardService, dataValida } from './contaazul.dashboard.service';
 import { contaazulService } from './contaazul.service';
-import { isAdminEmpresa, isSuperAdmin } from '../../shared/roles';
+import { isCreator, isSuperAdmin } from '../../shared/roles';
 
 const router = Router();
 
@@ -10,8 +10,8 @@ const router = Router();
  * Dashboard financeiro do Conta Azul.
  *
  * Acesso restrito de propósito: os dados são o financeiro da Panteras, então
- * quem entra é master DA Panteras ou o super_admin (conta global). `master`
- * sozinho NÃO basta — no banco há masters de várias empresas, e liberar pelo
+ * quem entra é a creator DA Panteras ou o super_admin (conta global). O papel
+ * sozinho NÃO basta — no banco há creators de várias empresas, e liberar pelo
  * tipo_usuario exporia o financeiro de uma empresa às outras.
  */
 
@@ -20,9 +20,10 @@ const EMPRESA_CONTAAZUL = Number(process.env.CONTAAZUL_EMPRESA_ID) || 5; // 5 = 
 function podeVer(user: AuthRequest['user']): boolean {
   if (!user) return false;
   if (isSuperAdmin(user)) return true;
-  // master OU creator (o dono, que fica acima do master) — a Débora virou creator na
-  // migration 065 e checar só 'master' a deixaria de fora do próprio dashboard.
-  return Number(user.empresa_id) === EMPRESA_CONTAAZUL && isAdminEmpresa(user);
+  // Só a creator (a dona da conta). Master também é administrador, mas o financeiro do
+  // Conta Azul é só da dona — pedido do dono em 20/10/2026, depois que a Hellen (master)
+  // abriu a aba.
+  return Number(user.empresa_id) === EMPRESA_CONTAAZUL && isCreator(user);
 }
 
 const somenteAutorizados = (req: AuthRequest, res: Response, next: () => void) => {

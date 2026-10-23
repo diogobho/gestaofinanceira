@@ -30,9 +30,14 @@ export function digitosParaGravar(valor: string | null | undefined): string | nu
  * muito número brasileiro sem o 55 (DDD + 8 ou 9 dígitos), e é só esse caso que
  * completamos aqui. Note que isto NÃO altera o que está no banco: a base se
  * corrige sozinha quando o WhatsApp confirma o JID real do contato.
+ *
+ * Com 11 dígitos só é brasileiro o celular (DDD + 9 + 8). EUA com DDI (1 + 10) e
+ * brasileiro de 8 dígitos já com o 55 também têm 11 — e ganhavam um 55 a mais,
+ * indo para um número que não existe (#419: 16195775201 → 5516195775201).
  */
 export function comDDIParaEnvio(digits: string): string {
-  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  if (digits.length === 10) return `55${digits}`;
+  if (digits.length === 11 && digits[2] === '9') return `55${digits}`;
   return digits;
 }
 

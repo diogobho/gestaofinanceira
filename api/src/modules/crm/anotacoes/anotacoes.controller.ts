@@ -10,7 +10,7 @@ export const anotacoesController = {
       const anotacoes = await anotacoesService.listByLead(leadId, empresaId);
       res.json(anotacoes);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -27,7 +27,7 @@ export const anotacoesController = {
 
       res.json(anotacao);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -43,7 +43,7 @@ export const anotacoesController = {
       const anotacao = await anotacoesService.create(empresaId, usuarioId, data);
       res.status(201).json(anotacao);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -61,7 +61,7 @@ export const anotacoesController = {
 
       res.json(anotacao);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -78,7 +78,7 @@ export const anotacoesController = {
 
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   }
 };

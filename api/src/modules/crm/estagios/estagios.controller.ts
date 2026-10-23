@@ -65,7 +65,7 @@ export const estagiosController = {
       const { id } = req.params;
       const { nome, descricao, cor, icone, is_entrada, is_ganho, is_perdido, estagio_apos_resposta_id, estagio_apos_envio_id, followup_config,
               auto_criar_lead, auto_criar_lead_usuarios, agente_ia_ativo, instrucoes_agente_ia,
-              reuniao_lembretes } = req.body;
+              reuniao_lembretes, tarefas_entrada } = req.body;
 
       const estagio = await estagiosService.update(parseInt(id), empresaId, {
         nome,
@@ -85,6 +85,7 @@ export const estagiosController = {
         agente_ia_ativo,
         instrucoes_agente_ia,
         reuniao_lembretes,
+        tarefas_entrada,
       });
 
       if (!estagio) {

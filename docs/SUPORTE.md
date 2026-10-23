@@ -250,7 +250,11 @@ simula sem `--aplicar`): disparos 446, 447 e 448 recompostos.
 largura e o disparo não pós-processa o HTML, então a imagem vai no tamanho natural dela.
 A arte foi republicada em 600px (largura padrão de e-mail) em
 `uploads/email-images/`, que é a árvore pública de propósito. **Vai se repetir** com
-qualquer imagem grande — ver "Em aberto".
+qualquer imagem grande. **Resolvido em 04/10/2026:** o editor insere a imagem com
+`max-width:100%;height:auto` e o disparo aplica o mesmo a toda `<img>` do HTML final
+(`imagensResponsivas` em `disparos-email.service.ts`, testes em `email-imagens.test.ts`).
+É aplicado na hora do envio (`_processarEnviosEmail`), então vale também para disparo
+agendado antes da correção.
 
 ---
 
@@ -304,7 +308,61 @@ recebido em disparo posterior, 1 (Maria Alves) número bom que caiu com chip for
 | 196 | Tags nos leads | API existia sem tela (e criar tag quebrava) | tela de tags no card |
 | 195 | Responsável automático no SendFlow | eventos chegam sem dono; mesmo webhook para as 3 automações | pedido à cliente quem cuida de cada uma; Workshop ganhou origem própria |
 
+### 01/10/2026 — Panteras (empresa 5), 6 chamados
+
+| # | Assunto | Causa real | Desfecho |
+|---|---|---|---|
+| 231 | Boas-vindas do aluno Hotmart não saiu | regra do primeiro contato só pelo oficial (28/09) barrando **comprador**; o oficial da Débora foi desligado em 29/09 15:38. E a tela mostrava o motivo errado ("dias sem interseção") — **defeito nosso** | comprador (`origem = 'Hotmart'`) fora da regra; tela mostra o erro gravado. Os 5 compradores barrados já tinham sido atendidos à mão — nada reagendado. Raquel (17809) sem nenhuma saída registrada |
+| 195 | Responsável do lead do SendFlow | o evento não traz o número, mas a mensagem da automação volta como `fromMe` do chip | lead do SendFlow passa ao dono do chip da 1ª saída (7 dias) |
+| 196 | Tags iguais às origens | já entregue em 30/09 (migration 090) | respondido |
+| 218 | Nome no lead do SendFlow | já entregue | resolvido |
+| 265 | Enquete, figurinha, sequência de mensagens nos Grupos | sugestão | registrada; contorno: programações com 1–2 min de diferença |
+| 266 | "Obs" virou "obs" na prévia | **não reproduzido**: prévia e envio preservam a caixa; mensagem não foi salva | perguntado se o tradutor do Chrome está ligado |
+
+**Motivo errado na tela:** `conflito_config` cobre três falhas (dias sem interseção, primeiro
+contato barrado, falta modelo de reserva) e o front mostrava sempre o texto dos dias.
+Ao ver "Conflito de configuração", leia `followups_agendados.erro`, não a categoria.
+
+### 06/10/2026 — Panteras (5) e Anchor (38), 7 chamados
+
+| # | Assunto | Causa real | Desfecho |
+|---|---|---|---|
+| 322 | Desafio: "Olá pessoal" para todo lead | **defeito nosso**: boas-vindas no PRIVADO (automação 12) caía no "pessoal" do grupo quando quem entra não tem nome (entrada por link não traz nome) | no privado o nome sai e a frase se ajusta ("Olá, como você está?"); nome também lido do card |
+| 323, 294 | Clube do Livro sem abordagem / boas-vindas não aparece no CRM | **defeito nosso**: a boas-vindas no privado nunca gravou em `historico_mensagens` (103 enviadas até 06/10). E o chip da Hellen (3014, dona da boas-vindas do Clube) está deslogado desde 05/10 08:18 — desde então a chip 2 só **cria** o lead (regra "Levar para o CRM" própria, criada 05/10 14:27) e ninguém aborda | boas-vindas grava como `disparo` e vincula ao card; falta reconectar o 3014 e decidir quem é dona dos leads do Clube |
+| 175, 303 | Planilha não sobe / ver por origem | anexo do suporte só aceitava imagem e PDF; os 873 leads da Anchor estão como `importacao` | anexo aceita XLSX/XLS/CSV (assinatura conferida); origem aparece no CRM Dashboard → Leads por Origem quando repusermos |
+| 295, 265 | Enquete nos Grupos | não existia | mensagem de grupo ganhou enquete (`grupos_mensagens_enquete`, via `/send-enquete`, escolha única) |
+| 302 | Foto no grupo de Avisos sem "Responder" | **não verificado**: o grupo é o de avisos de uma comunidade (`announce`); a foto sai como imagem. Resposta a aviso de comunidade enviado por aparelho conectado não foi testada | pendente de teste num grupo de avisos nosso — não afirmar causa |
+
+**Lição:** envio automático novo grava em `historico_mensagens` com `origem` — a boas-vindas
+no privado nasceu sem isso e a equipe ficou sem saber quem tinha sido abordado.
+
+### 14/10/2026 — Panteras (empresa 5), 7 chamados
+
+| # | Assunto | Causa real | Desfecho |
+|---|---|---|---|
+| 401 | Agendada no Líderes Quânticos não saiu | **defeito nosso**: religar (`alternarMensagem`) só punha na fila agendada que nunca tinha saído (`!ultima_execucao`); pausar → trocar data → religar deixava "Ativa, agendada" sem `proxima_execucao` | corrigido; #9 (sex 16/10 17h59) reposta na fila; #5 e #7 (08/10) não saíram |
+| 419 | US +1 619… não envia pelo CRM | **defeito nosso**: `comDDIParaEnvio` punha 55 em todo número de 11 dígitos — EUA com DDI (1+10) virou `5516195775201` | 55 só em 10 dígitos ou 11 com 9 na 3ª posição; contato 25274 corrigido; era o único na base |
+| 400 | Áudio não chegou no grupo de Avisos | **provável defeito nosso**: `/send-media` mandava `pttAudio` (o Baileys ignora; o certo é `ptt`) e `audio/ogg` sem `codecs=opus` | corrigido em todas as instâncias; teste no grupo "Teste #1" recebido pelos outros chips — confirmar no celular |
+| 302 | Foto sem "Responder" no grupo de Avisos | **hipótese**: comentário em aviso de comunidade é cifrado com `messageSecret`, que o Baileys só põe em enquete/evento | `enviarComChave` (só mídia em grupo) põe a chave; falta alguém olhar no celular um aviso de comunidade |
+| 421 | 4 leads do Desafio sem abordagem | boas-vindas do Desafio (automação 12) desligada em 07/10 e os gêmeos do 74 arquivados em 09/10 | 4 do 24 arquivados (tarefas canceladas); 18271/18275/18292/18294 reativados no 74 com a cadência da Entrada — os 4 receberam e foram para Tentativa |
+| 418 | "Aguardando você" em chamado de colega | sugestão | rótulo só para quem abriu; colega vê "Aguardando <nome>", atendente "Com o cliente" |
+| 420 | Abrir/fechar grupo por horário (SendFlow) | sugestão | feito em 14/10: aba **Abrir e fechar** na página de Grupos (migration 109) |
+
+**15/10:** 400, 302 e 420 respondidos (aguardando cliente). Prova usada: envios reais pós-correção em
+`grupos_mensagens_envios` (#96 áudio no Avisos - Escola em 14/10; #103–107 artes nos Avisos em 15/10),
+recebidos pelos outros chips (cópias em `historico_mensagens`). O "Responder" do #302 ficou para a
+Gabriela confirmar no celular.
+
+**Para provar o #401:** o log certo é `/var/log/nginx/duofuturo_tech_access.log*` (o
+`duofuturo_access.log` é o domínio legado) e a URL termina em `?` no formato mascarado —
+`grep -E "grupos/mensagens/5[/? ]"`.
+
 ## Em aberto
+
+- 17 leads do Clube do Livro da chip 2 (05–06/10) e os da Hellen desde 05/10 08:18 não
+  receberam boas-vindas — reenviar só com aprovação.
+
+- Sugestões dos Grupos (#265): enquete (Baileys tem `poll`), figurinha (webp) e sequência de mensagens numa programação.
 
 - Chips da Panteras desconectados em 15/09: **3011 (Débora) desde 07/09**, 3015 e 3017
   desde 15/09. Ao reconectarem, 176 toques de cadência retomam sozinhos (#78).
@@ -312,10 +370,6 @@ recebido em disparo posterior, 1 (Maria Alves) número bom que caiu com chip for
 - 84 leads "Participante 55…" sem nome em fonte nenhuma (77 ativos) — os outros 237
   foram renomeados em 15/09 (`scripts/renomear_participantes_20260915.js`).
 
-- Imagem grande no corpo do e-mail: `EmailEditor.handleUploadImage` insere `<img>` sem
-  largura e o upload não redimensiona. Saídas: `style="max-width:100%"` na inserção
-  (barata) ou redimensionar no `POST /email-images` (correta). Enquanto não houver uma
-  das duas, todo cliente que subir uma arte em alta vai reabrir o #58.
 - Os disparos #504 (08/09) e #445 (04/09) saíram para ~2.000 contatos com o rodapé já
   achatado, sem os links das redes. A cliente **não** foi avisada — decisão pendente.
 - Enviar ao cliente a lista de números malformados do #28

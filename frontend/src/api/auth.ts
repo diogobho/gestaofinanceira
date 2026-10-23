@@ -56,6 +56,8 @@ export const authApi = {
     aceite_termos: boolean;
     /** Opt-in (LGPD) para receber o material de boas-vindas pelo WhatsApp. */
     whatsapp_optin?: boolean;
+    /** Código do link de afiliado (?ref=). */
+    ref?: string;
   }): Promise<{
     token: string;
     user: any;

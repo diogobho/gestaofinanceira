@@ -9,6 +9,7 @@ import { BotaoDoPlano } from '@/components/plano/BotaoDoPlano'
 import { useModelosWhatsApp } from '@/hooks/useCanalWhatsApp'
 import { canalWhatsappApi, type ModeloWhatsApp } from '@/api/canalWhatsapp'
 import { CriarModeloModal } from './CriarModeloModal'
+import { LinkVideo } from '@/tutoriais/LinkVideo'
 
 const STATUS: Record<string, { texto: string; classe: string }> = {
   APPROVED: { texto: 'Aprovado', classe: 'bg-emerald-100 text-emerald-800' },
@@ -60,6 +61,7 @@ export const ModelosOficiais: React.FC = () => {
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <h2 className="font-semibold text-gray-900 flex items-center gap-2 mr-auto">
           <FileText className="w-5 h-5 text-emerald-600" /> Modelos de mensagem
+          <LinkVideo video="criar-modelo-abordagem" />
         </h2>
         <button onClick={() => refetch()} className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
           <RefreshCw size={12} className={isFetching ? 'animate-spin' : ''} /> atualizar

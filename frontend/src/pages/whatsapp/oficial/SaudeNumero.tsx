@@ -129,7 +129,7 @@ export const SaudeNumero: React.FC = () => {
             <a href={manager} target="_blank" rel="noreferrer" className="text-emerald-700 hover:underline inline-flex items-center gap-0.5">
               WhatsApp Manager <ExternalLink size={11} />
             </a>
-            . Sem forma de pagamento, a Meta recusa as conversas que a empresa inicia (disparos e cadências).
+            . Sem forma de pagamento, a Meta recusa as conversas que a empresa inicia (disparos e cadências) e, desde 01/10/2026, também as respostas depois das 1.000 gratuitas do mês.
           </p>
         </>
       )}

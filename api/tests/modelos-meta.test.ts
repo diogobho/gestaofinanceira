@@ -34,6 +34,12 @@ describe('problemaNoTemplate', () => {
     assert.match(problemaNoTemplate({ ...base, cabecalho: '{{1}} e {{2}}', exemploCabecalho: 'x' }) ?? '', /uma variável/);
   });
 
+  test('corpo não começa nem termina com variável, mesmo com pontuação depois', () => {
+    assert.match(problemaNoTemplate({ ...base, corpo: 'Posso remarcar para {{1}} ou {{2}}?', exemplos: ['a', 'b'] }) ?? '', /terminar/);
+    assert.match(problemaNoTemplate({ ...base, corpo: '{{1}}, tudo bem?', exemplos: ['a'] }) ?? '', /começar/);
+    assert.equal(problemaNoTemplate({ ...base, corpo: 'Posso remarcar para {{1}}? Qual fica melhor?', exemplos: ['a'] }), null);
+  });
+
   test('rodapé não aceita variável nem passa de 60', () => {
     assert.match(problemaNoTemplate({ ...base, rodape: 'Tchau {{1}}' }) ?? '', /variável/);
     assert.match(problemaNoTemplate({ ...base, rodape: 'x'.repeat(61) }) ?? '', /60/);

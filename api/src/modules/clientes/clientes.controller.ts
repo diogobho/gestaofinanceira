@@ -4,6 +4,8 @@ import { AuthRequest } from '../../middlewares/auth.middleware';
 import { enviarEmail, ERRO_SEM_SMTP } from '../../services/email.service';
 import { configuracoesSmtpService } from '../configuracoes-smtp/configuracoes-smtp.service';
 import { query } from '../../config/database';
+import { importacaoService } from '../crm/importacao/importacao.service';
+import { importarClientes } from './clientes.importacao';
 
 export const clientesController = {
   async list(req: AuthRequest, res: Response) {
@@ -31,6 +33,31 @@ export const clientesController = {
       return res.json(cliente);
     } catch (error: any) {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'Cliente não encontrado' });
+    }
+  },
+
+  /** POST /clientes/importacao/preview — colunas e primeiras linhas da planilha. */
+  async importacaoPreview(req: AuthRequest, res: Response) {
+    try {
+      if (!req.file) return res.status(400).json({ message: 'Arquivo é obrigatório' });
+      return res.json(await importacaoService.preview(req.file.path));
+    } catch (error: any) {
+      return res.status(400).json({ message: error.message });
+    }
+  },
+
+  /** POST /clientes/importacao/importar — mapeamento { nome, cpf_cnpj, ... } no body. */
+  async importar(req: AuthRequest, res: Response) {
+    try {
+      if (!req.file) return res.status(400).json({ message: 'Arquivo é obrigatório' });
+      const bruto = req.body.mapeamento;
+      const mapeamento = typeof bruto === 'string' ? JSON.parse(bruto) : bruto;
+      if (!mapeamento?.nome || !mapeamento?.cpf_cnpj) {
+        return res.status(400).json({ message: 'Escolha as colunas de Nome e de CPF/CNPJ' });
+      }
+      return res.json(await importarClientes(req.file.path, req.user!.userId, mapeamento));
+    } catch (error: any) {
+      return res.status(400).json({ message: error.message });
     }
   },
 

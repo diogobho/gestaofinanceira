@@ -134,6 +134,23 @@ export function extrairPassosFollowup(cfg: any): any[] {
   return [{ ...cfg, base: 'entrada' }];
 }
 
+const semAcento = (t: string) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/**
+ * O passo vale para a origem deste lead? (06/10/2026, funil oficial da Escola: a abertura
+ * da Entrada é só do Clube do Livro e do Desafio; a da Tentativa, das demais origens.)
+ * `origens: { modo: 'so' | 'exceto', contem: ['clube do livro', 'desafio'] }` — casa por
+ * "contém", sem acento e sem caixa. Passo sem `origens` vale para todo lead.
+ */
+export function passoValeParaOrigem(passo: any, origem: string | null | undefined): boolean {
+  const f = passo?.origens;
+  const lista: string[] = Array.isArray(f?.contem) ? f.contem.filter((x: any) => String(x ?? '').trim()) : [];
+  if (!lista.length) return true;
+  const o = semAcento(origem ?? '');
+  const casa = lista.some((c) => o.includes(semAcento(c)));
+  return f.modo === 'exceto' ? !casa : casa;
+}
+
 /**
  * Calcula os instantes de disparo de uma cadência a partir da entrada no estágio.
  * Passos com base 'anterior' encadeiam sobre o instante agendado do passo anterior.
@@ -272,6 +289,13 @@ export function aplicarVariaveisLead(template: string, lead: Record<string, any>
     origem: String(l.origem ?? ''),
     cpfcnpj: String(l.cpf_cnpj ?? ''),
     temperatura: String(l.temperatura ?? ''),
+    // Campos do playbook (migration 100) e a origem em frase ("no clube do livro"),
+    // que quem chama calcula pela configuração da empresa (`fraseDaOrigem`).
+    negocio: String(l.negocio ?? ''),
+    objetivo: String(l.objetivo ?? ''),
+    desafio: String(l.desafio ?? ''),
+    duvida: String(l.duvida ?? ''),
+    origemfrase: String(l.origem_frase ?? ''),
   };
 
   return template.replace(/\[([a-zA-ZÀ-ÿ_]+)\]/g, (full, chave: string) => {
@@ -285,6 +309,7 @@ export const VARIAVEIS_DISPONIVEIS = [
   'Nome', 'PrimeiroNome', 'Telefone', 'Email', 'Empresa',
   'Cargo', 'Titulo', 'ValorPotencial', 'Origem', 'CpfCnpj', 'Temperatura',
   'Responsavel', 'PrimeiroNomeResponsavel',
+  'Negocio', 'Objetivo', 'Desafio', 'Duvida', 'OrigemFrase',
 ];
 
 // ─── Janela operacional de envio ──────────────────────────────────────────────

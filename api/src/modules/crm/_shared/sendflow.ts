@@ -30,6 +30,9 @@ const CAMPANHAS: Array<{ padrao: RegExp; origem: string; campanha: string }> = [
   { padrao: /workshop/i, origem: 'Workshop Liberdade Financeira', campanha: 'Workshop Liberdade Financeira' },
 ];
 
+/** Origens com nome próprio; a padrão (`SENDFLOW_ORIGEM`) é somada pelo controller. */
+export const ORIGENS_CAMPANHAS = CAMPANHAS.map((c) => c.origem);
+
 export function campanhaDoEvento(
   campanha: string,
   grupo: string,

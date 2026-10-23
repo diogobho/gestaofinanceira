@@ -8,6 +8,7 @@ import { sessionsApi, clientsApi } from '@/api'
 import { useAuth } from '@/contexts/AuthContext'
 import type { Session, CreateSessionRequest } from '@/types'
 import { formatDate as formatDateUtil } from '@/utils/format'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
 
 export const SessionsList: React.FC = () => {
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
@@ -16,6 +17,7 @@ export const SessionsList: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  const { Cliente } = useTermoCliente()
   const { user } = useAuth()
 
   // Fetch sessions list
@@ -147,7 +149,7 @@ export const SessionsList: React.FC = () => {
   // Prepare calendar events
   const calendarEvents = sessions?.map(session => ({
     id: session.id,
-    title: `${session.titulo} - ${clients?.find(c => String(c.id) === String(session.cliente_id))?.nome || 'Cliente'}`,
+    title: `${session.titulo} - ${clients?.find(c => String(c.id) === String(session.cliente_id))?.nome || Cliente}`,
     date: session.data,
     time: session.horario.substring(0, 5),
     color: session.tipo_sessao === 'MENTORIA' ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-primary-500 text-white hover:bg-primary-600',
@@ -244,7 +246,7 @@ export const SessionsList: React.FC = () => {
                   badge={<Badge variant="default">{session.tipo_sessao}</Badge>}
                 />
                 <MobileCardRow
-                  label="Cliente"
+                  label={Cliente}
                   value={clients?.find(c => String(c.id) === String(session.cliente_id))?.nome || '-'}
                 />
                 <MobileCardRow
@@ -284,7 +286,7 @@ export const SessionsList: React.FC = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data/Hora</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Título</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{Cliente}</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Modalidade</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duração</th>
@@ -371,7 +373,7 @@ export const SessionsList: React.FC = () => {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cliente *
+                {Cliente} *
               </label>
               <Select name="cliente_id" defaultValue={editingItem?.cliente_id} required>
                 <option value="">Selecione...</option>
