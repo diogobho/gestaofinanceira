@@ -9,6 +9,7 @@ import api from '@/api/client'
 import type { Client, CreateClientRequest } from '@/types'
 import EmailEditor from '@/components/crm/EmailEditor'
 import ImportClientesModal from '@/components/clientes/ImportClientesModal'
+import AniversariantesProximos, { proximosAniversarios } from '@/components/clientes/AniversariantesProximos'
 import { useTermoCliente } from '@/hooks/useTermoCliente'
 
 function applyVars(tpl: string, nome: string, email: string, telefone: string): string {
@@ -252,13 +253,16 @@ export const ClientsList: React.FC = () => {
             icon={Users}
           />
           <MetricCard
-            title="Com Aniversário Cadastrado"
-            value={clients?.filter(c => c.aniversario).length || 0}
+            title="Aniversariantes em 30 dias"
+            value={proximosAniversarios(clients || [], 30).length}
+            subtitle={`${clients?.filter(c => c.aniversario).length || 0} com aniversário cadastrado`}
             icon={Cake}
             iconColor="text-gold-600"
             iconBg="bg-gold-50 dark:bg-gold-900/20"
           />
         </div>
+
+        <AniversariantesProximos clients={clients || []} onEmail={openIndividualEmailModal} />
 
         {/* Bulk action bar */}
         {selectedIds.size > 0 && (

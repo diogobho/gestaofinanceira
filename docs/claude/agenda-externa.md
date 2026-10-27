@@ -56,3 +56,6 @@ Sem elas o botão do provedor fica desabilitado.
   Suporte → Atualizações.
 - Política de privacidade v1.1, seção **6.1** (escopos, o que faz e não faz, revogação, frase de
   Uso Limitado do Google) — pré-requisito da verificação. Backup em landing/_backup_privacidade_20261006.
+
+## Onde fica (23/10/2026)
+O cartão da agenda saiu de Meu perfil e mora em **Configurações de E-mail** (`/gestao/configuracoes/email`), junto da assinatura de e-mail. A volta do OAuth agora é `/gestao/configuracoes/email?agenda=…` (`agenda-externa.service.ts`), e o aviso do card do CRM aponta para lá. O vídeo `conectar-agenda` ainda mostra a tela antiga de Meu perfil.

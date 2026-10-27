@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
 import { Button, MetricCard, Card, Modal, ModalFooter, Input, Select, Spinner, Badge } from '@/components/ui'
 import { Table, TableHead, TableBody, TableRow, TableHeaderCell, TableCell } from '@/components/ui/Table'
-import { Edit, Filter, X, Calendar, CreditCard, DollarSign, CheckCircle, Clock } from 'lucide-react'
+import { Edit, Trash2, Filter, X, Calendar, CreditCard, DollarSign, CheckCircle, Clock } from 'lucide-react'
 import { parcelasApi, clientsApi } from '@/api'
 import type { ParcelaReceita, ParcelaDespesa } from '@/types'
 import { formatDate as formatDateUtil } from '@/utils/format'
@@ -102,6 +102,25 @@ export const ParcelasList: React.FC = () => {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erro ao atualizar parcela')
+    }
+  })
+
+  // Excluir a parcela aberta na edição (confirmação dentro do próprio modal)
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false)
+  const excluirMutation = useMutation({
+    mutationFn: ({ tipo, id }: { tipo: 'receitas' | 'despesas'; id: string }) => parcelasApi.excluirParcela(tipo, id),
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['parcelas-receitas'] })
+      queryClient.invalidateQueries({ queryKey: ['parcelas-despesas'] })
+      queryClient.invalidateQueries({ queryKey: ['revenues-list'] })
+      queryClient.invalidateQueries({ queryKey: ['expenses-list'] })
+      toast.success(r.lancamento_excluido ? 'Parcela excluída. Era a única, então o lançamento saiu junto.' : 'Parcela excluída.')
+      setConfirmandoExclusao(false)
+      setIsEditModalOpen(false)
+      setSelectedParcela(null)
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erro ao excluir parcela')
     }
   })
 
@@ -753,6 +772,7 @@ export const ParcelasList: React.FC = () => {
         onClose={() => {
           setIsEditModalOpen(false)
           setSelectedParcela(null)
+          setConfirmandoExclusao(false)
         }}
         title="Editar Parcela"
         size="md"
@@ -837,13 +857,51 @@ export const ParcelasList: React.FC = () => {
             </div>
           </div>
 
-          <ModalFooter>
+          {confirmandoExclusao && selectedParcela && (
+            <div className="mt-4 p-3 rounded-lg border border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-900/20" role="alert">
+              <p className="text-sm text-red-800 dark:text-red-200">
+                Excluir a parcela {selectedParcela.numero_parcela}/{selectedParcela.total_parcelas}?
+                {Number(selectedParcela.total_parcelas) > 1
+                  ? ' As outras parcelas continuam e o valor total do lançamento diminui.'
+                  : ' É a única parcela, então o lançamento inteiro será excluído.'}
+                {' '}Não dá para desfazer.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => setConfirmandoExclusao(false)}>
+                  Não excluir
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  className="bg-red-600 hover:bg-red-700"
+                  disabled={excluirMutation.isPending}
+                  onClick={() => excluirMutation.mutate({ tipo: activeTab === 'receitas' ? 'receitas' : 'despesas', id: selectedParcela.id })}
+                >
+                  {excluirMutation.isPending ? <><Spinner size="sm" className="mr-2" />Excluindo...</> : 'Sim, excluir'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <ModalFooter className="flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              className="mr-auto text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+              onClick={() => setConfirmandoExclusao(true)}
+              disabled={confirmandoExclusao}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Excluir parcela
+            </Button>
             <Button
               type="button"
               variant="outline"
               onClick={() => {
                 setIsEditModalOpen(false)
                 setSelectedParcela(null)
+                setConfirmandoExclusao(false)
               }}
             >
               Cancelar

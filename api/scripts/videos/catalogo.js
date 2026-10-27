@@ -14,7 +14,7 @@ const { execFileSync } = require('child_process');
 const PASTA = process.argv[2] || '/var/www/apps/landing/assets/videos/tutoriais';
 const URL = '/assets/videos/tutoriais';
 const TEMAS = [
-  ['Usando o Duo', ['ajuda-em-video', 'instalar-app', 'conectar-agenda']],
+  ['Usando o Duo', ['duo-no-sistema', 'duo-comandos', 'duo-conectar-claude', 'ajuda-em-video', 'instalar-app', 'conectar-agenda']],
   ['Primeiros passos no CRM', ['cadastrar-lead', 'mover-lead-etapa', 'organizar-quadro', 'importar-planilha']],
   ['WhatsApp', ['conectar-whatsapp-qr', 'conectar-whatsapp-oficial', 'criar-modelo-abordagem', 'conversa-card', 'conversa-card-oficial', 'disparo-oficial']],
   ['Grupos do WhatsApp', ['conectar-chip-grupos', 'grupos-mensagem-boas-vindas', 'grupos-criar-lead', 'campanhas-grupo']],

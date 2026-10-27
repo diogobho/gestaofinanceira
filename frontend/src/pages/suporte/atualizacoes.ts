@@ -24,6 +24,44 @@ export interface Atualizacao {
 
 export const ATUALIZACOES: Atualizacao[] = [
   {
+    data: '2026-10-26',
+    titulo: 'Próximos aniversariantes',
+    descricao: 'A página de Clientes mostra quem faz aniversário nos próximos 7, 30 ou 90 dias, com a idade que a pessoa vai fazer e botões para mandar os parabéns pelo WhatsApp ou por e-mail.',
+    onde: 'Clientes',
+  },
+  {
+    data: '2026-10-26',
+    titulo: 'Excluir direto na edição',
+    descricao: 'Ao editar uma receita ou despesa, agora tem o botão Excluir. Na edição de uma parcela também: as outras parcelas continuam e o valor total do lançamento se ajusta sozinho.',
+    onde: 'Receitas, Despesas e Parcelas → Editar',
+  },
+  {
+    data: '2026-10-26',
+    titulo: 'Asaas: todas as taxas e as antecipações',
+    descricao: 'Quem conectou o Asaas agora vê como despesa todas as taxas do extrato (notificação por WhatsApp, mensageria, nota fiscal, antecipação), e a parcela antecipada aparece como recebida no dia em que o dinheiro caiu.',
+    onde: 'Receitas → Asaas',
+  },
+  {
+    data: '2026-10-23',
+    titulo: 'Comandos do Duo e o Duo no WhatsApp',
+    descricao: 'Nova tela com ideias prontas do que pedir ao Duo, separadas por área, com o botão "Usar no Duo". E o Duo agora lê a conversa dos leads, manda mensagem, agenda follow-up, coloca tags, arquiva e prepara disparos com uma mensagem diferente para cada lead, sempre mostrando antes e esperando o seu sim. Tem também o Manual do Duo em PDF.',
+    onde: 'Comandos do Duo (menu ou a lâmpada no chat do Duo)',
+    video: 'duo-comandos',
+  },
+  {
+    data: '2026-10-23',
+    titulo: 'Assinatura de e-mail e agenda em Configurações de E-mail',
+    descricao: 'A sua assinatura de e-mail e a conexão com o Google Agenda ou o Microsoft 365 saíram de Meu perfil e agora ficam juntas em Configurações de E-mail. Nada muda no que já estava salvo ou conectado.',
+    onde: 'Config. E-mail',
+  },
+  {
+    data: '2026-10-23',
+    titulo: 'Duo 2.0: créditos, indicação e o Duo dentro do Claude',
+    descricao: 'Recarregue o crédito do Duo por PIX, boleto ou cartão. Indique o Duo pelo seu link e ganhe R$ 20 por pessoa que assinar, para usar como crédito do Duo ou abater na sua mensalidade. E conecte o Duo ao seu Claude para consultar e lançar de lá.',
+    onde: 'Créditos do Duo (moeda no chat do Duo) · Indique o Duo · Agente IA → Configurar Agente',
+    video: 'duo-conectar-claude',
+  },
+  {
     data: '2026-10-09',
     titulo: 'Integração com o Conta Azul',
     descricao: 'Clique em Conta Azul, escolha a partir de que data quer trazer e entre com o login da sua conta, sem copiar chave nenhuma. Contas a receber viram receitas e contas a pagar viram despesas, já com o cliente e o produto. O que for pago no Conta Azul fica pago no Duo sozinho, a cada 15 minutos, e dá para conectar mais de uma conta na mesma empresa.',

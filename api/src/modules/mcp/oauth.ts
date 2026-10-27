@@ -94,7 +94,7 @@ ul{margin:0 0 8px;padding-left:20px;color:var(--sub);font-size:.9rem}
 </style></head><body><main>
 <h1>Conectar o ${esc(nomeCliente)} ao Duo</h1>
 <p>Entre com o seu login do Duo. O assistente vai ver e fazer só o que você já pode no sistema.</p>
-<ul><li>Consultar o financeiro e o CRM</li><li>Lançar, editar e mover, sempre pedindo a sua confirmação antes</li><li>Nunca exclui nada</li></ul>
+<ul><li>Consultar o financeiro, o CRM e as conversas</li><li>Lançar, editar, mover e mandar mensagens, sempre pedindo a sua confirmação antes</li><li>Nunca exclui nada</li></ul>
 ${erro ? `<div class="erro" role="alert">${esc(erro)}</div>` : ''}
 <form method="post" action="${URL_OAUTH}/authorize">${ocultos}
 <label for="email">E-mail</label><input id="email" name="email" type="email" autocomplete="username" required value="${esc(p.email)}">

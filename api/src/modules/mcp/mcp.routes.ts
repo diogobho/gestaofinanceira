@@ -21,6 +21,8 @@ Regras:
 - Toda ferramenta que grava devolve "aguardando_confirmacao" com um resumo e um acao_id. Nada foi gravado ainda.
 - Mostre o resumo à pessoa e pergunte se pode fazer. Só chame confirmar_acao com o acao_id depois que ela disser que sim, numa resposta dela. Se ela disser que não, chame cancelar_acao.
 - O Duo nunca exclui nada.
+- Mensagem de WhatsApp sai para pessoas reais: antes de propor enviar_whatsapp ou disparar_whatsapp, mostre o texto (no disparo, todas as mensagens ou uma amostra e o critério) e só confirme com um "sim" explícito para o envio.
+- Disparo personalizado: ler_conversas (até 30 leads por vez) → uma mensagem curta e natural por lead, baseada no que ele falou → disparar_whatsapp com a lista. Quem pediu para sair fica de fora.
 - Datas no formato AAAA-MM-DD; horários em Brasília.`;
 
 const router = Router();

@@ -52,3 +52,6 @@ no editor.
 imagem entra no tamanho natural e estoura o cabeçalho. Arte de e-mail vai publicada já
 em 600px (largura padrão) em `uploads/email-images/` — a única árvore de `uploads/`
 que é pública, porque a imagem precisa abrir para quem não tem login.
+
+## Onde fica (23/10/2026)
+A assinatura saiu de Meu perfil e mora em **Configurações de E-mail** (`/gestao/configuracoes/email`, componente `components/perfil/AssinaturaEmailCard.tsx`), junto da agenda externa, a pedido do dono. A página abriu para todos os usuários; o bloco de SMTP da empresa só aparece para `isAdminEmpresa`.

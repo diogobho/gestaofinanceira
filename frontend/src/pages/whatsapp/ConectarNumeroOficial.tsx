@@ -75,6 +75,8 @@ interface Props {
 export const ConectarNumeroOficial: React.FC<Props> = ({ oficial, usuarioId, onConectado }) => {
   const [ocupado, setOcupado] = useState<false | 'oficial' | 'app'>(false)
   const sessao = useRef<{ waba_id?: string; phone_number_id?: string; app?: boolean }>({})
+  const usuarioRef = useRef(usuarioId)
+  usuarioRef.current = usuarioId
   const { configurado, appId, configId, graphVersion, versao = 'v4' } = oficial.embeddedSignup
 
   // A janela conversa com a página por postMessage. O listener fica montado o
@@ -85,9 +87,12 @@ export const ConectarNumeroOficial: React.FC<Props> = ({ oficial, usuarioId, onC
       try {
         const dados = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
         if (dados?.type !== 'WA_EMBEDDED_SIGNUP') return
+        canalWhatsappApi.registrarEventoJanela(String(dados.event), dados.data, usuarioRef.current)
         if (dados.event === 'FINISH' || dados.event === 'FINISH_ONLY_WABA' || dados.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING') {
           sessao.current = {
-            waba_id: dados.data?.waba_id,
+            // Na v5 o FINISH do app (coexistência) não traz `waba_id`: a conta vem em
+            // `messaging_account_ids` (26/10/2026, Jéssica).
+            waba_id: dados.data?.waba_id || dados.data?.messaging_account_ids?.[0],
             phone_number_id: dados.data?.phone_number_id,
             // Na v4 é a Meta quem decide: número que está no app vira coexistência sozinho,
             // seja qual for o botão clicado.
@@ -138,6 +143,7 @@ export const ConectarNumeroOficial: React.FC<Props> = ({ oficial, usuarioId, onC
       })
 
       const code = resposta?.authResponse?.code
+      canalWhatsappApi.registrarEventoJanela('LOGIN_CALLBACK', { status: resposta?.status, temCode: !!code, coexistencia }, usuarioId)
       // O postMessage da janela e o callback do login chegam em ordem não garantida.
       // Com o code em mãos, espera até 3s pelos ids — o code vive ~30s, sobra tempo.
       for (let i = 0; code && !sessao.current.waba_id && i < 15; i++) {

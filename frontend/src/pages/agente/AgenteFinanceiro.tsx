@@ -19,6 +19,7 @@ import { agenteApi } from '@/api/agente'
 import { useAgenteIAConfig, useAgenteIAUpdateConfig } from '@/hooks/useCRM'
 import type { AgenteIAConfig } from '@/types/crm'
 import { isAdminEmpresa, podeConfigurarAgenteIA } from '@/utils/roles'
+import DuoNoClaude from '@/components/DuoNoClaude'
 
 // ─── Tipos e constantes ────────────────────────────────────────────────────────
 
@@ -484,6 +485,10 @@ function ConfigurarAgente() {
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-5">
       <>
+          {/* Conector MCP (112): o Duo dentro do Claude. Pedido do dono (23/10): mora
+              aqui, nas configurações do agente, e não na tela de créditos. */}
+          <DuoNoClaude />
+
           {/* Guia dos três níveis de instrução (empresa, estágio do funil, passo da
               cadência). Arquivo estático em frontend/public/, servido em /gestao/. */}
           <div className="flex items-start gap-3 p-4 rounded-xl border border-gray-200 bg-gray-50 dark:bg-gray-800/40 dark:border-gray-700">

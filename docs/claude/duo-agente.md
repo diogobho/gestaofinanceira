@@ -28,7 +28,30 @@ O chat do Duo (`modules/chat-financeiro`) consulta, lança e edita no sistema. *
 - Data/hora de tarefa chega em horário de Brasília ("AAAA-MM-DD HH:MM") e vira ISO UTC, como a tela manda.
 - `mover_lead` roda as automações da etapa (follow-up, tarefas de entrada) como arrastar no quadro; em etapa de ganho
   cria cliente + card no CX, mas com `criar_receita: false` — o resumo avisa.
-- Não envia WhatsApp, não agenda follow-up, não arquiva, não transfere de funil, não mexe em tag.
+- Até 23/10 de manhã não enviava WhatsApp nem mexia em follow-up/tag/arquivo — ver a seção seguinte.
+
+## WhatsApp, organização e comandos (23/10/2026, pedido do dono)
+- Ações novas: `ler_conversas` (até 30 leads por chamada, por ids ou funil+etapa, 10–20 mensagens cada, com
+  `pediu_para_sair` e a última anotação; filtro de conversa = `NOT copia_indevida` e `grupo_whatsapp_id IS NULL`,
+  por `lead_id` ou pelo contato do card), `enviar_whatsapp` (uma mensagem, como o chat do card: sai pelo chip do
+  responsável, origem `manual`), `disparar_whatsapp`, `ver_disparos`, `agendar_followup` (texto ou `instrucao_ia`),
+  `cancelar_followup`, `resumo_funil`, `listar_tags`, `etiquetar_lead` (até 50), `arquivar_lead` (arquivar/reativar),
+  `transferir_funil`, `listar_clientes` (escopo `escopoDono`, filtro de situação) e `saldo_duo`. `ver_lead` traz os
+  follow-ups pendentes. Total: 38 ferramentas para o creator.
+- **Disparo personalizado**: `disparar_whatsapp` recebe `[{lead_id, texto}]` (até 100, mesmo funil) e chama
+  `disparosService.iniciar` com `mensagens_por_lead` (fica em `configuracao_json`, vale também no agendado; só com
+  `lead_ids`, nunca com `todos` nem modelo). Lead sem texto no mapa falha em vez de receber o template. As travas são
+  as da rota: capacidade `disparo_whatsapp` + `podeDispararEmMassa` (checadas na proposta e de novo na execução),
+  opt-out, arquivado, limite de 100/dia (a proposta recusa em vez de cortar a lista calada) e intervalo anti-ban.
+  O `mensagens_por_lead` não chega pelo HTTP — o controller monta o DTO campo a campo.
+- No número oficial, texto livre fora da janela de 24h falha lead a lead (422, aparece nos erros do disparo).
+- Tela **Comandos do Duo** (`/comandos-duo`, menu e lâmpada no chat): `frontend/src/utils/comandosDuo.ts` é a fonte
+  única (tela, "Usar no Duo" via evento `duo:preencher` do `DuoWidget`, e o PDF). Comando só entra se a ferramenta existir.
+- **Manual em PDF**: `api/scripts/manual-duo/gerar.ts` → https://duofuturo.tech/assets/manuais/manual-duo.pdf. Rodar de
+  novo quando a lista de comandos mudar (`cd api && npx tsx scripts/manual-duo/gerar.ts`).
+- **Vídeos**: `duo-no-sistema`, `duo-comandos`, `duo-conectar-claude` (tema "Usando o Duo"). Chat simulado por
+  `roteiros/_chat-duo.js` (o `responder` do gerador aceita função); telas do Claude como cartaz; a página de login do
+  conector é a real, salva em `tutoriais/demo/login-conector.html`.
 
 ## Permissões no servidor
 Desde 21/10 `server.ts` monta `exigePermissao` em clientes, sessoes, receitas, despesas, parcelas e dashboard (antes só o
@@ -69,7 +92,7 @@ ainda sem checagem no servidor.
   é renovado a cada `tools/call`: proposta de uma chamada anterior pode ser confirmada; a da mesma chamada, não. As
   `instructions` do `initialize` mandam só confirmar depois do "sim" da pessoa.
 - Conta bloqueada (`bloqueioDaEmpresa`) → `tools/call` devolve erro. Não consome crédito do Duo.
-- Na tela de créditos, seção "Usar o Duo dentro do Claude": endereço e conexões, com "Desconectar" (`/mcp-conexoes`).
+- Seção "Usar o Duo dentro do Claude" na aba Agente IA → Configurar Agente (`/gestao/agente-duo?aba=configurar`, pedido do dono 23/10; antes ficava na tela de créditos): endereço e conexões, com "Desconectar" (`/mcp-conexoes`). Essa aba é só do creator.
 
 ## Próximo
-CRM: follow-up, tags, arquivar (ainda fora); checar `crm` no servidor (`exigePermissao`). Tela de admin para marcar comissão paga.
+Checar `crm` no servidor (`exigePermissao`); mídia no WhatsApp pelo Duo; disparo com modelo aprovado pelo Duo. Tela de admin para marcar comissão paga.

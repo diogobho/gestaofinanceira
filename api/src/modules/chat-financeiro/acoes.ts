@@ -11,7 +11,13 @@ import { assinaturasService } from '../assinaturas/assinaturas.service';
 import { leadsService } from '../crm/leads/leads.service';
 import { tarefasService } from '../crm/tarefas/tarefas.service';
 import { anotacoesService } from '../crm/anotacoes/anotacoes.service';
-import { temCapacidade } from '../../shared/capacidades';
+import { temCapacidade, CATALOGO } from '../../shared/capacidades';
+import { contatosService } from '../crm/contatos/contatos.service';
+import { followupsService } from '../crm/followups/followups.service';
+import { disparosService } from '../crm/disparos/disparos.service';
+import { leadSaiu } from '../crm/optout/optout.service';
+import { podeDispararEmMassa, MSG_PRIMEIRO_CONTATO_SO_OFICIAL } from '../whatsapp/canal/contas';
+import { duoCreditos } from './creditos';
 
 /**
  * Cardápio de ações do Duo (21/10/2026).
@@ -220,6 +226,14 @@ const resumoTarefa = (t: any) => ({
 });
 
 const podeCrm = (ctx: ContextoDuo) => ctx.crm && temPermissao(ctx, 'crm');
+
+/** Disparo em massa: plano com a capacidade e remetente no canal que pode (regras das rotas de disparo). */
+async function garantirDisparo(ctx: ContextoDuo) {
+  if (!isSuperAdmin(ctx) && !(await temCapacidade(ctx.empresaId, 'disparo_whatsapp'))) {
+    throw new EntradaInvalida(CATALOGO.disparo_whatsapp.motivo);
+  }
+  if (!(await podeDispararEmMassa(ctx.usuarioId))) throw new EntradaInvalida(MSG_PRIMEIRO_CONTATO_SO_OFICIAL);
+}
 
 // ─── Definição das ações ──────────────────────────────────────────────────────
 
@@ -712,7 +726,7 @@ const ACOES: Acao[] = [
   },
   {
     nome: 'ver_lead',
-    descricao: 'Detalhes de um lead: dados, etapa, tags, tarefas abertas, últimas anotações e últimas atividades.',
+    descricao: 'Detalhes de um lead: dados, etapa, tags, tarefas abertas, follow-ups pendentes, últimas anotações e últimas atividades.',
     schema: objeto({ lead_id: { type: 'integer' } }, ['lead_id']),
     pode: podeCrm,
     async consultar(ctx, input) {
@@ -721,7 +735,12 @@ const ACOES: Acao[] = [
         .filter(t => t.status === 'pendente' || t.status === 'em_andamento');
       const notas = (await anotacoesService.listByLead(lead.id, ctx.empresaId)).slice(0, 5);
       const ativ = await leadsService.getAtividades(lead.id, ctx.empresaId, 5);
+      const fups = (await followupsService.listarPorLead(lead.id, ctx.empresaId)).filter((f: any) => f.status === 'pendente');
       return {
+        followups_pendentes: fups.map((f: any) => ({
+          id: Number(f.id), quando: dataHoraBr(f.agendado_para), tipo: f.tipo,
+          mensagem: f.mensagem ? String(f.mensagem).slice(0, 200) : null, instrucao_ia: f.instrucao_ia ? String(f.instrucao_ia).slice(0, 200) : null,
+        })),
         lead: { ...resumoLead(lead), notas: lead.notas || null },
         tarefas_abertas: tarefas.map(resumoTarefa),
         ultimas_anotacoes: notas.map((a: any) => ({ conteudo: a.conteudo, por: a.usuario_nome, em: dataHoraBr(a.created_at) })),
@@ -1018,6 +1037,493 @@ const ACOES: Acao[] = [
       const t = await tarefasService.update(Number(e.tarefa_id), ctx.empresaId, { data_vencimento: new Date(e.data_vencimento) });
       if (!t) throw new Error('Tarefa não encontrada.');
       return resumoTarefa(t);
+    },
+  },
+  // ── CRM: conversas e WhatsApp (23/10/2026) ──────────────────────────────────
+  // O Duo lê a conversa do card e escreve a mensagem; quem envia é o mesmo caminho
+  // das telas (chat do card e disparo), com as mesmas travas de canal, opt-out e
+  // limite diário. Disparo é sempre uma lista fechada de leads com um texto por lead.
+  {
+    nome: 'ler_conversas',
+    descricao: 'Lê as últimas mensagens de WhatsApp de leads (por lista de ids ou por funil+etapa), com dados do card e a última anotação. Use para entender o contexto antes de escrever mensagens. Até 30 leads por chamada; use "pular" para paginar.',
+    schema: objeto({
+      lead_ids: { type: 'array', items: { type: 'integer' }, description: 'Leads específicos (até 30).' },
+      funil_id: { type: 'integer' },
+      etapa_id: { type: 'integer' },
+      limite_leads: { type: 'integer', description: 'Por funil/etapa: quantos leads (padrão 20, até 30).' },
+      pular: { type: 'integer', description: 'Por funil/etapa: quantos pular (paginação).' },
+      mensagens_por_lead: { type: 'integer', description: 'Últimas mensagens de cada lead (padrão 10, até 20).' },
+    }),
+    pode: podeCrm,
+    async consultar(ctx, input) {
+      let ids: number[] = [];
+      let total: number | undefined;
+      if (Array.isArray(input.lead_ids) && input.lead_ids.length) {
+        ids = [...new Set(input.lead_ids.slice(0, 30).map((v: any) => id(v, 'lead_id')))] as number[];
+      } else if (input.funil_id) {
+        const params: any[] = [ctx.empresaId, id(input.funil_id, 'funil_id')];
+        let where = 'l.empresa_id = $1 AND l.funil_id = $2 AND NOT COALESCE(l.arquivado, false)';
+        if (input.etapa_id) { params.push(id(input.etapa_id, 'etapa_id')); where += ` AND l.estagio_id = $${params.length}`; }
+        params.push(inteiro(input.limite_leads, 1, 30, 20), inteiro(input.pular, 0, 100000, 0));
+        const r = await query(
+          `SELECT l.id, COUNT(*) OVER () AS total FROM leads l WHERE ${where}
+            ORDER BY l.data_ultimo_contato DESC NULLS LAST, l.id DESC
+            LIMIT $${params.length - 1} OFFSET $${params.length}`,
+          params
+        );
+        ids = r.rows.map((x: any) => Number(x.id));
+        total = Number(r.rows[0]?.total || 0);
+      } else {
+        throw new EntradaInvalida('Informe lead_ids ou funil_id (com etapa_id, se quiser).');
+      }
+      if (!ids.length) return { total: total ?? 0, leads: [] };
+
+      const leads = await query(
+        `SELECT l.id, l.nome, l.telefone, l.empresa, l.origem, l.temperatura, l.contato_whatsapp_id,
+                e.nome AS etapa, f.nome AS funil, ur.nome AS responsavel,
+                (SELECT a.conteudo FROM anotacoes_lead a WHERE a.lead_id = l.id ORDER BY a.created_at DESC LIMIT 1) AS ultima_anotacao
+           FROM leads l
+           JOIN estagios_funil e ON e.id = l.estagio_id
+           JOIN funis f ON f.id = l.funil_id
+           LEFT JOIN usuarios ur ON ur.id = l.responsavel_id
+          WHERE l.id = ANY($1::int[]) AND l.empresa_id = $2`,
+        [ids, ctx.empresaId]
+      );
+      const msgs = await query(
+        `SELECT l.id AS lead_id, h.direcao, h.tipo, h.conteudo, h.erro, h.enviado_at
+           FROM leads l
+           CROSS JOIN LATERAL (
+             SELECT h.direcao, h.tipo, h.conteudo, h.erro, h.enviado_at, h.id
+               FROM historico_mensagens h
+              WHERE h.empresa_id = l.empresa_id AND NOT h.copia_indevida AND h.grupo_whatsapp_id IS NULL
+                AND (h.lead_id = l.id OR (l.contato_whatsapp_id IS NOT NULL AND h.contato_whatsapp_id = l.contato_whatsapp_id))
+              ORDER BY h.enviado_at DESC NULLS LAST, h.id DESC
+              LIMIT $3
+           ) h
+          WHERE l.id = ANY($1::int[]) AND l.empresa_id = $2`,
+        [ids, ctx.empresaId, inteiro(input.mensagens_por_lead, 1, 20, 10)]
+      );
+      const porLead = new Map<number, any[]>();
+      for (const m of msgs.rows) {
+        const lista = porLead.get(Number(m.lead_id)) ?? [];
+        lista.push(m);
+        porLead.set(Number(m.lead_id), lista);
+      }
+      const ordem = new Map(ids.map((v, i) => [v, i]));
+      const saida = [];
+      for (const l of leads.rows.sort((a: any, b: any) => (ordem.get(Number(a.id)) ?? 0) - (ordem.get(Number(b.id)) ?? 0))) {
+        const conversa = (porLead.get(Number(l.id)) ?? []).reverse();
+        const ultimaDoLead = [...conversa].reverse().find(m => m.direcao === 'entrada');
+        saida.push({
+          lead_id: Number(l.id), nome: l.nome, primeiro_nome: String(l.nome || '').split(/\s+/)[0],
+          empresa: l.empresa, funil: l.funil, etapa: l.etapa, responsavel: l.responsavel,
+          origem: l.origem, temperatura: l.temperatura,
+          tem_whatsapp: !!(l.telefone || l.contato_whatsapp_id),
+          pediu_para_sair: await leadSaiu(Number(l.id)),
+          ultima_mensagem_do_lead_em: ultimaDoLead ? dataHoraBr(ultimaDoLead.enviado_at) : null,
+          ultima_anotacao: l.ultima_anotacao ? String(l.ultima_anotacao).slice(0, 300) : null,
+          conversa: conversa.map(m => ({
+            de: m.direcao === 'entrada' ? 'lead' : 'nos',
+            texto: m.conteudo ? String(m.conteudo).slice(0, 500) : `[${m.tipo || 'mídia'}]`,
+            em: dataHoraBr(m.enviado_at),
+            ...(m.erro ? { falhou: true } : {}),
+          })),
+        });
+      }
+      return { ...(total !== undefined ? { total_na_etapa: total } : {}), leads: saida };
+    },
+  },
+  {
+    nome: 'enviar_whatsapp',
+    descricao: 'Propõe enviar UMA mensagem de WhatsApp para um lead, como no chat do card (sai pelo WhatsApp do responsável do card). No número oficial, texto livre só chega se o lead escreveu nas últimas 24h.',
+    schema: objeto({
+      lead_id: { type: 'integer' },
+      mensagem: { type: 'string' },
+    }, ['lead_id', 'mensagem']),
+    pode: podeCrm,
+    async preparar(ctx, input) {
+      const lead = await leadDa(ctx, input.lead_id);
+      const mensagem = String(input.mensagem ?? '').trim().slice(0, 3000);
+      if (!mensagem) throw new EntradaInvalida('Falta o texto da mensagem.');
+      if (!lead.telefone && !lead.contato_whatsapp_id) throw new EntradaInvalida('Esse lead não tem telefone nem WhatsApp vinculado.');
+      if (lead.arquivado) throw new EntradaInvalida('O lead está arquivado. Reative antes de mandar mensagem.');
+      if (await leadSaiu(Number(lead.id))) throw new EntradaInvalida('Esse contato pediu para não receber mais mensagens.');
+      return {
+        entrada: { lead_id: Number(lead.id), mensagem },
+        resumo: `Enviar pelo WhatsApp${lead.responsavel_nome ? ` de ${lead.responsavel_nome}` : ''} para "${lead.nome}": "${mensagem.length > 300 ? mensagem.slice(0, 300) + '…' : mensagem}".`,
+      };
+    },
+    async executar(ctx, e) {
+      const remetente = await contatosService.resolverRemetenteDoLead(e.lead_id, ctx.empresaId, ctx.usuarioId);
+      const lead = await leadDa(ctx, e.lead_id);
+      const contatoId = lead.contato_whatsapp_id
+        ? Number(lead.contato_whatsapp_id)
+        : await contatosService.resolverContatoParaLead(Number(lead.id), remetente, ctx.empresaId);
+      if (!contatoId) throw new Error('Não consegui achar o WhatsApp desse lead pelo telefone do card.');
+      const r = await contatosService.enviarMensagem(remetente, ctx.empresaId, contatoId, e.mensagem, Number(lead.id), 'manual');
+      if (!r.success) throw new Error(r.error || 'Falha no envio.');
+      await leadsService.registrarAtividade(Number(lead.id), ctx.usuarioId, ctx.empresaId, 'mensagem_enviada',
+        `Mensagem enviada pelo Duo: "${e.mensagem.slice(0, 50)}${e.mensagem.length > 50 ? '...' : ''}"`,
+        { mensagem: e.mensagem, messageId: r.messageId, via: 'duo' });
+      return { enviado: true, lead_id: Number(lead.id) };
+    },
+  },
+  {
+    nome: 'disparar_whatsapp',
+    descricao: 'Propõe um disparo em massa de WhatsApp com UMA MENSAGEM PRÓPRIA PARA CADA LEAD (escreva cada uma a partir de ler_conversas). Antes de propor, mostre à pessoa todas as mensagens, ou uma amostra e a regra usada se forem muitas. Sai pelo WhatsApp de quem pede, com o intervalo anti-bloqueio e o limite de 100 por dia; pode agendar e mover cada lead de etapa depois do envio. Todos os leads precisam ser do mesmo funil.',
+    schema: objeto({
+      mensagens: {
+        type: 'array', description: 'Até 100 itens.',
+        items: objeto({ lead_id: { type: 'integer' }, texto: { type: 'string' } }, ['lead_id', 'texto']),
+      },
+      etapa_depois_id: { type: 'integer', description: 'Etapa para onde cada lead vai depois de receber.' },
+      agendar_para: { type: 'string', description: 'AAAA-MM-DD HH:MM (Brasília). Vazio = começa agora.' },
+      intervalo_min_seg: { type: 'integer', description: 'Padrão 45.' },
+      intervalo_max_seg: { type: 'integer', description: 'Padrão 90.' },
+    }, ['mensagens']),
+    pode: podeCrm,
+    async preparar(ctx, input) {
+      await garantirDisparo(ctx);
+      const itens: any[] = Array.isArray(input.mensagens) ? input.mensagens : [];
+      if (!itens.length) throw new EntradaInvalida('Falta a lista de mensagens.');
+      if (itens.length > 100) throw new EntradaInvalida('No máximo 100 leads por disparo.');
+      const mensagens: Record<string, string> = {};
+      for (const it of itens) {
+        const leadId = id(it?.lead_id, 'lead_id');
+        const t = String(it?.texto ?? '').trim();
+        if (!t) throw new EntradaInvalida(`Falta o texto do lead ${leadId}.`);
+        if (t.length > 1500) throw new EntradaInvalida(`O texto do lead ${leadId} passou de 1500 caracteres.`);
+        if (mensagens[leadId]) throw new EntradaInvalida(`O lead ${leadId} apareceu duas vezes.`);
+        mensagens[leadId] = t;
+      }
+      const ids = Object.keys(mensagens).map(Number);
+      const r = await query(
+        `SELECT l.id, l.nome, l.funil_id, l.arquivado, f.nome AS funil,
+                (l.telefone IS NOT NULL AND l.telefone <> '') OR cw.whatsapp_id IS NOT NULL AS tem_whatsapp
+           FROM leads l JOIN funis f ON f.id = l.funil_id
+           LEFT JOIN contatos_whatsapp cw ON cw.id = l.contato_whatsapp_id
+          WHERE l.id = ANY($1::int[]) AND l.empresa_id = $2`,
+        [ids, ctx.empresaId]
+      );
+      const achados = new Map(r.rows.map((l: any) => [Number(l.id), l]));
+      const problemas: string[] = [];
+      for (const leadId of ids) {
+        const l: any = achados.get(leadId);
+        if (!l) problemas.push(`${leadId}: não encontrado`);
+        else if (l.arquivado) problemas.push(`${l.nome}: arquivado`);
+        else if (!l.tem_whatsapp) problemas.push(`${l.nome}: sem telefone`);
+        else if (await leadSaiu(leadId)) problemas.push(`${l.nome}: pediu para não receber mensagens`);
+      }
+      if (problemas.length) throw new EntradaInvalida(`Tire estes leads da lista: ${problemas.join('; ')}.`);
+      const funis = new Set(r.rows.map((l: any) => Number(l.funil_id)));
+      if (funis.size > 1) throw new EntradaInvalida('Os leads são de funis diferentes. Faça um disparo por funil.');
+      const funilId = Number(r.rows[0].funil_id);
+
+      let etapa: { id: number; nome: string } | undefined;
+      if (input.etapa_depois_id) {
+        const e = await query(`SELECT id, nome FROM estagios_funil WHERE id = $1 AND funil_id = $2`, [id(input.etapa_depois_id, 'etapa_depois_id'), funilId]);
+        if (!e.rows[0]) throw new EntradaInvalida('A etapa de depois não é desse funil.');
+        etapa = { id: Number(e.rows[0].id), nome: e.rows[0].nome };
+      }
+      const agendado = dataHora(input.agendar_para, 'agendar_para');
+      if (agendado && new Date(agendado) <= new Date()) throw new EntradaInvalida('O horário do agendamento já passou.');
+      if (!agendado) {
+        const hoje = await query(
+          `SELECT COALESCE(SUM(enviados), 0)::int AS n FROM disparos_crm
+            WHERE usuario_id = $1 AND DATE(created_at) = CURRENT_DATE AND status != 'agendado'`,
+          [ctx.usuarioId]
+        );
+        const resta = Math.max(0, 100 - Number(hoje.rows[0].n));
+        if (ids.length > resta) {
+          throw new EntradaInvalida(`Hoje ainda cabem ${resta} envios (limite de 100 por dia para proteger o número). Diminua a lista ou agende para amanhã.`);
+        }
+      }
+      const min = inteiro(input.intervalo_min_seg, 10, 600, 45);
+      const max = Math.max(min, inteiro(input.intervalo_max_seg, 10, 600, 90));
+      const minutos = Math.ceil(((ids.length - 1) * (min + max)) / 2 / 60);
+      const amostra = ids.slice(0, 3).map(i => {
+        const t = mensagens[i];
+        return `${(achados.get(i) as any).nome}: "${t.length > 140 ? t.slice(0, 140) + '…' : t}"`;
+      });
+      return {
+        entrada: {
+          funil_id: funilId, mensagens, estagio_pos_disparo_id: etapa?.id, agendado_para: agendado,
+          intervalo_min_seg: min, intervalo_max_seg: max,
+        },
+        resumo: `Disparar ${ids.length} mensagem(ns) personalizada(s) pelo seu WhatsApp para leads do funil "${r.rows[0].funil}", `
+          + `${agendado ? `começando em ${dataHoraBr(agendado)}` : 'começando agora'}, uma a cada ${min}–${max}s`
+          + `${ids.length > 1 ? ` (cerca de ${minutos} min no total)` : ''}`
+          + `${etapa ? `; depois de receber, cada lead vai para "${etapa.nome}"` : ''}. Exemplos: ${amostra.join(' | ')}.`,
+      };
+    },
+    async executar(ctx, e) {
+      await garantirDisparo(ctx);
+      const disparoId = await disparosService.iniciar(ctx.empresaId, ctx.usuarioId, {
+        lead_ids: Object.keys(e.mensagens).map(Number),
+        template: 'Mensagem personalizada pelo Duo (uma para cada lead)',
+        funil_id: e.funil_id,
+        estagio_pos_disparo_id: e.estagio_pos_disparo_id,
+        agendado_para: e.agendado_para,
+        intervalo_min_seg: e.intervalo_min_seg,
+        intervalo_max_seg: e.intervalo_max_seg,
+        mensagens_por_lead: e.mensagens,
+      });
+      return { disparo_id: disparoId, total: Object.keys(e.mensagens).length, acompanhar: 'ver_disparos, ou a tela de Disparos do CRM' };
+    },
+  },
+  {
+    nome: 'ver_disparos',
+    descricao: 'Disparos de WhatsApp da empresa: os últimos e os agendados, ou o andamento e os erros de um disparo (disparo_id).',
+    schema: objeto({ disparo_id: { type: 'integer' } }),
+    pode: podeCrm,
+    async consultar(ctx, input) {
+      if (input.disparo_id) {
+        const d = await disparosService.getStatus(id(input.disparo_id, 'disparo_id'), ctx.empresaId);
+        if (!d) throw new EntradaInvalida('Disparo não encontrado.');
+        return {
+          id: d.id, status: d.status, total: d.total, enviados: d.enviados, falhas: d.falhas,
+          criado_em: dataHoraBr(d.created_at), agendado_para: dataHoraBr(d.agendado_para), terminou_em: dataHoraBr(d.finished_at),
+          erros: (d.erros || []).slice(0, 20),
+        };
+      }
+      const [ultimos, agendados] = await Promise.all([
+        disparosService.listar(ctx.empresaId, 10),
+        disparosService.listarAgendados(ctx.empresaId),
+      ]);
+      const curto = (d: any) => ({
+        id: d.id, status: d.status, total: d.total, enviados: d.enviados, falhas: d.falhas,
+        mensagem: String(d.template || '').slice(0, 80), criado_em: dataHoraBr(d.created_at), agendado_para: dataHoraBr(d.agendado_para),
+      });
+      return { ultimos: ultimos.map(curto), agendados: agendados.map((d: any) => ({ ...curto(d), funil: d.funil_nome, criado_por: d.criado_por })) };
+    },
+  },
+  {
+    nome: 'agendar_followup',
+    descricao: 'Propõe agendar um follow-up de WhatsApp num lead para uma data e hora: com o texto pronto (mensagem) ou com uma instrução para a IA do agente escrever na hora (instrucao_ia).',
+    schema: objeto({
+      lead_id: { type: 'integer' },
+      data_hora: { type: 'string', description: 'AAAA-MM-DD HH:MM, horário de Brasília.' },
+      mensagem: { type: 'string', description: 'Texto que vai sair.' },
+      instrucao_ia: { type: 'string', description: 'No lugar da mensagem: o que a IA deve escrever, lendo a conversa na hora do envio.' },
+    }, ['lead_id', 'data_hora']),
+    pode: podeCrm,
+    async preparar(ctx, input) {
+      const lead = await leadDa(ctx, input.lead_id);
+      if (lead.arquivado) throw new EntradaInvalida('O lead está arquivado. Reative antes de agendar.');
+      const quando = dataHora(input.data_hora, 'a data', true)!;
+      if (new Date(quando) <= new Date()) throw new EntradaInvalida('Esse horário já passou.');
+      const mensagem = input.mensagem ? String(input.mensagem).trim().slice(0, 3000) : '';
+      const instrucao = input.instrucao_ia ? String(input.instrucao_ia).trim().slice(0, 2000) : '';
+      if (!mensagem && !instrucao) throw new EntradaInvalida('Informe a mensagem ou a instrução para a IA.');
+      const tipo = mensagem ? 'manual' : 'agente_ia';
+      return {
+        entrada: { lead_id: Number(lead.id), agendado_para: quando, tipo, mensagem: mensagem || undefined, instrucao_ia: instrucao || undefined },
+        resumo: `Agendar follow-up para "${lead.nome}" em ${dataHoraBr(quando)}: `
+          + (mensagem ? `"${mensagem.length > 200 ? mensagem.slice(0, 200) + '…' : mensagem}"` : `a IA escreve na hora seguindo "${instrucao.slice(0, 200)}"`) + '.',
+      };
+    },
+    async executar(ctx, e) {
+      const f = await followupsService.criar({
+        leadId: e.lead_id, usuarioId: ctx.usuarioId, empresaId: ctx.empresaId, tipo: e.tipo,
+        mensagem: e.mensagem, instrucaoIa: e.instrucao_ia, origem: 'lead', agendadoPara: e.agendado_para,
+      });
+      return { followup_id: f.id, agendado_para: dataHoraBr(f.agendado_para) };
+    },
+  },
+  {
+    nome: 'cancelar_followup',
+    descricao: 'Propõe cancelar um follow-up pendente (id que aparece em ver_lead).',
+    schema: objeto({ followup_id: { type: 'integer' } }, ['followup_id']),
+    pode: podeCrm,
+    async preparar(ctx, input) {
+      const r = await query(
+        `SELECT f.id, f.status, f.agendado_para, f.mensagem, l.nome FROM followups_agendados f JOIN leads l ON l.id = f.lead_id
+          WHERE f.id = $1 AND f.empresa_id = $2`,
+        [id(input.followup_id, 'followup_id'), ctx.empresaId]
+      );
+      const f = r.rows[0];
+      if (!f) throw new EntradaInvalida('Follow-up não encontrado.');
+      if (f.status !== 'pendente') throw new EntradaInvalida(`Esse follow-up já está ${f.status}.`);
+      return {
+        entrada: { followup_id: Number(f.id) },
+        resumo: `Cancelar o follow-up de "${f.nome}" marcado para ${dataHoraBr(f.agendado_para)}.`,
+      };
+    },
+    async executar(ctx, e) {
+      const f = await followupsService.cancelar(Number(e.followup_id), ctx.empresaId, 'Cancelado pelo Duo');
+      if (!f) throw new Error('Follow-up não encontrado ou já saiu.');
+      return { followup_id: Number(e.followup_id), cancelado: true };
+    },
+  },
+
+  // ── CRM: organização do quadro ──────────────────────────────────────────────
+  {
+    nome: 'resumo_funil',
+    descricao: 'Visão de um funil: quantos leads e quanto em valor há em cada etapa, quantos estão sem tarefa, com tarefa atrasada ou esperando resposta, e entradas e ganhos nos últimos 7 e 30 dias.',
+    schema: objeto({ funil_id: { type: 'integer' } }, ['funil_id']),
+    pode: podeCrm,
+    async consultar(ctx, input) {
+      const funilId = id(input.funil_id, 'funil_id');
+      const f = await query(`SELECT id, nome FROM funis WHERE id = $1 AND empresa_id = $2`, [funilId, ctx.empresaId]);
+      if (!f.rows[0]) throw new EntradaInvalida('Funil não encontrado.');
+      const etapas = await query(
+        `SELECT e.id, e.nome, e.is_ganho AS ganho, e.is_perdido AS perdido,
+                COUNT(l.id)::int AS leads,
+                COALESCE(SUM(l.valor_potencial), 0) AS valor,
+                COUNT(l.id) FILTER (WHERE NOT EXISTS (SELECT 1 FROM tarefas_lead t WHERE t.lead_id = l.id AND t.status IN ('pendente','em_andamento')))::int AS sem_tarefa,
+                COUNT(l.id) FILTER (WHERE EXISTS (SELECT 1 FROM tarefas_lead t WHERE t.lead_id = l.id AND t.status IN ('pendente','em_andamento') AND t.data_vencimento < now() AT TIME ZONE 'UTC'))::int AS tarefa_atrasada,
+                COUNT(l.id) FILTER (WHERE l.aguardando_resposta)::int AS esperando_resposta
+           FROM estagios_funil e
+           LEFT JOIN leads l ON l.estagio_id = e.id AND l.empresa_id = $2 AND NOT COALESCE(l.arquivado, false)
+          WHERE e.funil_id = $1
+          GROUP BY e.id ORDER BY e.ordem`,
+        [funilId, ctx.empresaId]
+      );
+      const mov = await query(
+        `SELECT COUNT(*) FILTER (WHERE l.created_at > now() - INTERVAL '7 days')::int AS entradas_7d,
+                COUNT(*) FILTER (WHERE l.created_at > now() - INTERVAL '30 days')::int AS entradas_30d
+           FROM leads l WHERE l.funil_id = $1 AND l.empresa_id = $2`,
+        [funilId, ctx.empresaId]
+      );
+      return {
+        funil: f.rows[0].nome,
+        etapas: etapas.rows.map((e: any) => ({ ...e, valor: Number(e.valor) || 0 })),
+        ...mov.rows[0],
+      };
+    },
+  },
+  {
+    nome: 'listar_tags',
+    descricao: 'Tags (etiquetas) da empresa, com id, para usar em etiquetar_lead.',
+    schema: objeto({}),
+    pode: podeCrm,
+    async consultar(ctx) {
+      const r = await query(
+        `SELECT t.id, t.nome, COUNT(lt.lead_id)::int AS leads FROM tags t LEFT JOIN lead_tags lt ON lt.tag_id = t.id
+          WHERE t.empresa_id = $1 GROUP BY t.id ORDER BY t.nome`,
+        [ctx.empresaId]
+      );
+      return { tags: r.rows };
+    },
+  },
+  {
+    nome: 'etiquetar_lead',
+    descricao: 'Propõe colocar ou tirar uma tag de um ou mais leads (até 50).',
+    schema: objeto({
+      lead_ids: { type: 'array', items: { type: 'integer' } },
+      tag_id: { type: 'integer' },
+      acao: { type: 'string', enum: ['adicionar', 'remover'] },
+    }, ['lead_ids', 'tag_id', 'acao']),
+    pode: podeCrm,
+    async preparar(ctx, input) {
+      const acao = umDe(input.acao, ['adicionar', 'remover'] as const, 'acao')!;
+      const t = await query(`SELECT id, nome FROM tags WHERE id = $1 AND empresa_id = $2`, [id(input.tag_id, 'tag_id'), ctx.empresaId]);
+      if (!t.rows[0]) throw new EntradaInvalida('Tag não encontrada.');
+      const ids = [...new Set((Array.isArray(input.lead_ids) ? input.lead_ids : []).slice(0, 50).map((v: any) => id(v, 'lead_id')))] as number[];
+      if (!ids.length) throw new EntradaInvalida('Falta a lista de leads.');
+      const l = await query(`SELECT id, nome FROM leads WHERE id = ANY($1::int[]) AND empresa_id = $2`, [ids, ctx.empresaId]);
+      if (l.rows.length !== ids.length) throw new EntradaInvalida('Algum desses leads não foi encontrado.');
+      const nomes = l.rows.map((x: any) => x.nome);
+      return {
+        entrada: { lead_ids: ids, tag_id: Number(t.rows[0].id), acao },
+        resumo: `${acao === 'adicionar' ? 'Colocar' : 'Tirar'} a tag "${t.rows[0].nome}" ${acao === 'adicionar' ? 'em' : 'de'} ${ids.length} lead(s): ${nomes.slice(0, 8).join(', ')}${nomes.length > 8 ? '…' : ''}.`,
+      };
+    },
+    async executar(ctx, e) {
+      for (const leadId of e.lead_ids) {
+        if (e.acao === 'adicionar') await leadsService.addTag(leadId, e.tag_id, ctx.empresaId, ctx.usuarioId);
+        else await leadsService.removeTag(leadId, e.tag_id, ctx.empresaId, ctx.usuarioId);
+      }
+      return { leads: e.lead_ids.length, tag_id: e.tag_id, acao: e.acao };
+    },
+  },
+  {
+    nome: 'arquivar_lead',
+    descricao: 'Propõe arquivar um lead (sai do quadro e para a cadência; dá para reativar) ou reativar um arquivado. Não exclui.',
+    schema: objeto({ lead_id: { type: 'integer' }, acao: { type: 'string', enum: ['arquivar', 'reativar'] } }, ['lead_id', 'acao']),
+    pode: podeCrm,
+    async preparar(ctx, input) {
+      const lead = await leadDa(ctx, input.lead_id);
+      const acao = umDe(input.acao, ['arquivar', 'reativar'] as const, 'acao')!;
+      if (acao === 'arquivar' && lead.arquivado) throw new EntradaInvalida('O lead já está arquivado.');
+      if (acao === 'reativar' && !lead.arquivado) throw new EntradaInvalida('O lead não está arquivado.');
+      return {
+        entrada: { lead_id: Number(lead.id), acao },
+        resumo: acao === 'arquivar'
+          ? `Arquivar o lead "${lead.nome}" (sai do quadro e os follow-ups da etapa são cancelados).`
+          : `Reativar o lead "${lead.nome}" (volta para o quadro em ${lead.estagio_nome}).`,
+      };
+    },
+    async executar(ctx, e) {
+      const lead = e.acao === 'arquivar'
+        ? await leadsService.arquivar(e.lead_id, ctx.empresaId, ctx.usuarioId)
+        : await leadsService.reativar(e.lead_id, ctx.empresaId, ctx.usuarioId);
+      if (!lead) throw new Error('Lead não encontrado.');
+      return resumoLead(lead);
+    },
+  },
+  {
+    nome: 'transferir_funil',
+    descricao: 'Propõe passar um lead para outro funil (entra na etapa de entrada do funil novo).',
+    schema: objeto({ lead_id: { type: 'integer' }, funil_id: { type: 'integer' } }, ['lead_id', 'funil_id']),
+    pode: podeCrm,
+    async preparar(ctx, input) {
+      const lead = await leadDa(ctx, input.lead_id);
+      const f = await query(`SELECT id, nome FROM funis WHERE id = $1 AND empresa_id = $2 AND ativo IS NOT FALSE`, [id(input.funil_id, 'funil_id'), ctx.empresaId]);
+      if (!f.rows[0]) throw new EntradaInvalida('Funil não encontrado.');
+      if (Number(f.rows[0].id) === Number(lead.funil_id)) throw new EntradaInvalida('O lead já está nesse funil.');
+      return {
+        entrada: { lead_id: Number(lead.id), funil_id: Number(f.rows[0].id) },
+        resumo: `Passar o lead "${lead.nome}" para o funil "${f.rows[0].nome}" (entra na etapa de entrada).`,
+      };
+    },
+    async executar(ctx, e) {
+      const lead = await leadsService.transferirFunil(e.lead_id, ctx.empresaId, ctx.usuarioId, e.funil_id);
+      if (!lead) throw new Error('Lead não encontrado.');
+      return resumoLead(lead);
+    },
+  },
+
+  // ── Clientes e créditos ─────────────────────────────────────────────────────
+  {
+    nome: 'listar_clientes',
+    descricao: 'Clientes cadastrados (nome, contato, mensalidade, vencimento e situação do pagamento), com busca por nome, e-mail ou telefone.',
+    schema: objeto({
+      busca: { type: 'string' },
+      situacao: { type: 'string', enum: ['em_dia', 'pendente'], description: 'Situação do pagamento.' },
+      limite: { type: 'integer', description: 'Padrão 20, até 50.' },
+    }),
+    pode: pode('clientes'),
+    async consultar(ctx, input) {
+      const params: any[] = [ctx.empresaId];
+      let where = 'c.empresa_id = $1' + escopoDono(filtro(ctx), params, 'c.usuario_id');
+      const busca = texto(input.busca, 'busca');
+      if (busca) {
+        params.push(`%${busca}%`);
+        where += ` AND (c.nome ILIKE $${params.length} OR c.email ILIKE $${params.length} OR c.telefone ILIKE $${params.length})`;
+      }
+      const situacao = umDe(input.situacao, ['em_dia', 'pendente'] as const, 'situacao');
+      if (situacao) { params.push(situacao); where += ` AND c.status_pagamento = $${params.length}`; }
+      params.push(inteiro(input.limite, 1, 50, 20));
+      const r = await query(
+        `SELECT c.id, c.nome, c.email, c.telefone, c.servico, c.valor_mensalidade, c.dia_vencimento, c.status_pagamento,
+                COUNT(*) OVER () AS total
+           FROM clientes c WHERE ${where} ORDER BY c.nome LIMIT $${params.length}`,
+        params
+      );
+      return {
+        total: Number(r.rows[0]?.total || 0),
+        clientes: r.rows.map(({ total, ...c }: any) => ({ ...c, valor_mensalidade: Number(c.valor_mensalidade) || 0 })),
+      };
+    },
+  },
+  {
+    nome: 'saldo_duo',
+    descricao: 'Saldo de créditos do Duo da empresa (usados pelo chat do Duo dentro do sistema) e onde recarregar.',
+    schema: objeto({}),
+    pode: () => true,
+    async consultar(ctx) {
+      return { saldo: brl(await duoCreditos.saldo(ctx.empresaId)), recarregar_em: 'https://duofuturo.tech/gestao/creditos-duo' };
     },
   },
   {

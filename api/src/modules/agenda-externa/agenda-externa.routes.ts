@@ -4,7 +4,7 @@ import * as agenda from './agenda-externa.service';
 import { Provedor } from './provedores';
 
 /**
- * Agenda externa (103). Cada usuário conecta a PRÓPRIA agenda em Meu perfil. O callback é
+ * Agenda externa (103). Cada usuário conecta a PRÓPRIA agenda em Configurações de E-mail (era Meu perfil até 23/10/2026). O callback é
  * aberto (é o navegador voltando do Google/Microsoft): quem diz de quem é a conexão é o
  * `state` assinado.
  */

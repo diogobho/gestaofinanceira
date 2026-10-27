@@ -74,6 +74,22 @@ export const parcelasController = {
     }
   },
 
+  async excluirParcela(req: AuthRequest, res: Response) {
+    try {
+      const filters = {
+        usuario_id: req.user?.userId,
+        nivel: req.user?.nivel,
+        tipo_usuario: req.user?.tipo_usuario,
+        empresa_id: req.user?.empresa_id
+      };
+      const tipo = req.params.tipo === 'receitas' ? 'receitas' : 'despesas';
+      const result = await parcelasService.excluirParcela(tipo, req.params.id, filters);
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(400).json({ code: 'DELETE_ERROR', message: error.message });
+    }
+  },
+
   async enviarEmailsCobranca(req: AuthRequest, res: Response) {
     try {
       const { parcela_ids } = req.body;

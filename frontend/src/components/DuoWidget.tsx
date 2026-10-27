@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { X, Send, Loader2, Maximize2, Trash2, Coins } from 'lucide-react'
+import { X, Send, Loader2, Maximize2, Trash2, Coins, Lightbulb } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { agenteApi } from '@/api/agente'
@@ -24,9 +24,16 @@ interface Mensagem {
 */
 const SUGESTOES = [
   'Como está o financeiro deste mês?',
+  'Quais são minhas tarefas de hoje e as atrasadas?',
   'Como conecto meu WhatsApp?',
   'Monte um script de primeira abordagem',
 ]
+
+/** Abre o chat com o texto no campo, para a pessoa ajustar e mandar (tela Comandos do Duo). */
+const EVENTO_PREENCHER = 'duo:preencher'
+export function preencherDuo(texto: string) {
+  window.dispatchEvent(new CustomEvent(EVENTO_PREENCHER, { detail: texto }))
+}
 
 // Corpo inteiro, animado, servido de public/. Aqui cabe o aceno: o <img> isola
 // o <style> do SVG no próprio documento, então o rig original entra sem risco
@@ -41,6 +48,17 @@ export default function DuoWidget() {
   const [loading, setLoading] = useState(false)
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const campoRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const aoPreencher = (e: Event) => {
+      setInput(String((e as CustomEvent).detail || ''))
+      setOpen(true)
+      setTimeout(() => campoRef.current?.focus(), 50)
+    }
+    window.addEventListener(EVENTO_PREENCHER, aoPreencher)
+    return () => window.removeEventListener(EVENTO_PREENCHER, aoPreencher)
+  }, [])
   // O player de tutorial abre ao lado do painel quando ele está aberto.
   const { setChatAberto } = useVideoAjuda()
   useEffect(() => { setChatAberto(open); return () => setChatAberto(false) }, [open, setChatAberto])
@@ -160,6 +178,15 @@ export default function DuoWidget() {
             </div>
             <div className="flex items-center gap-1">
               <Link
+                to="/comandos-duo"
+                onClick={() => setOpen(false)}
+                title="Comandos do Duo"
+                aria-label="Comandos do Duo"
+                className="rounded-lg p-1.5 transition-colors hover:bg-white/20"
+              >
+                <Lightbulb className="h-4 w-4" />
+              </Link>
+              <Link
                 to="/creditos-duo"
                 onClick={() => setOpen(false)}
                 title="Créditos do Duo"
@@ -237,6 +264,13 @@ export default function DuoWidget() {
                     </button>
                   ))}
                 </div>
+                <Link
+                  to="/comandos-duo"
+                  onClick={() => setOpen(false)}
+                  className="text-xs font-medium text-primary-700 hover:underline dark:text-primary-300"
+                >
+                  Ver todos os comandos
+                </Link>
               </div>
             ) : (
               <>
@@ -286,6 +320,7 @@ export default function DuoWidget() {
           <div className="border-t border-gray-200 bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] dark:border-gray-700 dark:bg-gray-800">
             <div className="flex items-end gap-2">
               <textarea
+                ref={campoRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -295,9 +330,10 @@ export default function DuoWidget() {
                   }
                 }}
                 placeholder="Pergunte alguma coisa..."
-                rows={1}
+                // Comando vindo da tela Comandos do Duo é longo: o campo cresce para a pessoa ver o que vai trocar.
+                rows={input.length > 45 ? 4 : 1}
                 aria-label="Mensagem para o Duo"
-                className="max-h-24 flex-1 resize-none rounded-xl border border-gray-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 sm:text-sm"
+                className="max-h-32 flex-1 resize-none rounded-xl border border-gray-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 sm:text-sm"
                 disabled={loading}
               />
               <button

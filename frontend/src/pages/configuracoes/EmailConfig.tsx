@@ -7,6 +7,9 @@ import { Input } from '@/components/ui/Input'
 import { configuracoesSmtpApi, SmtpConfig } from '@/api/configuracoes-smtp'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { isAdminEmpresa } from '@/utils/roles'
+import { AssinaturaEmailCard } from '@/components/perfil/AssinaturaEmailCard'
+import { AgendaExternaCard } from '@/components/perfil/AgendaExternaCard'
 
 const BREVO_GUIDE = [
   {
@@ -43,7 +46,35 @@ const DEFAULT_CONFIG: Partial<SmtpConfig> = {
   ativo: true,
 }
 
+/**
+ * Configurações de E-mail. Desde 23/10/2026 (pedido do dono) a página reúne o que é de
+ * e-mail e de agenda: o SMTP da empresa (só quem administra), a assinatura de e-mail e
+ * a agenda externa (de cada usuário, por isso a página abriu para todos).
+ */
 export const EmailConfig: React.FC = () => {
+  const { user } = useAuth()
+  const admin = isAdminEmpresa(user)
+  return (
+    <div className="pb-6">
+      {admin ? <ConfigSmtp /> : (
+        <div className="flex items-center gap-3 px-4 py-4 sm:px-6">
+          <Mail className="w-6 h-6 text-primary-600" />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Configuração de E-mail</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Sua assinatura de e-mail e a conexão com a sua agenda.</p>
+          </div>
+        </div>
+      )}
+      <div className="space-y-6 px-4 sm:px-6">
+        <AssinaturaEmailCard />
+        <AgendaExternaCard />
+      </div>
+    </div>
+  )
+}
+
+/** SMTP da empresa (Brevo) — só para quem administra a conta. */
+const ConfigSmtp: React.FC = () => {
   const { user } = useAuth()
   const configInicial: Partial<SmtpConfig> = {
     ...DEFAULT_CONFIG,

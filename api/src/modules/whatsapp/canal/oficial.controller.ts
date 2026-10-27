@@ -160,6 +160,8 @@ export const oficialController = {
         appId: cfg.appId,
         configId: cfg.configId,
         graphVersion: cfg.graphVersion,
+        // Sem isto a tela caía no padrão v4 e a janela nunca oferecia o app (coexistência) — 21 a 26/10/2026.
+        versao: cfg.versao,
       },
       conta: conta
         ? {

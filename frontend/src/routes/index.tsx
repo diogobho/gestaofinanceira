@@ -7,6 +7,7 @@ import { Layout } from '@/components/layout'
 import { Login } from '@/pages/auth/Login'
 import { Register } from '@/pages/auth/Register'
 import CreditosDuo from '@/pages/agente/CreditosDuo'
+import ComandosDuo from '@/pages/agente/ComandosDuo'
 import Indique from '@/pages/indique/Indique'
 import { EsqueciSenha, RedefinirSenha } from '@/pages/auth/RecuperarSenha'
 import { DashboardComAbas } from '@/pages/dashboard/DashboardComAbas'
@@ -180,6 +181,7 @@ const AppRoutes: React.FC = () => {
         {/* Créditos do Duo e indicação (111): de toda a conta, sem permissão de módulo —
             o saldo é da empresa e o link de indicação também. */}
         <Route path="/creditos-duo" element={<PrivateRoute><CreditosDuo /></PrivateRoute>} />
+        <Route path="/comandos-duo" element={<PrivateRoute><ComandosDuo /></PrivateRoute>} />
         <Route path="/indique" element={<PrivateRoute><Indique /></PrivateRoute>} />
 
         {/* Suporte é de todo mundo: sem requiredPermission — quem usa o sistema
@@ -191,15 +193,9 @@ const AppRoutes: React.FC = () => {
             quem clicasse para o dashboard, sem explicação. */}
         <Route path="/agente-sexta-feira" element={<Navigate to="/agente-duo" replace />} />
 
-        {/* Configurações de e-mail — apenas admin */}
-        <Route
-          path="/configuracoes/email"
-          element={
-            <PrivateRoute requiredRole={['super_admin', 'admin_empresa']}>
-              <EmailConfig />
-            </PrivateRoute>
-          }
-        />
+        {/* Configurações de e-mail: todos (assinatura e agenda são de cada usuário);
+            o SMTP da empresa, dentro da página, só para quem administra. */}
+        <Route path="/configuracoes/email" element={<PrivateRoute><EmailConfig /></PrivateRoute>} />
 
         {/* Planos e assinatura - todos autenticados */}
         <Route path="/planos" element={<Planos />} />

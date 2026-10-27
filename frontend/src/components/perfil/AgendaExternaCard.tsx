@@ -23,7 +23,7 @@ export const AgendaExternaCard: React.FC = () => {
   const qc = useQueryClient()
   const status = useQuery({ queryKey: ['agenda-externa'], queryFn: agendaExternaApi.status })
 
-  // Volta do login do Google/Microsoft: /perfil?agenda=ok|erro|…
+  // Volta do login do Google/Microsoft: /configuracoes/email?agenda=ok|erro|…
   useEffect(() => {
     const q = new URLSearchParams(window.location.search)
     const r = q.get('agenda')

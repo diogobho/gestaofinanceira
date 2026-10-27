@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Copy, Unplug } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { mcpApi, ConexoesMcp } from '@/api/agente'
+import { LinkVideo } from '@/tutoriais/LinkVideo'
 
 /**
  * Duo dentro do Claude (MCP, 112). A pessoa cola o endereço como conector no Claude
@@ -30,9 +32,16 @@ export default function DuoNoClaude() {
     <Card>
       <div className="space-y-4 p-6">
         <div>
-          <h2 className="font-semibold text-gray-800 dark:text-gray-200">Usar o Duo dentro do Claude</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-semibold text-gray-800 dark:text-gray-200">Usar o Duo dentro do Claude</h2>
+            <LinkVideo video="duo-conectar-claude" />
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Conecte o Duo ao seu Claude e peça por lá: consultar o financeiro, ver leads, criar tarefas. Por esse caminho não se gasta crédito do Duo.
+            Conecte o Duo ao seu Claude e peça por lá: consultar o financeiro, ver leads, criar tarefas, ler conversas e preparar disparos. Por esse caminho não se gasta crédito do Duo.
+          </p>
+          <p className="mt-1 flex flex-wrap gap-x-4 text-sm">
+            <Link to="/comandos-duo" className="font-medium text-primary-700 hover:underline dark:text-primary-300">Comandos sugeridos</Link>
+            <a href="/assets/manuais/manual-duo.pdf" target="_blank" rel="noreferrer" className="font-medium text-primary-700 hover:underline dark:text-primary-300">Manual do Duo (PDF)</a>
           </p>
         </div>
         <input
@@ -46,7 +55,9 @@ export default function DuoNoClaude() {
         <ol className="list-decimal space-y-1 pl-5 text-sm text-gray-600 dark:text-gray-300">
           <li>No Claude, abra Configurações e depois Conectores.</li>
           <li>Escolha adicionar um conector personalizado e cole o endereço acima.</li>
+          <li>Em Autenticação deixe "Entrar agora" e em Cliente OAuth "Registrar automaticamente". Cabeçalhos ficam em branco.</li>
           <li>Entre com o seu e-mail e senha do Duo e autorize.</li>
+          <li>Numa conversa nova do Claude, confira se "Duo" está ligado nas ferramentas e peça em português normal.</li>
         </ol>
         {d.conexoes.length > 0 && (
           <div>

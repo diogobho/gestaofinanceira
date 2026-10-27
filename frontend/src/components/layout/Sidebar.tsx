@@ -13,7 +13,7 @@ import {
   MessageSquare, MessageSquareText,
   Kanban, KanbanSquare,
   BarChart3, ChartArea,
-  Sparkles, WandSparkles, LifeBuoy, Headset, Gift,
+  Sparkles, WandSparkles, LifeBuoy, Headset, Gift, Lightbulb,
   Moon, Sun,
   Mail, MailOpen, PartyPopper,
   CreditCard, Wallet,
@@ -49,6 +49,8 @@ const navigationItems = [
   { name: 'Grupos',       href: '/grupos',             icon: UsersRound,      iconHover: UsersRound,        permissao: 'whatsapp',  capacidade: 'grupos_whatsapp' as const, tour: 'nav-grupos'     },
   // Varinha mágica (fada-madrinha): no hover ela "lança o feitiço" e viram faíscas
   { name: 'Agente IA',     href: '/agente-duo', icon: WandSparkles,    iconHover: Sparkles,          permissao: 'agente',    tour: 'nav-agente'         },
+  // Comandos sugeridos do Duo (23/10): servem a qualquer um que fale com o Duo, sem módulo.
+  { name: 'Comandos do Duo', href: '/comandos-duo',   icon: Lightbulb,       iconHover: Lightbulb,                                 tour: 'nav-comandos-duo'   },
   // Indicação (111): sem `permissao` — o link é da conta, e quem não pode indicar vê o porquê.
   { name: 'Indique o Duo', href: '/indique',           icon: Gift,            iconHover: Gift,                                      tour: 'nav-indique'        },
   // Sem `permissao`: pedir ajuda não depende de papel nem de módulo liberado.
@@ -229,26 +231,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           </>
         )}
 
+        {/* Config. E-mail é de todos desde 23/10/2026: a assinatura de e-mail e a agenda
+            são de cada usuário. O SMTP da empresa, dentro da página, segue só para admin. */}
+        <NavLink
+          to="/configuracoes/email"
+          onClick={handleNavClick}
+          className={({ isActive }) =>
+            `group flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+              isActive
+                ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-200 shadow-[inset_3px_0_0_0_#D2B773]'
+                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`
+          }
+        >
+          <span className="relative w-5 h-5 mr-3 flex-shrink-0">
+            <Mail className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out group-hover:opacity-0 group-hover:scale-75" />
+            <MailOpen className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100" />
+          </span>
+          Config. E-mail
+        </NavLink>
+
         {/* Itens de admin - apenas para admin e master */}
         {isAdminOrMaster && (
           <>
-<NavLink
-              to="/configuracoes/email"
-              onClick={handleNavClick}
-              className={({ isActive }) =>
-                `group flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-200 shadow-[inset_3px_0_0_0_#D2B773]'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`
-              }
-            >
-              <span className="relative w-5 h-5 mr-3 flex-shrink-0">
-                <Mail className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out group-hover:opacity-0 group-hover:scale-75" />
-                <MailOpen className="absolute inset-0 w-5 h-5 transition-all duration-200 ease-in-out opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100" />
-              </span>
-              Config. E-mail
-            </NavLink>
             {/* Boas-vindas: é da DuoFuturo, atravessa todas as empresas do banco —
                 por isso só super_admin, e não o isAdminOrMaster do bloco. */}
             {user?.nivel === 'super_admin' && (

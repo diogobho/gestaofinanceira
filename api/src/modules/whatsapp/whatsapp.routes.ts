@@ -21,6 +21,14 @@ const soComOficial = exigirCapacidade('whatsapp_oficial');
 router.get('/canal/oficial', soComOficial, (req, res) => oficialController.get(req, res));
 router.get('/canal/oficial/contas', soComOficial, (req, res) => oficialController.listar(req, res));
 router.post('/canal/oficial/conectar', soComOficial, (req, res) => oficialController.conectar(req, res));
+// Eventos da janela da Meta (26/10/2026): erro e abandono acontecem no navegador e nunca
+// chegavam ao servidor — sem isto não dá para saber em que passo a conexão travou.
+router.post('/canal/oficial/evento-janela', soComOficial, (req, res) => {
+  const u = (req as any).user || {};
+  const { evento, dados, alvo } = req.body || {};
+  console.log(`[Embedded Signup] empresa #${u.empresa_id} usuário #${u.id}${alvo ? ` por #${alvo}` : ''} — ${String(evento).slice(0, 60)}: ${JSON.stringify(dados ?? null).slice(0, 1500)}`);
+  res.json({ ok: true });
+});
 router.post('/canal/oficial/desconectar', soComOficial, (req, res) => oficialController.desconectar(req, res));
 router.post('/canal/oficial/numero/codigo', soComOficial, (req, res) => oficialController.numeroPedirCodigo(req, res));
 router.post('/canal/oficial/numero/verificar', soComOficial, (req, res) => oficialController.numeroVerificar(req, res));

@@ -100,7 +100,9 @@ async function gravar(passos) {
       // `responder: [[regex, corpo]]` no roteiro: a resposta que a tela espera daquela ação
       // (ex.: o upload de imagem devolve a URL). O resto recebe um "ok" genérico.
       const resp = (roteiro.responder || []).find(([re]) => re.test(url));
-      return r.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(resp ? resp[1] : { success: true, data: { id: 0 } }) });
+      // O corpo pode ser função (url, corpo do pedido) — ex.: o chat do Duo responde conforme a mensagem.
+      const corpo = resp ? (typeof resp[1] === 'function' ? resp[1](url, r.postData()) : resp[1]) : { success: true, data: { id: 0 } };
+      return r.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(corpo) });
     }
     // `arquivos: [[regex, { tipo, caminho }]]`: GET respondido com um arquivo local (ex.: imagem do QR).
     const arq = (roteiro.arquivos || []).find(([re]) => re.test(url));
@@ -227,6 +229,12 @@ async function gravar(passos) {
       await p.reload({ waitUntil: 'networkidle2' });
       await vestir();
       await p.evaluate(() => document.querySelectorAll('.driver-popover,.driver-overlay').forEach((e) => e.remove()));
+      await p.mouse.move(pos.x + 1, pos.y); await p.mouse.move(pos.x, pos.y);
+    },
+    // Abre outro endereço (ex.: a página de login do conector) mantendo cursor e destaque.
+    async navegar(url) {
+      await p.goto(url, { waitUntil: 'networkidle2' });
+      await vestir();
       await p.mouse.move(pos.x + 1, pos.y); await p.mouse.move(pos.x, pos.y);
     },
     async tirarCartaz() { await p.evaluate(() => { const e = document.getElementById('v-cartaz'); if (e) { e.style.opacity = 0; setTimeout(() => e.remove(), 700); } document.getElementById('v-cursor').style.visibility = 'visible'; }); await dorme(650); },

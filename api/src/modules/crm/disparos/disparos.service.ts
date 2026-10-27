@@ -46,6 +46,12 @@ export interface IniciarDisparoDto {
    * ([Nome], [PrimeiroNome]…), resolvidas lead a lead.
    */
   modelo_whatsapp?: ModeloDisparo;
+  /**
+   * Uma mensagem pronta para cada lead (id → texto), no lugar do `template`. É o
+   * disparo que o Duo monta lendo a conversa de cada um (23/10/2026). Só com
+   * `lead_ids`; lead sem texto aqui não recebe nada.
+   */
+  mensagens_por_lead?: Record<string, string>;
 }
 
 export interface ModeloDisparo {
@@ -208,7 +214,8 @@ async function _processarEnviosWA(
   estagioPosDeparoId: number | undefined,
   delayMinMs: number = DELAY_MIN_MS,
   delayMaxMs: number = DELAY_MAX_MS,
-  modelo: ModeloDisparo | null = null
+  modelo: ModeloDisparo | null = null,
+  mensagensPorLead: Record<string, string> | null = null
 ): Promise<void> {
   let enviados = 0;
   let falhas = 0;
@@ -257,7 +264,9 @@ async function _processarEnviosWA(
         if (bloqueio) throw new Error(bloqueio);
       }
 
-      let mensagem = aplicarVariaveis(template, lead);
+      const propria = mensagensPorLead ? mensagensPorLead[String(lead.id)] : undefined;
+      if (mensagensPorLead && !propria) throw new Error('Sem mensagem preparada para este lead');
+      let mensagem = propria ?? aplicarVariaveis(template, lead);
       let destino = lead.whatsapp_id || lead.telefone!;
       if (!destino.includes('@')) {
         destino = comDDIParaEnvio(destino.replace(/\D/g, ''));
@@ -614,9 +623,14 @@ export const disparosService = {
       sem_tarefa: dto.sem_tarefa || false,
       com_tarefa_hoje: dto.com_tarefa_hoje || false,
       com_tarefa_atrasada: dto.com_tarefa_atrasada || false,
+      mensagens_por_lead: dto.mensagens_por_lead || null,
     };
 
     const status = agendado ? 'agendado' : 'processando';
+
+    if (dto.mensagens_por_lead && (dto.todos || dto.modelo_whatsapp)) {
+      throw new Error('Mensagem por lead vale só para uma lista de leads, sem modelo aprovado');
+    }
 
     const portaRes = await query(`SELECT whatsapp_porta FROM usuarios WHERE id = $1`, [usuarioId]);
     const portaUsuario = portaRes.rows[0]?.whatsapp_porta;
@@ -669,7 +683,8 @@ export const disparosService = {
     setImmediate(async () => {
       await _processarEnviosWA(
         disparoId, empresaId, usuarioId, leads, grupos, porta,
-        dto.template, dto.estagio_pos_disparo_id, minMs, maxMs, dto.modelo_whatsapp ?? null
+        dto.template, dto.estagio_pos_disparo_id, minMs, maxMs, dto.modelo_whatsapp ?? null,
+        dto.mensagens_por_lead ?? null
       );
     });
 
@@ -723,7 +738,7 @@ export const disparosService = {
     await _processarEnviosWA(
       disparoId, empresaId, usuarioId, leads, grupos, porta,
       disparo.template, disparo.estagio_pos_disparo_id, delayMinMs, delayMaxMs,
-      disparo.modelo_whatsapp ?? null
+      disparo.modelo_whatsapp ?? null, config.mensagens_por_lead ?? null
     );
   },
 

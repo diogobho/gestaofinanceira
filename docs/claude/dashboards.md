@@ -732,6 +732,26 @@ planos; receita pelo valor cheio. **Taxa do Asaas vira despesa** (dono, 06/10): 
   Asaas ainda não gerou. Limpeza da Libertá: `api/scripts/asaas_absorver_duplicadas_liberta_20261007.ts`
   (backup em `backups/libertá_receitas_20261007.txt`). Valor ou data diferentes NÃO casam — a
   cliente confere à mão.
+- **Taxas pelo EXTRATO (114, 26/10/2026):** `value - netValue` só pegava a taxa de boleto/Pix/cartão
+  da cobrança paga. Ficavam de fora notificação por WhatsApp, mensageria, nota fiscal, antecipação,
+  negativação e a taxa de cartão cobrada na confirmação, antes de cada parcela cair (Graciele, 39:
+  10 taxas no Duo × 109 no extrato desde 07/10). Agora `sincronizarExtrato` lê `/financialTransactions`
+  (no job de 6h, desde uma semana antes de `extrato_ate`; no webhook, os últimos 2 dias) e cada tipo
+  com FEE vira despesa "Taxa Asaas" com a descrição do extrato. Tabela `asaas_extrato` (linha ↔
+  despesa; apagada à mão não volta). As taxas antigas foram ADOTADAS pela linha PAYMENT_FEE da
+  mesma receita, sem duplicar; `aplicarTaxa` saiu. Backup: `api/backups/taxas_asaas_antes_114_20261026.csv`.
+- **Saídas do extrato (115, 26/10/2026), só com `asaas_conexoes.importar_saidas`** (hoje só a 39 —
+  pedido do dono): Pix, cartão Asaas e conta paga viram despesa categoria "Asaas". Saída com parcela
+  manual de mesmo valor e até 3 dias de diferença NÃO duplica: a parcela fica PAGA no dia do extrato
+  (`parcela_manual_id`). Estorno de Pix (`PIX_TRANSACTION_DEBIT_REFUND`, casa por `transferId`) tira a
+  despesa. Baixa da antecipação não é gasto e fica de fora. 1ª carga da Graciele: 24 saídas novas,
+  12 casadas, 1 estorno. Lançamento manual feito DEPOIS da saída importada duplica — não há trava.
+- **Antecipação = recebida (26/10/2026):** cobrança com `anticipated` e antecipação CREDITED/DEBITED
+  (`/anticipations?payment=`, ou `?installment=`) vira receita `pago` no `anticipationDate` — no cartão
+  ela segue CONFIRMED até a operadora pagar e aparecia atrasada (Giovana, parcela 3/10, creditada
+  14/08). OVERDUE vence a antecipação (boleto antecipado que o cliente não pagou: o Asaas debita).
+  Graciele: 20 receitas antecipadas, todas pagas; 3 foram para agosto. A taxa da antecipação já
+  entra pelo extrato, mas só a partir de `importar_desde`.
 
 ## Lançamentos do Conta Azul em Receitas e Despesas (migration 106, 09/10/2026)
 

@@ -5,7 +5,6 @@ import toast from 'react-hot-toast'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { creditosDuoApi, CreditosDuo as Painel } from '@/api/agente'
-import DuoNoClaude from '@/components/DuoNoClaude'
 
 const brl = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`
 
@@ -153,8 +152,6 @@ export default function CreditosDuo() {
           </div>
         </Card>
       )}
-
-      <DuoNoClaude />
 
       {painel.compras.length > 0 && (
         <Card>

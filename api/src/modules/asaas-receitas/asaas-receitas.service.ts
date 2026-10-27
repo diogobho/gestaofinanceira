@@ -58,7 +58,11 @@ export interface CobrancaAsaas {
   confirmedDate?: string | null;
   description?: string | null;
   installmentNumber?: number | null;
+  installment?: string | null;
   billingType?: string;
+  anticipated?: boolean;
+  /** Nosso, não do Asaas: dia em que a antecipação creditou o dinheiro (ver `dataDaAntecipacao`). */
+  antecipadaEm?: string | null;
 }
 
 /** Como a cobrança do Asaas fica na receita. Pura, para testar sem banco. */
@@ -67,9 +71,12 @@ export function receitaDaCobranca(p: CobrancaAsaas, nomeCliente?: string | null)
     : PAGOS.has(p.status) ? 'pago'
     : ESTORNADOS.has(p.status) ? 'estornado'
     : p.status === 'OVERDUE' ? 'atrasado'
+    // Antecipada: o dinheiro já caiu, mesmo com a cobrança ainda "confirmada" até a operadora
+    // pagar (Giovana, parcela 3/10 no cartão: creditada 14/08, aparecia atrasada em 26/10).
+    : p.antecipadaEm ? 'pago'
     : 'pendente';
   const pagoEm = status === 'pago'
-    ? (p.paymentDate || p.clientPaymentDate || p.dueDate)   // dia em que o dinheiro caiu
+    ? (p.antecipadaEm || p.paymentDate || p.clientPaymentDate || p.dueDate)   // dia em que o dinheiro caiu
     : null;
   const base = (p.description || '').trim() || 'Cobrança Asaas';
   const parcela = p.installmentNumber ? ` (parcela ${p.installmentNumber})` : '';
@@ -82,12 +89,40 @@ export function receitaDaCobranca(p: CobrancaAsaas, nomeCliente?: string | null)
     vencimento: p.dueDate,
     pagoEm,
     temParcela: status !== 'cancelado' && status !== 'estornado',
-    // Taxa do Asaas vira despesa (dono, 06/10/2026), só quando o dinheiro entrou: antes
-    // disso o `netValue` é previsão, e cobrança que não for paga não custa nada.
-    taxa: status === 'pago' && p.netValue != null && Number(p.value) - Number(p.netValue) > 0.004
-      ? Math.round((Number(p.value) - Number(p.netValue)) * 100) / 100
-      : 0,
   };
+}
+
+export interface TransacaoAsaas {
+  id: string;
+  type: string;
+  value: number;
+  date: string;
+  description?: string | null;
+  paymentId?: string | null;
+  transferId?: string | null;
+  billId?: string | null;
+}
+
+// Dinheiro que sai da conta para pagar alguém. Fora daqui de propósito: a baixa da antecipação
+// (é o recebível quitando o adiantamento, não gasto) e o estorno de cobrança (é da receita).
+const SAIDAS = ['TRANSFER', 'PIX_TRANSACTION_DEBIT', 'BILL_PAYMENT', 'ASAAS_CARD_TRANSACTION', 'ASAAS_CARD_BILL_PAYMENT'];
+
+/**
+ * O que uma linha do extrato vira. Taxa: todo tipo com FEE (PAYMENT_FEE, INVOICE_FEE,
+ * INSTANT_TEXT_MESSAGE_FEE, PAYMENT_MESSAGING_NOTIFICATION_FEE, RECEIVABLE_ANTICIPATION_FEE…),
+ * negativa lança e positiva estorna. Saída (Pix, cartão Asaas, conta paga) só na conta que pediu;
+ * o estorno dela é o mesmo tipo com REFUND/REVERSAL (PIX_TRANSACTION_DEBIT_REFUND). Pura.
+ */
+export function linhaDoExtrato(t: TransacaoAsaas, comSaidas: boolean):
+  'taxa' | 'estorno_taxa' | 'saida' | 'estorno_saida' | null {
+  const tipo = t.type || '';
+  const v = Number(t.value);
+  if (!v) return null;
+  if (/FEE/.test(tipo)) return v < 0 ? 'taxa' : 'estorno_taxa';
+  if (!comSaidas) return null;
+  if (v < 0 && SAIDAS.includes(tipo)) return 'saida';
+  if (v > 0 && /REFUND|REVERSAL/.test(tipo) && SAIDAS.some(s => tipo.startsWith(s))) return 'estorno_saida';
+  return null;
 }
 
 function cliente(apiKey: string): AxiosInstance {
@@ -106,13 +141,13 @@ function cliente(apiKey: string): AxiosInstance {
 }
 
 // DATE como texto: um Date do pg passaria pelo fuso e poderia virar o dia anterior.
-const SELECT_CONEXAO = 'SELECT *, importar_desde::text AS desde FROM asaas_conexoes WHERE id = $1';
+const SELECT_CONEXAO = 'SELECT *, importar_desde::text AS desde, extrato_ate::text AS extrato_ate FROM asaas_conexoes WHERE id = $1';
 
 const hash = (t: string) => createHash('sha256').update(t).digest('hex');
 const soDigitos = (s?: string | null) => (s || '').replace(/\D/g, '');
 
 async function conexaoDaEmpresa(empresaId: number) {
-  const r = await query('SELECT *, importar_desde::text AS desde FROM asaas_conexoes WHERE empresa_id = $1', [empresaId]);
+  const r = await query('SELECT *, importar_desde::text AS desde, extrato_ate::text AS extrato_ate FROM asaas_conexoes WHERE empresa_id = $1', [empresaId]);
   return r.rows[0] || null;
 }
 
@@ -225,39 +260,173 @@ async function clienteDoCrm(db: PoolClient, conexao: any, http: AxiosInstance, c
   return res;
 }
 
-/** Aplica uma cobrança: cria ou atualiza a receita. Idempotente; serializado por cobrança. */
-/**
- * A despesa da taxa, ligada à receita por `receita_origem_id` (o mesmo vínculo da taxa de
- * serviço). Paga: cria ou acerta; deixou de estar paga (estorno, exclusão): sai. À vista
- * com a parcela 1 de 1 já paga — sem parcela a despesa não entra no dashboard.
- */
-async function aplicarTaxa(db: PoolClient, conexao: any, receitaId: string, r: ReturnType<typeof receitaDaCobranca>) {
-  const atual = (await db.query(
-    `SELECT id FROM despesas WHERE receita_origem_id = $1 AND categoria = 'Taxa Asaas'`, [receitaId])).rows[0];
-  if (!r.taxa) {
-    if (atual) {
-      await db.query('DELETE FROM parcelas_despesas WHERE despesa_id = $1', [atual.id]);
-      await db.query('DELETE FROM despesas WHERE id = $1', [atual.id]);
-    }
-    return;
-  }
-  const descricao = `Taxa Asaas — ${r.descricao}`.slice(0, 500);
-  let despesaId = atual?.id;
-  if (despesaId) {
-    await db.query(
-      `UPDATE despesas SET descricao = $1, valor = $2, data = $3, status = 'pago', pago = true, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $4`, [descricao, r.taxa, r.pagoEm, despesaId]);
-    await db.query('DELETE FROM parcelas_despesas WHERE despesa_id = $1', [despesaId]);
-  } else {
-    despesaId = (await db.query(
-      `INSERT INTO despesas (descricao, valor, data, categoria, tipo_pagamento, status, pago, parcelado, recorrente,
-                             usuario_id, receita_origem_id, origem)
-       VALUES ($1, $2, $3, 'Taxa Asaas', 'a_vista', 'pago', true, false, false, $4, $5, 'asaas') RETURNING id`,
-      [descricao, r.taxa, r.pagoEm, conexao.usuario_id, receitaId])).rows[0].id;
-  }
+/** Despesa do Asaas à vista, já paga no dia do extrato, com a parcela 1 de 1 (sem parcela o dashboard não a vê). */
+async function criarDespesaPaga(db: PoolClient, conexao: any, descricao: string, valor: number, data: string,
+                                categoria: string, receitaId: string | null): Promise<string> {
+  const id = (await db.query(
+    `INSERT INTO despesas (descricao, valor, data, categoria, tipo_pagamento, status, pago, parcelado, recorrente,
+                           usuario_id, receita_origem_id, origem)
+     VALUES ($1, $2, $3, $4, 'a_vista', 'pago', true, false, false, $5, $6, 'asaas') RETURNING id`,
+    [descricao, valor, data, categoria, conexao.usuario_id, receitaId])).rows[0].id;
   await db.query(
     `INSERT INTO parcelas_despesas (despesa_id, numero_parcela, total_parcelas, valor, data_vencimento, status, data_pagamento)
-     VALUES ($1, 1, 1, $2, $3, 'PAGO', $3)`, [despesaId, r.taxa, r.pagoEm]);
+     VALUES ($1, 1, 1, $2, $3, 'PAGO', $3)`, [id, valor, data]);
+  return id;
+}
+
+async function apagarDespesa(db: PoolClient, conexaoId: number, despesaId: string) {
+  await db.query('UPDATE asaas_extrato SET despesa_id = NULL WHERE conexao_id = $1 AND despesa_id = $2', [conexaoId, despesaId]);
+  await db.query('DELETE FROM parcelas_despesas WHERE despesa_id = $1', [despesaId]);
+  await db.query('DELETE FROM despesas WHERE id = $1', [despesaId]);
+}
+
+/**
+ * Uma linha do extrato (ver `linhaDoExtrato`). Idempotente pela linha; despesa apagada à mão
+ * não volta.
+ *  - Taxa: despesa "Taxa Asaas", ligada à receita da cobrança por `receita_origem_id`.
+ *  - Saída: despesa "Asaas" com a descrição do extrato — a não ser que já exista parcela lançada
+ *    à mão com o mesmo valor e até 3 dias de diferença: aí não duplica, a parcela é que fica
+ *    paga no dia do extrato (Graciele não marcava nada como pago: 36 de 40 parcelas "atrasadas").
+ *  - Estornos tiram a despesa que o Duo criou (o estorno parcial só abate o valor). O lançamento
+ *    manual que casou fica como a pessoa deixou.
+ */
+async function aplicarTransacao(conexao: any, t: TransacaoAsaas): Promise<'taxa' | 'saida' | 'casada' | 'estornada' | 'ignorada'> {
+  const tipo = linhaDoExtrato(t, !!conexao.importar_saidas);
+  if (!tipo) return 'ignorada';
+  const ref = t.transferId || t.billId || null;
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    const nova = await db.query(
+      `INSERT INTO asaas_extrato (conexao_id, transacao_id, tipo, payment_id, valor, data, ref)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING RETURNING 1`,
+      [conexao.id, t.id, t.type, t.paymentId || null, t.value, t.date, ref]);
+    if (!nova.rows[0]) { await db.query('COMMIT'); return 'ignorada'; }   // já lida antes
+    const valor = Math.abs(Number(t.value));
+    const descricao = (t.description || '').trim().slice(0, 500);
+    let res: 'taxa' | 'saida' | 'casada' | 'estornada' | 'ignorada' = 'ignorada';
+
+    if (tipo === 'estorno_taxa') {
+      const alvo = (await db.query(
+        `SELECT despesa_id FROM asaas_extrato
+          WHERE conexao_id = $1 AND payment_id IS NOT DISTINCT FROM $2 AND valor = $3 AND despesa_id IS NOT NULL
+          ORDER BY data DESC LIMIT 1`, [conexao.id, t.paymentId || null, -valor])).rows[0];
+      if (alvo) { await apagarDespesa(db, conexao.id, alvo.despesa_id); res = 'estornada'; }
+
+    } else if (tipo === 'estorno_saida') {
+      // Pelo transferId/billId; sem ele, a saída do mesmo tipo e valor mais recente.
+      const alvo = (await db.query(
+        `SELECT transacao_id, despesa_id, -valor AS valor FROM asaas_extrato
+          WHERE conexao_id = $1 AND valor < 0 AND despesa_id IS NOT NULL AND transacao_id <> $2
+            AND (CASE WHEN $3::varchar IS NOT NULL THEN ref = $3
+                      ELSE $4 LIKE tipo || '%' AND -valor = $5 AND data >= $6::date - 30 END)
+          ORDER BY data DESC LIMIT 1`, [conexao.id, t.id, ref, t.type, valor, t.date])).rows[0];
+      if (alvo) {
+        const resto = Math.round((Number(alvo.valor) - valor) * 100) / 100;
+        if (resto > 0.004) {
+          await db.query('UPDATE despesas SET valor = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [resto, alvo.despesa_id]);
+          await db.query('UPDATE parcelas_despesas SET valor = $1, updated_at = CURRENT_TIMESTAMP WHERE despesa_id = $2', [resto, alvo.despesa_id]);
+          await db.query('UPDATE asaas_extrato SET valor = $1 WHERE conexao_id = $2 AND transacao_id = $3', [-resto, conexao.id, alvo.transacao_id]);
+        } else {
+          await apagarDespesa(db, conexao.id, alvo.despesa_id);
+        }
+        res = 'estornada';
+      }
+
+    } else if (tipo === 'taxa') {
+      const receitaId = t.paymentId ? (await db.query(
+        `SELECT a.receita_id FROM asaas_cobrancas a JOIN receitas r ON r.id = a.receita_id
+          WHERE a.conexao_id = $1 AND a.payment_id = $2`, [conexao.id, t.paymentId])).rows[0]?.receita_id || null : null;
+      // Antes da 114 a taxa da cobrança era `value - netValue`, lançada sem linha do extrato:
+      // a do extrato assume essa despesa em vez de duplicar.
+      const antiga = receitaId && t.type === 'PAYMENT_FEE' ? (await db.query(
+        `SELECT d.id FROM despesas d
+          WHERE d.receita_origem_id = $1 AND d.categoria = 'Taxa Asaas' AND d.origem = 'asaas'
+            AND NOT EXISTS (SELECT 1 FROM asaas_extrato e WHERE e.despesa_id = d.id)
+          LIMIT 1 FOR UPDATE`, [receitaId])).rows[0]?.id : null;
+      let despesaId: string;
+      if (antiga) {
+        despesaId = antiga;
+        await db.query(
+          `UPDATE despesas SET descricao = $1, valor = $2, data = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4`,
+          [descricao || 'Taxa Asaas', valor, t.date, despesaId]);
+        await db.query(
+          `UPDATE parcelas_despesas SET valor = $1, data_vencimento = $2, data_pagamento = $2, status = 'PAGO',
+                  updated_at = CURRENT_TIMESTAMP WHERE despesa_id = $3`, [valor, t.date, despesaId]);
+      } else {
+        despesaId = await criarDespesaPaga(db, conexao, descricao || 'Taxa Asaas', valor, t.date, 'Taxa Asaas', receitaId);
+      }
+      await db.query('UPDATE asaas_extrato SET despesa_id = $1 WHERE conexao_id = $2 AND transacao_id = $3', [despesaId, conexao.id, t.id]);
+      res = 'taxa';
+
+    } else {
+      const manual = (await db.query(
+        `SELECT p.id, p.despesa_id FROM parcelas_despesas p
+           JOIN despesas d ON d.id = p.despesa_id
+           JOIN usuarios u ON u.id = d.usuario_id
+          WHERE u.empresa_id = $1 AND d.origem IS DISTINCT FROM 'asaas' AND d.status <> 'cancelado'
+            AND p.valor = $2 AND p.data_vencimento BETWEEN $3::date - 3 AND $3::date + 3
+            AND NOT EXISTS (SELECT 1 FROM asaas_extrato e WHERE e.parcela_manual_id = p.id)
+          ORDER BY abs(p.data_vencimento - $3::date), p.created_at
+          LIMIT 1 FOR UPDATE OF p`, [conexao.empresa_id, valor, t.date])).rows[0];
+      if (manual) {
+        await db.query(
+          `UPDATE parcelas_despesas SET status = 'PAGO', data_pagamento = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2 AND status <> 'PAGO'`, [t.date, manual.id]);
+        await db.query(
+          `UPDATE despesas SET status = 'pago', pago = true, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM parcelas_despesas WHERE despesa_id = $1 AND status <> 'PAGO')`,
+          [manual.despesa_id]);
+        await db.query('UPDATE asaas_extrato SET parcela_manual_id = $1 WHERE conexao_id = $2 AND transacao_id = $3', [manual.id, conexao.id, t.id]);
+        res = 'casada';
+      } else {
+        const despesaId = await criarDespesaPaga(db, conexao, descricao || 'Saída Asaas', valor, t.date, 'Asaas', null);
+        await db.query('UPDATE asaas_extrato SET despesa_id = $1 WHERE conexao_id = $2 AND transacao_id = $3', [despesaId, conexao.id, t.id]);
+        res = 'saida';
+      }
+    }
+    await db.query('COMMIT');
+    return res;
+  } catch (e) {
+    await db.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    db.release();
+  }
+}
+
+const hojeSP = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+const diasAntes = (d: string, n: number) => {
+  const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() - n); return x.toISOString().slice(0, 10);
+};
+
+/**
+ * Lê o extrato desde `importar_desde` (ou desde uma semana antes da última leitura) e lança as
+ * taxas — e as saídas, na conta que pediu. `dias` força uma janela curta: o webhook usa para a
+ * taxa da cobrança que acabou de cair. Aplica do mais antigo ao mais novo, para o estorno achar
+ * a saída que ele desfaz.
+ */
+export async function sincronizarExtrato(conexao: any, http: AxiosInstance, dias?: number) {
+  const hoje = hojeSP();
+  const desde: string = conexao.desde;
+  let inicio = dias != null ? diasAntes(hoje, dias)
+    : conexao.extrato_ate ? diasAntes(conexao.extrato_ate, 7) : desde;
+  if (inicio < desde) inicio = desde;
+  const linhas: TransacaoAsaas[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const { data } = await http.get('/financialTransactions',
+      { params: { startDate: inicio, finishDate: hoje, offset, limit: 100 } });
+    linhas.push(...(data.data || []));
+    if (!data.hasMore) break;
+  }
+  linhas.sort((a, b) => a.date.localeCompare(b.date) || (Number(a.value) < 0 ? -1 : 1) - (Number(b.value) < 0 ? -1 : 1));
+  const cont = { taxa: 0, saida: 0, casada: 0, estornada: 0, ignorada: 0 };
+  for (const t of linhas) cont[await aplicarTransacao(conexao, t)]++;
+  if (dias == null) await query('UPDATE asaas_conexoes SET extrato_ate = $1 WHERE id = $2', [hoje, conexao.id]);
+  if (cont.taxa || cont.saida || cont.casada || cont.estornada) {
+    console.log(`[AsaasReceitas] empresa ${conexao.empresa_id}: extrato desde ${inicio} — ${cont.taxa} taxas, ${cont.saida} saídas novas, ${cont.casada} casadas com lançamento manual, ${cont.estornada} estornos`);
+  }
+  return cont;
 }
 
 /**
@@ -308,7 +477,31 @@ export async function absorverParcelaManual(
   return par.receita_id;
 }
 
+/**
+ * Cobrança antecipada (cartão parcelado ou boleto que a empresa adiantou): dia em que o Asaas
+ * creditou o dinheiro. A antecipação pode ser da cobrança ou do parcelamento inteiro. Erro na
+ * consulta não derruba a sincronização — a receita só fica como estava.
+ */
+async function dataDaAntecipacao(http: AxiosInstance, p: CobrancaAsaas): Promise<string | null> {
+  if (!p.anticipated) return null;
+  try {
+    for (const params of [{ payment: p.id }, p.installment ? { installment: p.installment } : null]) {
+      if (!params) continue;
+      const { data } = await http.get('/anticipations', { params: { ...params, limit: 20 } });
+      const a = (data.data || []).find((a: any) =>
+        (a.payment === p.id || (p.installment && a.installment === p.installment))
+        && (a.status === 'CREDITED' || a.status === 'DEBITED'));
+      if (a) return a.anticipationDate || a.requestDate || null;
+    }
+  } catch (e: any) {
+    console.warn('[AsaasReceitas] antecipação de', p.id, e.message);
+  }
+  return null;
+}
+
+/** Aplica uma cobrança: cria ou atualiza a receita. Idempotente; serializado por cobrança. */
 async function aplicarCobranca(conexao: any, http: AxiosInstance, p: CobrancaAsaas, cache: Map<string, any>) {
+  p = { ...p, antecipadaEm: await dataDaAntecipacao(http, p) };
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
@@ -361,7 +554,6 @@ async function aplicarCobranca(conexao: any, http: AxiosInstance, p: CobrancaAsa
          VALUES ($1, 1, 1, $2, $3, $4, $5)`,
         [receitaId, r.valor, r.vencimento, r.status === 'pago' ? 'PAGO' : 'PENDENTE', r.pagoEm]);
     }
-    await aplicarTaxa(db, conexao, receitaId!, r);
     await db.query(
       `INSERT INTO asaas_cobrancas (conexao_id, payment_id, receita_id, status_asaas) VALUES ($1, $2, $3, $4)
        ON CONFLICT (conexao_id, payment_id) DO UPDATE SET status_asaas = EXCLUDED.status_asaas, atualizado_em = now()`,
@@ -404,6 +596,8 @@ export async function sincronizar(conexaoId: number) {
         await aplicarCobranca(conexao, http, p, cache);
       } catch { /* 404: segue; o webhook PAYMENT_DELETED cobre o caso normal */ }
     }
+    // Depois das cobranças, para a taxa já achar a receita a que se liga.
+    await sincronizarExtrato(conexao, http);
     await query('UPDATE asaas_conexoes SET ultima_sync_em = now(), erro = CASE WHEN webhook_id IS NULL THEN erro END WHERE id = $1', [conexao.id]);
     console.log(`[AsaasReceitas] empresa ${conexao.empresa_id}: ${cont.criada} novas, ${cont.atualizada} atualizadas, ${cont.ignorada} ignoradas`);
     return cont;
@@ -433,6 +627,9 @@ export async function receberWebhook(conexaoId: number, token: string | undefine
   const jaTem = await query('SELECT 1 FROM asaas_cobrancas WHERE conexao_id = $1 AND payment_id = $2', [conexaoId, paymentId]);
   if (!jaTem.rows[0] && p.dueDate < conexao.desde) return true;
   await aplicarCobranca(conexao, http, p, new Map());
+  // A taxa da cobrança sai no extrato junto com o pagamento: lê os últimos dias para ela já entrar.
+  try { await sincronizarExtrato(conexao, http, 2); }
+  catch (e: any) { console.warn('[AsaasReceitas] extrato no webhook', conexaoId, e.message); }
   return true;
 }
 

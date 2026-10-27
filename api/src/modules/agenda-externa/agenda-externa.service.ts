@@ -54,7 +54,7 @@ export function iniciarConexao(usuarioId: number, empresaId: number, p: Provedor
 
 /** Retorno do OAuth. Devolve para onde mandar o navegador. */
 export async function concluirConexao(p: Provedor, code: string | undefined, state: string | undefined, erro?: string): Promise<string> {
-  const volta = (r: string) => `${URL_PUBLICA}/gestao/perfil?agenda=${r}`;
+  const volta = (r: string) => `${URL_PUBLICA}/gestao/configuracoes/email?agenda=${r}`;
   if (erro || !code || !state) return volta('cancelada');
   let s: any;
   try { s = jwt.verify(state, env.JWT_ACCESS_SECRET); } catch { return volta('expirada'); }
@@ -110,7 +110,7 @@ async function tokenDe(conta: any): Promise<string> {
     return t.access;
   } catch (e: any) {
     const msg = e?.response?.status === 400 || e?.response?.status === 401
-      ? 'O acesso à agenda foi revogado ou expirou. Conecte de novo em Meu perfil.'
+      ? 'O acesso à agenda foi revogado ou expirou. Conecte de novo em Configurações de E-mail.'
       : erroDaApi(e);
     await query(`UPDATE agenda_contas SET erro = $2 WHERE usuario_id = $1`, [conta.usuario_id, msg]);
     throw new Error(msg);

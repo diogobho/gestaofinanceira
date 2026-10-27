@@ -176,6 +176,10 @@ export const canalWhatsappApi = {
   verificarNumero: async (dados: { phone_number_id: string; codigo: string; usuario_id?: number }) =>
     (await api.post('/whatsapp/canal/oficial/numero/verificar', dados)).data,
 
+  /** Registra no servidor o que a janela da Meta respondeu (erro, abandono, passo atual). */
+  registrarEventoJanela: (evento: string, dados: unknown, alvo?: number) =>
+    api.post('/whatsapp/canal/oficial/evento-janela', { evento, dados, alvo }).catch(() => {}),
+
   desconectarOficial: async (contaId?: number) =>
     (await api.post('/whatsapp/canal/oficial/desconectar', contaId ? { conta_id: contaId } : {})).data,
 

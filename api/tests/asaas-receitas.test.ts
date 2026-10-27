@@ -6,7 +6,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { receitaDaCobranca, CobrancaAsaas } from '../src/modules/asaas-receitas/asaas-receitas.service';
+import { receitaDaCobranca, linhaDoExtrato, CobrancaAsaas } from '../src/modules/asaas-receitas/asaas-receitas.service';
 
 const base: CobrancaAsaas = { id: 'pay_1', customer: 'cus_1', value: 197.5, status: 'PENDING', dueDate: '2026-10-10' };
 
@@ -34,6 +34,15 @@ describe('receitaDaCobranca', () => {
     assert.equal(r.temParcela, true);
   });
 
+  test('antecipada conta como recebida no dia em que a antecipação creditou', () => {
+    const r = receitaDaCobranca({ ...base, status: 'CONFIRMED', dueDate: '2026-10-11', anticipated: true, antecipadaEm: '2026-08-14' });
+    assert.equal(r.status, 'pago');
+    assert.equal(r.data, '2026-08-14');
+    assert.equal(r.pagoEm, '2026-08-14');
+    // Boleto antecipado que o cliente não pagou: volta a ser atrasado (o Asaas debita a antecipação).
+    assert.equal(receitaDaCobranca({ ...base, status: 'OVERDUE', anticipated: true, antecipadaEm: '2026-08-14' }).status, 'atrasado');
+  });
+
   test('vencida vira atrasado e continua a receber', () => {
     const r = receitaDaCobranca({ ...base, status: 'OVERDUE' });
     assert.equal(r.status, 'atrasado');
@@ -52,11 +61,20 @@ describe('receitaDaCobranca', () => {
   });
 });
 
-test('taxa do Asaas: só na cobrança paga, pela diferença entre valor e líquido', () => {
-  const base = { id: 'pay_1', customer: 'cus_1', value: 189, dueDate: '2026-10-01' };
-  assert.equal(receitaDaCobranca({ ...base, status: 'RECEIVED', netValue: 184.51, paymentDate: '2026-10-02' }).taxa, 4.49);
-  assert.equal(receitaDaCobranca({ ...base, status: 'PENDING', netValue: 184.51 }).taxa, 0);
-  assert.equal(receitaDaCobranca({ ...base, status: 'REFUNDED', netValue: 184.51 }).taxa, 0);
-  assert.equal(receitaDaCobranca({ ...base, status: 'RECEIVED_IN_CASH', netValue: 189 }).taxa, 0);
-  assert.equal(receitaDaCobranca({ ...base, status: 'RECEIVED' }).taxa, 0);
+test('linha do extrato: taxa é todo tipo com FEE; saída só na conta que pediu', () => {
+  const l = (type: string, value: number, saidas = false) => linhaDoExtrato({ id: 'ft_1', type, value, date: '2026-10-20' }, saidas);
+  assert.equal(l('PAYMENT_FEE', -1.99), 'taxa');
+  assert.equal(l('INSTANT_TEXT_MESSAGE_FEE', -0.55), 'taxa');
+  assert.equal(l('PAYMENT_MESSAGING_NOTIFICATION_FEE', -0.89), 'taxa');
+  assert.equal(l('INVOICE_FEE', -0.49), 'taxa');
+  assert.equal(l('RECEIVABLE_ANTICIPATION_FEE', -30.6), 'taxa');
+  assert.equal(l('PAYMENT_FEE_REVERSAL', 1.99), 'estorno_taxa');
+  assert.equal(l('PAYMENT_RECEIVED', 500, true), null);
+  assert.equal(l('TRANSFER', -115.67), null);
+  assert.equal(l('TRANSFER', -115.67, true), 'saida');
+  assert.equal(l('BILL_PAYMENT', -902.57, true), 'saida');
+  assert.equal(l('ASAAS_CARD_BILL_PAYMENT', -35, true), 'saida');
+  assert.equal(l('PIX_TRANSACTION_DEBIT_REFUND', 1072.85, true), 'estorno_saida');
+  assert.equal(l('RECEIVABLE_ANTICIPATION_DEBIT', -585, true), null);
+  assert.equal(l('RECEIVABLE_ANTICIPATION_GROSS_CREDIT', 5490, true), null);
 });

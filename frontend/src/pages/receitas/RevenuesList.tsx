@@ -757,7 +757,23 @@ export const RevenuesList: React.FC = () => {
             )}
           </div>
 
-          <ModalFooter>
+          <ModalFooter className="flex-wrap">
+            {editingItem && (
+              <Button
+                type="button"
+                variant="outline"
+                className="mr-auto text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+                onClick={() => {
+                  const id = editingItem.id
+                  setIsModalOpen(false)
+                  setEditingItem(null)
+                  handleDelete(id)
+                }}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Excluir receita
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"

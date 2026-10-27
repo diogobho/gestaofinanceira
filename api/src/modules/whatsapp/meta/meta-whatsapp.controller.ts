@@ -105,7 +105,12 @@ export class MetaWhatsAppController {
             await this.handleCoexistencia(change.field, change.value);
             continue;
           }
-          if (change.field !== 'messages') continue;
+          if (change.field !== 'messages') {
+            // account_update (PARTNER_ADDED etc.) traz a WABA nova de quem terminou a janela —
+            // é o rastro que sobra quando o navegador perde o code (26/10/2026).
+            console.log(`[Meta WA] evento ${change.field}: ${JSON.stringify(change.value ?? null).slice(0, 1500)}`);
+            continue;
+          }
 
           const value = change.value;
 

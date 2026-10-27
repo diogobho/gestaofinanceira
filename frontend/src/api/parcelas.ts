@@ -49,6 +49,12 @@ export const parcelasApi = {
     return result
   },
 
+  /** Exclui uma parcela; as demais são renumeradas e, sem nenhuma, o lançamento sai junto. */
+  excluirParcela: async (tipo: 'receitas' | 'despesas', id: string): Promise<{ lancamento_excluido: boolean; parcelas_restantes?: number }> => {
+    const { data } = await api.delete(`/parcelas/${tipo}/${id}`)
+    return data
+  },
+
   enviarEmailsCobranca: async (parcelaIds: string[]): Promise<{
     totalProcessado: number
     totalEnviados: number

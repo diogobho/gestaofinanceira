@@ -1,5 +1,5 @@
 import { escopoDono, type FiltroDono } from '../../shared/escopoFinanceiro';
-import { query } from '../../config/database';
+import { query, pool } from '../../config/database';
 import { enviarEmailCobrancaParcela } from '../../services/email.service';
 import { configuracoesSmtpService } from '../configuracoes-smtp/configuracoes-smtp.service';
 import { instancia } from '../whatsapp/canal/instancia';
@@ -203,6 +203,60 @@ export const parcelasService = {
     );
 
     return result.rows[0];
+  },
+
+  /**
+   * Exclui UMA parcela. As que sobram são renumeradas (1 de N…) e o lançamento passa a valer a
+   * soma delas; sobrando uma, vira à vista (`*_parcelas_minimo` exige 2+ no parcelado); sem
+   * nenhuma, o lançamento sai junto. Receita do Asaas/Conta Azul apagada assim não volta.
+   */
+  async excluirParcela(tipo: 'receitas' | 'despesas', id: string, filters?: any) {
+    const t = tipo === 'receitas'
+      ? { parcelas: 'parcelas_receitas', fk: 'receita_id', pai: 'receitas' }
+      : { parcelas: 'parcelas_despesas', fk: 'despesa_id', pai: 'despesas' };
+    const params: any[] = [id];
+    const escopo = escopoDono(filters, params, 'l.usuario_id');
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      const par = (await db.query(
+        `SELECT p.${t.fk} AS pai_id FROM ${t.parcelas} p JOIN ${t.pai} l ON l.id = p.${t.fk}
+          WHERE p.id = $1${escopo} FOR UPDATE OF p, l`, params)).rows[0];
+      if (!par) throw new Error('Parcela não encontrada ou sem permissão');
+
+      await db.query(`DELETE FROM ${t.parcelas} WHERE id = $1`, [id]);
+      const resto = (await db.query(
+        `SELECT id, valor FROM ${t.parcelas} WHERE ${t.fk} = $1 ORDER BY numero_parcela, data_vencimento`,
+        [par.pai_id])).rows;
+
+      if (resto.length === 0) {
+        await db.query(`DELETE FROM ${t.pai} WHERE id = $1`, [par.pai_id]);
+        await db.query('COMMIT');
+        return { lancamento_excluido: true };
+      }
+      for (let i = 0; i < resto.length; i++) {
+        await db.query(
+          `UPDATE ${t.parcelas} SET numero_parcela = $1, total_parcelas = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+          [i + 1, resto.length, resto[i].id]);
+      }
+      const total = resto.reduce((s: number, r: any) => s + Number(r.valor), 0);
+      const n = resto.length;
+      await db.query(
+        `UPDATE ${t.pai} SET valor = $1,
+                parcelado = $2 > 1,
+                tipo_pagamento = CASE WHEN $2 > 1 THEN tipo_pagamento ELSE 'a_vista' END,
+                numero_parcelas = CASE WHEN $2 > 1 THEN $2 END,
+                parcela_atual = CASE WHEN $2 > 1 THEN LEAST(COALESCE(parcela_atual, 1), $2) END,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = $3`, [Math.round(total * 100) / 100, n, par.pai_id]);
+      await db.query('COMMIT');
+      return { lancamento_excluido: false, parcelas_restantes: n };
+    } catch (e) {
+      await db.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      db.release();
+    }
   },
 
   async updateParcelaDespesa(id: string, data: any, filters?: any) {

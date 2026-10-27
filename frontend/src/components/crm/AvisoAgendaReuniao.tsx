@@ -11,7 +11,7 @@ export const DURACOES_REUNIAO: [number, string][] = [
 
 /*
   No formulário de tarefa tipo Reunião: diz se ela vai para a agenda de quem marca
-  (agenda externa, 103) — ou convida a conectar em Meu perfil.
+  (agenda externa, 103) — ou convida a conectar em Configurações de E-mail.
 */
 export const AvisoAgendaReuniao: React.FC = () => {
   const status = useQuery({ queryKey: ['agenda-externa'], queryFn: agendaExternaApi.status, staleTime: 5 * 60_000 })
@@ -31,7 +31,7 @@ export const AvisoAgendaReuniao: React.FC = () => {
       <CalendarPlus className="w-4 h-4 shrink-0" aria-hidden="true" />
       <span>
         {conta?.erro ? 'A sua agenda precisa ser reconectada. ' : 'Quer esta reunião na sua agenda do Google ou da Microsoft, com link de vídeo? '}
-        <Link to="/perfil" className="font-medium text-primary-600 hover:underline">Conectar em Meu perfil</Link>
+        <Link to="/configuracoes/email" className="font-medium text-primary-600 hover:underline">Conectar em Configurações de E-mail</Link>
       </span>
     </p>
   )
