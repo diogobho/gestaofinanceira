@@ -1,5 +1,6 @@
+import { escopoDono } from '../../shared/escopoFinanceiro';
 import { query } from '../../config/database';
-import { buildPaginationQuery, buildPaginatedResponse } from '../../shared/utils';
+import { buildPaginationQuery, buildPaginatedResponse, addMonthsClamped, dividirEmParcelas, statusParcela, dataVencimentoDe } from '../../shared/utils';
 
 export const receitasService = {
   async list(filters: any, page: number, pageSize: number) {
@@ -7,11 +8,8 @@ export const receitasService = {
     let where = '1=1';
     const params: any[] = [];
 
-    // Multi-tenancy: filtrar por usuario_id (super_admin vê tudo, outros veem apenas seus dados)
-    if (filters.usuario_id && filters.nivel !== 'super_admin') {
-      params.push(filters.usuario_id);
-      where += ` AND r.usuario_id = $${params.length}`;
-    }
+    // Quem vê o quê: ver shared/escopoFinanceiro.ts (master/creator veem a empresa inteira)
+    where += escopoDono(filters, params, 'r.usuario_id');
 
     // Suportar novo campo "status" e manter compatibilidade com "recebido"
     if (filters.status !== undefined && filters.status !== '') {
@@ -27,6 +25,11 @@ export const receitasService = {
     if (filters.fonte) {
       params.push(filters.fonte);
       where += ` AND r.fonte ILIKE '%' || $${params.length} || '%'`;
+    }
+    // Busca pela descrição — o Duo usa para achar o lançamento que a pessoa quer editar.
+    if (filters.busca) {
+      params.push(filters.busca);
+      where += ` AND r.descricao ILIKE '%' || $${params.length} || '%'`;
     }
     if (filters.data_ini) {
       params.push(filters.data_ini);
@@ -81,10 +84,7 @@ export const receitasService = {
     const params: any[] = [id];
 
     // Multi-tenancy: verificar permissão de acesso
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      params.push(filters.usuario_id);
-      where += ` AND usuario_id = $${params.length}`;
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     const result = await query(`SELECT * FROM receitas WHERE ${where}`, params);
     if (result.rows.length === 0) throw new Error('Receita não encontrada');
@@ -127,6 +127,21 @@ export const receitasService = {
 
     const receita = result.rows[0];
 
+    // Lançamento à vista também tem parcela: 1 de 1, vencendo na data dele.
+    // Sem isso ele não aparece no dashboard, na tela de Parcelas nem no chat
+    // financeiro — os três leem parcelas com INNER JOIN.
+    await query(
+      `INSERT INTO parcelas_receitas (receita_id, numero_parcela, total_parcelas, valor, data_vencimento, status, data_pagamento)
+       VALUES ($1, 1, 1, $2, $3, $4, $5)`,
+      [
+        receita.id,
+        receita.valor,
+        dataVencimentoDe(receita.data),
+        statusParcela(status),
+        status === 'pago' ? dataVencimentoDe(receita.data) : null,
+      ]
+    );
+
     // Se há taxa de serviço, criar despesa automática
     if (data.taxa_servico_percentual && data.taxa_servico_percentual > 0) {
       await this.criarDespesaTaxaServico(receita, data.usuario_id);
@@ -161,14 +176,13 @@ export const receitasService = {
 
     const receita = receitaPrincipal.rows[0];
     const receita_id = receita.id;
-    const valorParcela = parseFloat(data.valor) / parseInt(data.numero_parcelas);
+    const valoresParcelas = dividirEmParcelas(parseFloat(data.valor), parseInt(data.numero_parcelas));
     const dataBase = new Date(data.data);
 
     // Criar parcelas na tabela parcelas_receitas
     const parcelas = [];
     for (let i = 1; i <= data.numero_parcelas; i++) {
-      const dataVencimento = new Date(dataBase);
-      dataVencimento.setMonth(dataVencimento.getMonth() + (i - 1));
+      const dataVencimento = addMonthsClamped(dataBase, i - 1);
 
       const parcela = await query(
         `INSERT INTO parcelas_receitas (
@@ -178,7 +192,7 @@ export const receitasService = {
           receita_id,
           i,
           data.numero_parcelas,
-          valorParcela.toFixed(2),
+          valoresParcelas[i - 1].toFixed(2),
           dataVencimento.toISOString().split('T')[0],
           'PENDENTE'
         ]
@@ -229,10 +243,7 @@ export const receitasService = {
     ];
 
     // Multi-tenancy: garantir que apenas o dono pode atualizar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ' AND usuario_id = $13';
-      params.push(filters.usuario_id);
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     const result = await query(
       `UPDATE receitas SET
@@ -253,7 +264,24 @@ export const receitasService = {
     );
 
     if (result.rows.length === 0) throw new Error('Receita não encontrada ou sem permissão');
-    return result.rows[0];
+    const receita = result.rows[0];
+
+    // A parcela do lançamento à vista acompanha a edição. Sem isso o dashboard
+    // passaria a mostrar o valor e a data ANTIGOS — errado é pior que ausente.
+    // Lançamento parcelado não entra aqui: lá as parcelas têm vida própria
+    // (valor, vencimento e baixa por parcela).
+    if (tipoPagamento !== 'parcelado') {
+      await query(
+        `UPDATE parcelas_receitas
+            SET valor = $1, data_vencimento = $2::date, status = $3::varchar,
+                data_pagamento = CASE WHEN $3::varchar = 'PAGO'
+                                      THEN COALESCE(data_pagamento, $2::date) ELSE NULL END,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE receita_id = $4 AND total_parcelas = 1`,
+        [receita.valor, dataVencimentoDe(receita.data), statusParcela(status), id]
+      );
+    }
+    return receita;
   },
 
   async delete(id: string, filters?: any) {
@@ -261,10 +289,7 @@ export const receitasService = {
     const params: any[] = [id];
 
     // Multi-tenancy: garantir que apenas o dono pode deletar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ' AND usuario_id = $2';
-      params.push(filters.usuario_id);
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     const result = await query(`DELETE FROM receitas WHERE ${where} RETURNING *`, params);
     if (result.rows.length === 0) throw new Error('Receita não encontrada ou sem permissão');
@@ -277,10 +302,7 @@ export const receitasService = {
     const params: any[] = [];
 
     // Multi-tenancy: filtrar por usuario_id
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      params.push(filters.usuario_id);
-      where += ` AND r.usuario_id = $${params.length}`;
-    }
+    where += escopoDono(filters, params, 'r.usuario_id');
 
     const result = await query(
       `SELECT
@@ -308,10 +330,7 @@ export const receitasService = {
     const params: any[] = [receitaId];
 
     // Multi-tenancy: garantir que apenas o dono pode atualizar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      params.push(filters.usuario_id);
-      where += ` AND usuario_id = $${params.length}`;
-    }
+    where += escopoDono(filters, params, 'usuario_id');
 
     // Verificar se a receita existe e o usuário tem permissão
     const checkResult = await query(
@@ -385,12 +404,11 @@ export const receitasService = {
 
     // Se a despesa for parcelada, criar parcelas automáticas
     if (despesaData.tipo_pagamento === 'parcelado' && despesaData.numero_parcelas > 1) {
-      const valorParcela = valorTaxa / despesaData.numero_parcelas;
+      const valoresParcelas = dividirEmParcelas(valorTaxa, despesaData.numero_parcelas);
       const dataBase = new Date(despesaData.data);
 
       for (let i = 1; i <= despesaData.numero_parcelas; i++) {
-        const dataVencimento = new Date(dataBase);
-        dataVencimento.setMonth(dataVencimento.getMonth() + (i - 1));
+        const dataVencimento = addMonthsClamped(dataBase, i - 1);
 
         await query(
           `INSERT INTO parcelas_despesas (
@@ -400,12 +418,20 @@ export const receitasService = {
             despesa.id,
             i,
             despesaData.numero_parcelas,
-            valorParcela.toFixed(2),
+            valoresParcelas[i - 1].toFixed(2),
             dataVencimento.toISOString().split('T')[0],
             'PENDENTE'
           ]
         );
       }
+    } else {
+      // À vista: mesma regra do cadastro normal — sem a parcela de 1 de 1 a
+      // despesa da taxa não entra em nenhuma consulta do dashboard.
+      await query(
+        `INSERT INTO parcelas_despesas (despesa_id, numero_parcela, total_parcelas, valor, data_vencimento, status)
+         VALUES ($1, 1, 1, $2, $3, 'PENDENTE')`,
+        [despesa.id, despesa.valor, dataVencimentoDe(despesa.data)]
+      );
     }
 
     return despesa;

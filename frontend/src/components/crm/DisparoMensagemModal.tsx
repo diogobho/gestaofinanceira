@@ -1,13 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import SeletorModeloWhatsApp from '@/components/whatsapp/SeletorModeloWhatsApp'
+import { useCanalWhatsApp, useModelosWhatsApp } from '@/hooks/useCanalWhatsApp'
+import { previaModelo, type ModeloConfigurado } from '@/api/canalWhatsapp'
 import {
   X, Send, ChevronRight, ChevronLeft, AlertCircle, CheckCircle,
-  Loader2, MessageSquare, Users, Eye, Clock, Zap, Search, ArrowRight, Calendar
+  Loader2, MessageSquare, Users, Eye, Clock, Zap, Search, ArrowRight, Calendar, CalendarClock
 } from 'lucide-react'
 import api from '@/api/client'
 import { estagiosApi } from '@/api/crm'
 import type { FiltrosLead } from '@/api/crm'
 import type { EstagioFunil } from '@/types/crm'
 import { WhatsAppFormatToolbar } from '@/components/ui/WhatsAppFormatToolbar'
+import { useVideoAjuda } from '@/tutoriais/VideoAjuda'
 
 interface LeadDisparo {
   id: number
@@ -16,6 +20,24 @@ interface LeadDisparo {
   empresa: string | null
   total_disparos?: number
   ultimo_estagio_disparo?: string | null
+  /** Já está na lista de um disparo PROGRAMADO pendente — sinalizado p/ não repetir */
+  ja_agendado?: boolean
+}
+
+interface DestinatarioPreview {
+  id: number
+  nome: string
+  telefone: string
+  empresa: string | null
+  estagio_nome: string | null
+  ja_agendado: boolean
+}
+
+interface PreviewResultado {
+  total: number
+  total_ja_agendados: number
+  total_grupos_ignorados: number
+  destinatarios: DestinatarioPreview[]
 }
 
 interface DisparoMensagemModalProps {
@@ -43,13 +65,15 @@ const VARIAVEIS = [
   { label: '[PrimeiroNome]', desc: 'Primeiro nome' },
   { label: '[Empresa]', desc: 'Empresa do lead' },
   { label: '[Origem]', desc: 'Origem do lead' },
+  { label: '[Responsavel]', desc: 'Nome do responsável pelo lead' },
+  { label: '[PrimeiroNomeResponsavel]', desc: 'Primeiro nome do responsável' },
 ]
 
 const LIMITE_DIARIO = 30
 
-// Média entre 45s e 90s de delay aleatório
-function tempoEstimado(n: number): string {
-  const segundos = n * 67.5
+// Estimativa usando o delay médio (média entre o mínimo e o máximo configurados)
+function tempoEstimado(n: number, delayMedioSeg = 67.5): string {
+  const segundos = n * delayMedioSeg
   if (segundos < 60) return `~${Math.ceil(segundos)}s`
   return `~${Math.ceil(segundos / 60)} min`
 }
@@ -65,8 +89,24 @@ function aplicarPreview(template: string, lead: LeadDisparo): string {
 
 export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros }: DisparoMensagemModalProps) {
   const [step, setStep] = useState<Step>('destinatarios')
+  // Fechou sem concluir: sinal de que travou. O Duo pode oferecer o vídeo (uma vez por sessão).
+  const { sinalizarDificuldade } = useVideoAjuda()
   const [modo, setModo] = useState<Modo>('todos')
   const [template, setTemplate] = useState('')
+  // Número oficial: disparo para quem não escreveu nas últimas 24h só chega com
+  // MODELO aprovado — por isso ele é o padrão. Texto livre fica como opção para
+  // quem está conversando agora.
+  const { data: canal } = useCanalWhatsApp()
+  const oficial = canal?.provedor === 'cloud_api'
+  const [usarModelo, setUsarModelo] = useState(true)
+  const [modeloDisp, setModeloDisp] = useState<ModeloConfigurado | null>(null)
+  const { data: modelosDisp = [], isLoading: carregandoModelosDisp, refetch: refetchModelosDisp } = useModelosWhatsApp(oficial)
+  const comModelo = oficial && usarModelo
+  useEffect(() => {
+    if (!comModelo) return
+    const m = modelosDisp.find(x => x.nome === modeloDisp?.nome && x.idioma === modeloDisp?.idioma)
+    setTemplate(m && modeloDisp ? previaModelo(m, modeloDisp.variaveis, modeloDisp.cabecalho) : '')
+  }, [comModelo, modeloDisp, modelosDisp])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [disparoId, setDisparoId] = useState<number | null>(null)
   const [status, setStatus] = useState<DisparoStatus | null>(null)
@@ -76,6 +116,13 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
   const [estagiosList, setEstagiosList] = useState<EstagioFunil[]>([])
   const [agendar, setAgendar] = useState(false)
   const [agendadoPara, setAgendadoPara] = useState('')
+  // Anti-ban: intervalo (segundos) entre um envio e o próximo
+  const [intervaloMin, setIntervaloMin] = useState(45)
+  const [intervaloMax, setIntervaloMax] = useState(90)
+  // Pré-visualização dos destinatários
+  const [preview, setPreview] = useState<PreviewResultado | null>(null)
+  const [loadingPreview, setLoadingPreview] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
 
   // Leads paginados do servidor
   const [leads, setLeads] = useState<LeadDisparo[]>([])
@@ -115,6 +162,9 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
           responsavel_id: filtros?.responsavel_id,
           temperatura: filtros?.temperatura,
           origem: filtros?.origem,
+          sem_tarefa: filtros?.sem_tarefa || undefined,
+          com_tarefa_hoje: filtros?.com_tarefa_hoje || undefined,
+          com_tarefa_atrasada: filtros?.com_tarefa_atrasada || undefined,
         }
       })
       setLeads(res.data.leads)
@@ -218,22 +268,52 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
     }, 0)
   }
 
+  // Corpo comum (destinatários) usado tanto na pré-visualização quanto no disparo.
+  const buildRecipientBody = (): any => {
+    const body: any = { funil_id: funilId }
+    if (modo === 'todos') {
+      body.todos = true
+      if (filtros?.estagio_id) body.estagio_id = filtros.estagio_id
+      if (filtros?.responsavel_id) body.responsavel_id = filtros.responsavel_id
+      if (filtros?.temperatura) body.temperatura = filtros.temperatura
+      if (filtros?.origem) body.origem = filtros.origem
+      if (filtros?.sem_tarefa) body.sem_tarefa = true
+      if (filtros?.com_tarefa_hoje) body.com_tarefa_hoje = true
+      if (filtros?.com_tarefa_atrasada) body.com_tarefa_atrasada = true
+    } else {
+      body.lead_ids = Array.from(selectedIds)
+    }
+    return body
+  }
+
+  const handlePreview = async () => {
+    const totalSel = modo === 'todos' ? total : selectedIds.size
+    if (totalSel === 0) return
+    setShowPreview(true)
+    setLoadingPreview(true)
+    try {
+      const res = await api.post('/crm/disparos/preview', buildRecipientBody())
+      setPreview(res.data)
+    } catch (err: any) {
+      setError(err.response?.data?.message || err.message || 'Erro ao pré-visualizar')
+    } finally {
+      setLoadingPreview(false)
+    }
+  }
+
   const handleDisparar = async () => {
     const totalSel = modo === 'todos' ? total : selectedIds.size
     if (!template.trim() || totalSel === 0) return
     setLoading(true)
     setError(null)
     try {
-      const body: any = { template: template.trim(), funil_id: funilId }
-      if (modo === 'todos') {
-        body.todos = true
-        if (filtros?.estagio_id) body.estagio_id = filtros.estagio_id
-        if (filtros?.responsavel_id) body.responsavel_id = filtros.responsavel_id
-        if (filtros?.temperatura) body.temperatura = filtros.temperatura
-        if (filtros?.origem) body.origem = filtros.origem
-      } else {
-        body.lead_ids = Array.from(selectedIds)
+      const body: any = {
+        ...buildRecipientBody(),
+        template: template.trim(),
+        intervalo_min_seg: intervaloMin,
+        intervalo_max_seg: intervaloMax,
       }
+      if (comModelo && modeloDisp) body.modelo_whatsapp = modeloDisp
       if (estagioPosDeparoId) {
         body.estagio_pos_disparo_id = estagioPosDeparoId
       }
@@ -259,6 +339,8 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
   }
 
   const handleClose = () => {
+    if (step === 'destinatarios' || step === 'mensagem') sinalizarDificuldade({ oficial: 'disparo-oficial' }, 'Quer ver em 1 minuto como montar o disparo, do filtro ao relatório de quem recebeu?')
+    setModeloDisp(null)
     if (pollRef.current) clearInterval(pollRef.current)
     setStep('destinatarios')
     setTemplate('')
@@ -269,6 +351,8 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
     setBusca('')
     setAgendar(false)
     setAgendadoPara('')
+    setPreview(null)
+    setShowPreview(false)
     onClose()
   }
 
@@ -296,7 +380,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
               </p>
             </div>
           </div>
-          <button onClick={handleClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
+          <button onClick={handleClose} data-tour="disp-fechar" className="p-1.5 hover:bg-gray-100 rounded-lg">
             <X size={20} className="text-gray-500" />
           </button>
         </div>
@@ -335,7 +419,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
           {step === 'destinatarios' && (
             <div className="space-y-4">
               {/* Modo tabs */}
-              <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl">
+              <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl" data-tour="disp-modo">
                 <button
                   onClick={() => setModo('todos')}
                   className={`py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
@@ -440,6 +524,14 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                     <span className="text-xs text-gray-400">{selectedIds.size} selecionados</span>
                   </div>
 
+                  {/* Aviso: leads que já estão em disparo programado pendente */}
+                  {leads.some(l => l.ja_agendado) && (
+                    <p className="text-xs text-violet-600 flex items-center gap-1">
+                      <CalendarClock size={11} className="shrink-0" />
+                      Leads com o selo "programado" já estão em um disparo agendado — selecione de novo só se quiser repetir.
+                    </p>
+                  )}
+
                   {/* Lista */}
                   <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
                     {leads.length === 0 && !loadingLeads && (
@@ -467,6 +559,15 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                         </div>
                         {lead.empresa && (
                           <span className="text-xs text-gray-400 truncate max-w-[80px]">{lead.empresa}</span>
+                        )}
+                        {lead.ja_agendado && (
+                          <span
+                            title="Este lead já está selecionado em um disparo programado (pendente)"
+                            className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-semibold bg-violet-100 text-violet-700"
+                          >
+                            <CalendarClock size={11} />
+                            programado
+                          </span>
                         )}
                         {(lead.total_disparos || 0) > 0 && (
                           <span
@@ -509,7 +610,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
           {step === 'mensagem' && (
             <div className="space-y-4">
               {/* Automação pós-disparo */}
-              <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
+              <div className="border rounded-lg p-3 space-y-2 bg-gray-50" data-tour="disp-automacao">
                 <div className="flex items-center gap-2">
                   <ArrowRight size={15} className="text-primary-500" />
                   <label className="text-sm font-medium text-gray-700">Após o envio, mover lead para</label>
@@ -533,7 +634,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
               </div>
 
               {/* Agendamento */}
-              <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
+              <div className="border rounded-lg p-3 space-y-2 bg-gray-50" data-tour="disp-agendar">
                 <div
                   className="flex items-center gap-2 cursor-pointer"
                   onClick={() => setAgendar(prev => !prev)}
@@ -560,6 +661,86 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                 )}
               </div>
 
+              {/* Intervalo anti-ban entre envios */}
+              <div className="border rounded-lg p-3 space-y-2 bg-gray-50" data-tour="disp-intervalo">
+                <div className="flex items-center gap-2">
+                  <Clock size={15} className="text-primary-500" />
+                  <label className="text-sm font-medium text-gray-700">Intervalo entre envios</label>
+                  <span className="text-xs text-gray-400">(anti-bloqueio)</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm flex-wrap">
+                  <span className="text-gray-500">de</span>
+                  <input
+                    type="number" min={10} max={600} value={intervaloMin}
+                    onChange={e => setIntervaloMin(Number(e.target.value))}
+                    className="w-20 px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                  />
+                  <span className="text-gray-500">a</span>
+                  <input
+                    type="number" min={10} max={600} value={intervaloMax}
+                    onChange={e => setIntervaloMax(Number(e.target.value))}
+                    className="w-20 px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                  />
+                  <span className="text-gray-500">segundos</span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Antes de cada próximo envio, o sistema espera um tempo aleatório entre esse mínimo e máximo. Intervalos maiores reduzem o risco de bloqueio.
+                </p>
+              </div>
+
+              {/* Pré-visualização dos destinatários */}
+              <div className="border rounded-lg p-3 space-y-2" data-tour="disp-preview">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Users size={15} className="text-primary-500" />
+                    <label className="text-sm font-medium text-gray-700">Contatos selecionados</label>
+                    <span className="text-xs text-gray-400">({totalSelecionados})</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePreview}
+                    disabled={loadingPreview || totalSelecionados === 0}
+                    className="text-xs font-medium text-primary-600 hover:text-primary-700 flex items-center gap-1 disabled:opacity-50"
+                  >
+                    {loadingPreview ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
+                    {showPreview ? 'Atualizar lista' : 'Revisar contatos'}
+                  </button>
+                </div>
+                {showPreview && preview && (
+                  <>
+                    {preview.total_ja_agendados > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-700 flex gap-1.5">
+                        <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                        <span>
+                          <strong>{preview.total_ja_agendados}</strong> contato(s) já estão em um disparo agendado (marcados abaixo). Reveja para não repetir o envio.
+                        </span>
+                      </div>
+                    )}
+                    <ul className="max-h-52 overflow-y-auto divide-y divide-gray-100 border rounded">
+                      {preview.destinatarios.map(d => (
+                        <li key={d.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
+                          <div className="min-w-0">
+                            <p className="truncate text-gray-800">{d.nome}</p>
+                            <p className="text-xs text-gray-400 truncate">
+                              {d.telefone.replace(/^55/, '').replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}
+                              {d.estagio_nome ? ` · ${d.estagio_nome}` : ''}
+                            </p>
+                          </div>
+                          {d.ja_agendado && (
+                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">
+                              já agendado
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    {preview.total_grupos_ignorados > 0 && (
+                      <p className="text-xs text-gray-400">{preview.total_grupos_ignorados} grupo(s) serão ignorados.</p>
+                    )}
+                  </>
+                )}
+              </div>
+
               {/* Avisos de risco */}
               {totalSelecionados > LIMITE_DIARIO && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex gap-2 text-sm text-red-700">
@@ -580,7 +761,45 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                   </span>
                 </div>
               )}
-              <div>
+              {oficial && (
+                <div className="border border-emerald-200 rounded-lg p-3 space-y-3 bg-emerald-50/40">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setUsarModelo(true)}
+                      className={`px-3 py-1.5 rounded-full text-sm border ${usarModelo ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-700'}`}
+                    >
+                      Modelo aprovado
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setUsarModelo(false); setTemplate('') }}
+                      className={`px-3 py-1.5 rounded-full text-sm border ${!usarModelo ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-700'}`}
+                    >
+                      Texto livre
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-600">
+                    {usarModelo
+                      ? 'WhatsApp oficial: modelo aprovado pela Meta chega em qualquer contato. As variáveis aceitam [PrimeiroNome], [Nome]… e são preenchidas lead a lead.'
+                      : 'Texto livre só é entregue a quem escreveu para o número oficial nas últimas 24h. Os demais aparecem como falha no relatório, com o motivo.'}
+                  </p>
+                  {usarModelo && (
+                    <SeletorModeloWhatsApp
+                      modelos={modelosDisp}
+                      carregando={carregandoModelosDisp}
+                      valor={modeloDisp}
+                      onChange={setModeloDisp}
+                      modo="variaveis"
+                      sugestaoPrimeira="[PrimeiroNome]"
+                      onRecarregar={() => refetchModelosDisp()}
+                    />
+                  )}
+                </div>
+              )}
+
+              {!comModelo && (<>
+              <div data-tour="disp-variaveis">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                   Inserir variável
                 </p>
@@ -598,7 +817,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                 </div>
               </div>
 
-              <div>
+              <div data-tour="disp-mensagem">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-sm font-medium text-gray-700">
                     Mensagem <span className="text-red-500">*</span>
@@ -621,14 +840,16 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                   <p className="text-xs text-gray-400">{template.length} caracteres</p>
                   <div className="flex items-center gap-1 text-xs text-gray-400">
                     <Clock size={12} />
-                    {tempoEstimado(Math.min(totalSelecionados, LIMITE_DIARIO))} para{' '}
+                    {tempoEstimado(Math.min(totalSelecionados, LIMITE_DIARIO), (intervaloMin + intervaloMax) / 2)} para{' '}
                     {Math.min(totalSelecionados, LIMITE_DIARIO)} leads
                   </div>
                 </div>
               </div>
 
+              </>)}
+
               {/* Aviso: mensagem sem variável de nome */}
-              {template.trim().length > 0 && !/\[Nome\]|\[PrimeiroNome\]/i.test(template) && (
+              {!comModelo && template.trim().length > 0 && !/\[Nome\]|\[PrimeiroNome\]/i.test(template) && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex gap-2 text-sm text-amber-700">
                   <AlertCircle size={16} className="shrink-0 mt-0.5" />
                   <span>
@@ -665,7 +886,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                   <Loader2 size={32} className="text-green-600 animate-spin" />
                 </div>
                 <p className="text-lg font-semibold text-gray-800">Enviando mensagens...</p>
-                <p className="text-sm text-gray-500 mt-1">Intervalo de 45–90s aleatório entre envios (anti-bloqueio)</p>
+                <p className="text-sm text-gray-500 mt-1">Intervalo de {intervaloMin}–{intervaloMax}s aleatório entre envios (anti-bloqueio)</p>
               </div>
               {status && (
                 <>
@@ -774,6 +995,7 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
               <button
                 onClick={() => setStep('mensagem')}
                 disabled={totalSelecionados === 0}
+                data-tour="disp-continuar"
                 className="flex items-center gap-2 px-5 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 text-sm font-medium"
               >
                 Continuar
@@ -798,7 +1020,9 @@ export default function DisparoMensagemModal({ isOpen, onClose, funilId, filtros
                 </span>
                 <button
                   onClick={handleDisparar}
-                  disabled={!template.trim() || loading || totalSelecionados === 0 || (agendar && !agendadoPara)}
+                  disabled={!template.trim() || loading || totalSelecionados === 0 || (agendar && !agendadoPara) ||
+                    (comModelo && (!modeloDisp || modeloDisp.variaveis.some(v => !v.trim())))}
+                  data-tour="disp-enviar"
                   className="flex items-center gap-2 px-5 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 text-sm font-medium"
                 >
                   {loading ? <Loader2 size={16} className="animate-spin" /> : (agendar ? <Calendar size={16} /> : <Zap size={16} />)}

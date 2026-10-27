@@ -1,20 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { useAbaNaUrl } from '@/hooks/useEstadoNaUrl'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
+import { BotoesDeVideo, separarVideos } from '@/tutoriais/VideosNaResposta'
 import {
-  Send, Trash2, Bot, User, Loader2, Sparkles,
-  Key, Eye, EyeOff, Save, Cpu, Users, Info,
+  Send, Trash2, Bot, User, Loader2, WandSparkles,
+  Key, Eye, EyeOff, Save, Info,
   Zap, GitBranch, Clock, Mic,
-  Search, Edit2, List, FileText, BarChart2,
-  CheckSquare, CheckCircle, XCircle, TrendingUp, TrendingDown, Calendar, CalendarCheck,
+  Search, Edit2, List, FileText,
+  CheckSquare, CheckCircle, XCircle, CalendarCheck,
+  PauseCircle, Download,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
-import { Button } from '@/components/ui'
+import { Button, Switch } from '@/components/ui'
 import { useAuth } from '@/contexts/AuthContext'
 import { agenteApi } from '@/api/agente'
 import { useAgenteIAConfig, useAgenteIAUpdateConfig } from '@/hooks/useCRM'
 import type { AgenteIAConfig } from '@/types/crm'
+import { isAdminEmpresa, podeConfigurarAgenteIA } from '@/utils/roles'
+import DuoNoClaude from '@/components/DuoNoClaude'
 
 // ─── Tipos e constantes ────────────────────────────────────────────────────────
 
@@ -34,6 +39,42 @@ const QUICK_ACTIONS = [
   'Quanto gastei por categoria?',
 ]
 
+// ─── Config do chat do Duo ────────────────────────────────────────────────────
+// O Duo (este chat) e o agente do WhatsApp/CRM são mecanismos separados,
+// com tabelas de config próprias: desligar um NÃO desliga o outro.
+
+interface ChatFinanceiroConfig {
+  ativo: boolean
+  max_tokens?: number
+  contexto_mensagens?: number
+  empresa_id?: number | null
+}
+
+const CHAT_CONFIG_KEY = ['chat-financeiro-config']
+
+function useChatFinanceiroConfig() {
+  return useQuery<ChatFinanceiroConfig>({
+    queryKey: CHAT_CONFIG_KEY,
+    queryFn: () => agenteApi.getConfig(),
+    staleTime: 30_000,
+    retry: false,
+  })
+}
+
+function useChatFinanceiroUpdateConfig() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Partial<ChatFinanceiroConfig>) => agenteApi.updateConfig(data),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: CHAT_CONFIG_KEY })
+      toast.success(vars.ativo ? 'Duo ativado' : 'Duo desativado')
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Erro ao salvar a configuração do Duo')
+    },
+  })
+}
+
 const MODELOS_CLAUDE = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Recomendado)' },
   { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (Mais poderoso)' },
@@ -47,7 +88,6 @@ const MODELOS_GEMINI = [
   { value: 'gemini-3.1-pro-preview-customtools', label: 'Gemini 3.1 Pro Ferramentas (Preview)' },
   { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Preview)' },
   { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' },
-  { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
 ]
 
 const TONS = [
@@ -69,6 +109,8 @@ function formatTime(dateStr: string): string {
 
 function AssistenteChat() {
   const { user } = useAuth()
+  const { data: chatConfig } = useChatFinanceiroConfig()
+  const desativada = chatConfig?.ativo === false
   const queryClient = useQueryClient()
   const [input, setInput] = useState('')
   const [mensagensLocais, setMensagensLocais] = useState<Mensagem[]>([])
@@ -135,7 +177,7 @@ function AssistenteChat() {
 
   const handleSend = () => {
     const texto = input.trim()
-    if (!texto || enviarMutation.isPending) return
+    if (!texto || enviarMutation.isPending || desativada) return
     enviarMutation.mutate(texto)
   }
 
@@ -147,12 +189,23 @@ function AssistenteChat() {
   }
 
   const handleQuickAction = (acao: string) => {
-    if (enviarMutation.isPending) return
+    if (enviarMutation.isPending || desativada) return
     enviarMutation.mutate(acao)
   }
 
   return (
     <div className="flex flex-col flex-1 min-h-0 p-4 gap-4">
+      {desativada && (
+        <div className="flex items-start gap-3 p-3 rounded-xl bg-gray-100 border border-gray-300">
+          <PauseCircle size={18} className="text-gray-500 shrink-0 mt-0.5" />
+          <p className="text-xs text-gray-600 leading-relaxed">
+            <strong className="text-gray-800">Duo desativado.</strong> Um administrador
+            desligou o assistente em <strong>Configurações → Duo ativo</strong>. O histórico
+            continua salvo e volta a funcionar assim que ela for reativada.
+          </p>
+        </div>
+      )}
+
       {mensagensLocais.length > 0 && (
         <div className="flex justify-end">
           <Button
@@ -175,7 +228,7 @@ function AssistenteChat() {
         ) : mensagensLocais.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
             <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center">
-              <Sparkles className="w-8 h-8 text-primary-600" />
+              <WandSparkles className="w-8 h-8 -rotate-12 text-primary-600" />
             </div>
             <div>
               <h3 className="text-lg font-semibold text-gray-800">
@@ -190,7 +243,7 @@ function AssistenteChat() {
                 <button
                   key={acao}
                   onClick={() => handleQuickAction(acao)}
-                  disabled={enviarMutation.isPending}
+                  disabled={enviarMutation.isPending || desativada}
                   className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-full text-gray-700 hover:bg-primary-50 hover:border-primary-300 hover:text-primary-700 transition-colors disabled:opacity-50"
                 >
                   {acao}
@@ -219,7 +272,8 @@ function AssistenteChat() {
                 >
                   {msg.role === 'assistant' ? (
                     <div className="prose prose-sm max-w-none text-gray-900 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                      <ReactMarkdown>{msg.conteudo}</ReactMarkdown>
+                      <ReactMarkdown>{separarVideos(msg.conteudo).texto}</ReactMarkdown>
+                      <BotoesDeVideo ids={separarVideos(msg.conteudo).ids} />
                     </div>
                   ) : (
                     <p className="text-sm whitespace-pre-wrap break-words">{msg.conteudo}</p>
@@ -261,7 +315,7 @@ function AssistenteChat() {
             <button
               key={acao}
               onClick={() => handleQuickAction(acao)}
-              disabled={enviarMutation.isPending}
+              disabled={enviarMutation.isPending || desativada}
               className="px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-full text-gray-600 hover:bg-primary-50 hover:border-primary-300 hover:text-primary-700 transition-colors whitespace-nowrap disabled:opacity-50"
             >
               {acao}
@@ -275,9 +329,12 @@ function AssistenteChat() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Digite sua mensagem... (Enter para enviar, Shift+Enter para nova linha)"
+          disabled={desativada}
+          placeholder={desativada
+            ? 'Duo desativado — ative em Configurações para conversar'
+            : 'Digite sua mensagem... (Enter para enviar, Shift+Enter para nova linha)'}
           rows={1}
-          className="flex-1 resize-none outline-none text-sm text-gray-900 placeholder-gray-400 max-h-32 overflow-y-auto"
+          className="flex-1 resize-none outline-none text-sm text-gray-900 placeholder-gray-400 max-h-32 overflow-y-auto disabled:bg-transparent disabled:cursor-not-allowed"
           style={{ height: 'auto', minHeight: '24px' }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement
@@ -287,7 +344,7 @@ function AssistenteChat() {
         />
         <button
           onClick={handleSend}
-          disabled={!input.trim() || enviarMutation.isPending}
+          disabled={!input.trim() || enviarMutation.isPending || desativada}
           className="w-9 h-9 rounded-lg bg-primary-600 text-white flex items-center justify-center hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
         >
           {enviarMutation.isPending ? (
@@ -301,10 +358,58 @@ function AssistenteChat() {
   )
 }
 
+// ─── Toggle do Duo (chat interno) ─────────────────────────────────────────────
+// Vive na aba Configurações, mas grava em chat_financeiro_config — nada a ver com
+// o "Agente ativo" logo abaixo, que controla o agente do WhatsApp/CRM.
+
+function ChatDuoToggle() {
+  const { user } = useAuth()
+  const { data: config, isLoading } = useChatFinanceiroConfig()
+  const updateConfig = useChatFinanceiroUpdateConfig()
+
+  // Mesma regra do backend (chat-financeiro.controller.ts): quem administra a empresa.
+  const podeEditar = isAdminEmpresa(user)
+  const ativo = config?.ativo ?? true
+
+  return (
+    <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-200 dark:bg-indigo-500/10 dark:border-indigo-500/40" data-tour="agcfg-sexta-feira">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="font-medium text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+            <Bot size={15} className="text-indigo-600" />
+            Duo ativo
+          </p>
+          <p className="text-xs text-indigo-700/80 dark:text-indigo-300/80 mt-0.5">
+            Liga ou desliga a assistente da aba <strong>Duo</strong> (o chat interno desta página)
+          </p>
+          {!ativo && (
+            <p className="text-xs text-indigo-800 dark:text-indigo-200 mt-1.5">
+              Desligada: o chat para de responder para todos os usuários da empresa. Não afeta o
+              agente do WhatsApp nem os follow-ups do CRM.
+            </p>
+          )}
+          {!podeEditar && (
+            <p className="text-xs text-gray-500 mt-1.5">
+              Apenas administradores podem alterar esta opção.
+            </p>
+          )}
+        </div>
+        <Switch
+          checked={ativo}
+          onChange={() => updateConfig.mutate({ ativo: !ativo })}
+          disabled={!podeEditar || isLoading || updateConfig.isPending}
+          labels={{ on: 'Ativa', off: 'Inativa' }}
+          title={podeEditar ? undefined : 'Apenas administradores podem alterar esta opção'}
+          aria-label="Ativar ou desativar o Duo"
+        />
+      </div>
+    </div>
+  )
+}
+
 // ─── Aba 2: Configurar Agente ──────────────────────────────────────────────────
 
 function ConfigurarAgente() {
-  const [abaInterna, setAbaInterna] = useState<'config' | 'acesso'>('config')
   const [mostrarApiKey, setMostrarApiKey] = useState(false)
   const [mostrarGeminiKey, setMostrarGeminiKey] = useState(false)
   const [form, setForm] = useState<Partial<AgenteIAConfig>>({
@@ -321,14 +426,20 @@ function ConfigurarAgente() {
     contexto_mensagens: 10,
     usuarios_habilitados: [],
     delay_segundos: 0,
+    pode_ficar_em_silencio: false,
   })
 
   const { data: config, isLoading } = useAgenteIAConfig()
   const updateConfig = useAgenteIAUpdateConfig()
 
+  // O que está salvo, para saber se há alteração pendente. O "Duo ativo" logo acima
+  // grava na hora; o resto só com o botão — sem este aviso, ligar o agente e sair da
+  // página parecia ter funcionado.
+  const [salvo, setSalvo] = useState('')
+
   useEffect(() => {
     if (config) {
-      setForm({
+      const inicial: Partial<AgenteIAConfig> = {
         ativo: config.ativo,
         provider: config.provider || 'claude',
         api_key: config.api_key_configurada ? '••••••••••••••••••••••••' : '',
@@ -342,9 +453,16 @@ function ConfigurarAgente() {
         contexto_mensagens: config.contexto_mensagens,
         usuarios_habilitados: config.usuarios_habilitados || [],
         delay_segundos: config.delay_segundos ?? 0,
-      })
+        pode_ficar_em_silencio: !!config.pode_ficar_em_silencio,
+      }
+      setForm(inicial)
+      setSalvo(JSON.stringify(inicial))
     }
   }, [config])
+  const pendente = salvo !== '' && JSON.stringify(form) !== salvo
+  const semChave = form.provider === 'gemini'
+    ? !config?.gemini_api_key_configurada && !form.gemini_api_key
+    : !config?.api_key_configurada && !form.api_key
 
   const handleSave = () => {
     const payload: Partial<AgenteIAConfig> = { ...form }
@@ -366,45 +484,104 @@ function ConfigurarAgente() {
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-5">
-      {/* Sub-tabs */}
-      <div className="flex border-b">
-        {[
-          { key: 'config', label: 'Configurações', icon: Cpu },
-          { key: 'acesso', label: 'Acesso', icon: Users },
-        ].map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setAbaInterna(key as any)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              abaInterna === key
-                ? 'border-primary-600 text-primary-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <Icon size={15} />
-            {label}
-          </button>
-        ))}
-      </div>
+      <>
+          {/* Conector MCP (112): o Duo dentro do Claude. Pedido do dono (23/10): mora
+              aqui, nas configurações do agente, e não na tela de créditos. */}
+          <DuoNoClaude />
 
-      {abaInterna === 'config' ? (
-        <>
-          {/* Toggle ativo */}
-          <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border">
-            <div>
-              <p className="font-medium text-gray-900">Agente ativo</p>
-              <p className="text-xs text-gray-500 mt-0.5">Liga ou desliga o agente globalmente para toda a empresa</p>
+          {/* Guia dos três níveis de instrução (empresa, estágio do funil, passo da
+              cadência). Arquivo estático em frontend/public/, servido em /gestao/. */}
+          <div className="flex items-start gap-3 p-4 rounded-xl border border-gray-200 bg-gray-50 dark:bg-gray-800/40 dark:border-gray-700">
+            <FileText size={18} className="text-primary-600 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-900 text-sm">Guia de configuração do agente</p>
+              <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                Explica os três níveis de instrução — empresa, estágio do funil e passo da
+                cadência — e o que escrever em cada um. Para guardar em PDF, abra o guia e use
+                Imprimir → Salvar como PDF.
+              </p>
+              <div className="flex flex-wrap items-center gap-4 mt-2">
+                <a
+                  href="/gestao/guia-agente-ia.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-semibold text-primary-600 hover:text-primary-700 underline"
+                >
+                  Abrir guia
+                </a>
+                <a
+                  href="/gestao/guia-agente-ia.html"
+                  download="guia-agente-ia.html"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 hover:text-primary-700"
+                >
+                  <Download size={13} />
+                  Baixar
+                </a>
+              </div>
             </div>
-            <button
-              onClick={() => set('ativo', !form.ativo)}
-              className={`relative w-12 h-6 rounded-full transition-colors ${form.ativo ? 'bg-primary-600' : 'bg-gray-300'}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${form.ativo ? 'translate-x-6' : ''}`} />
-            </button>
+          </div>
+
+          {/* Duo (chat interno desta página) — config SEPARADA do agente do
+              WhatsApp/CRM. Salva na hora, sem depender do botão "Salvar configurações". */}
+          <ChatDuoToggle />
+
+          {/* Fila parada: com o agente desligado os follow-ups de IA ficam esperando.
+              Eles NÃO são perdidos — só voltam a sair quando o agente for reativado. */}
+          {!config?.ativo && (config?.followups_pausados ?? 0) > 0 && (
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-300">
+              <PauseCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-semibold text-amber-900">
+                  {config!.followups_pausados} follow-up{config!.followups_pausados! > 1 ? 's' : ''} de IA em espera
+                </p>
+                <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                  Com o agente desligado, os follow-ups agendados não são enviados — eles ficam
+                  guardados na fila e <strong>nenhum é perdido</strong>. Assim que você reativar o
+                  agente, a fila volta a sair sozinha, respeitando o intervalo entre envios.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Toggle ativo */}
+          <div
+            className={`flex items-center justify-between gap-4 p-4 rounded-xl border transition-colors ${
+              form.ativo
+                ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/40'
+                : 'bg-gray-50 border-gray-200'
+            }`}
+            data-tour="agcfg-ativo"
+          >
+            <div>
+              <p className="font-medium text-gray-900 flex items-center gap-1.5">
+                <Zap size={15} className={form.ativo ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'} />
+                Agente do WhatsApp/CRM ativo
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Liga ou desliga o agente globalmente para toda a empresa (não afeta o Duo acima)
+              </p>
+              {form.ativo && semChave && (
+                <p className="text-xs text-red-700 dark:text-red-400 mt-1.5">
+                  Falta a chave da {form.provider === 'gemini' ? 'Google (Gemini)' : 'Anthropic'} logo abaixo — sem ela o agente fica ligado mas não responde ninguém.
+                </p>
+              )}
+              {!form.ativo && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-1.5">
+                  Desligado: follow-ups de IA ficam em espera na fila (não são perdidos) e o agente
+                  para de responder no WhatsApp. Follow-ups de <strong>mensagem fixa</strong> da
+                  cadência continuam saindo — eles não passam pela IA.
+                </p>
+              )}
+            </div>
+            <Switch
+              checked={!!form.ativo}
+              onChange={(v) => set('ativo', v)}
+              aria-label="Ativar ou desativar o agente do WhatsApp/CRM"
+            />
           </div>
 
           {/* Provedor */}
-          <div>
+          <div data-tour="agcfg-provider">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Provedor de IA</label>
             <div className="flex gap-2">
               {[
@@ -418,10 +595,11 @@ function ConfigurarAgente() {
                     set('provider', p.value)
                     set('modelo', p.value === 'claude' ? 'claude-sonnet-4-6' : 'gemini-2.5-flash')
                   }}
+                  aria-pressed={form.provider === p.value}
                   className={`flex-1 text-left px-3 py-2.5 border rounded-lg text-sm transition-colors ${
                     form.provider === p.value
-                      ? 'border-primary-500 bg-primary-50 text-primary-700'
-                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                      ? 'border-primary-500 bg-primary-50 text-primary-700 ring-1 ring-primary-500 dark:bg-primary-500/15 dark:!text-white dark:border-primary-400 dark:ring-primary-400'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-gray-700 dark:text-gray-300'
                   }`}
                 >
                   <div className="font-medium">{p.label}</div>
@@ -464,11 +642,15 @@ function ConfigurarAgente() {
           )}
 
           {/* API Key Gemini */}
-          {form.provider === 'gemini' && (
+          {/* A transcrição de áudio é SEMPRE pelo Gemini (webhook → transcreverEEnfileirar),
+              inclusive com o Claude respondendo. Esconder o campo no Claude deixava o agente
+              surdo sem ninguém saber — foi o caso da empresa 32. */}
+          {(
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 <Key size={14} className="inline mr-1.5 text-gray-400" />
-                API Key do Google Gemini
+                {form.provider === 'gemini' ? 'API Key do Google Gemini' : 'Chave do Gemini para entender áudio'}
+                {form.provider !== 'gemini' && <span className="ml-1.5 text-xs font-normal text-gray-400">(opcional)</span>}
               </label>
               <div className="relative">
                 <input
@@ -490,6 +672,7 @@ function ConfigurarAgente() {
                 <p className="text-xs text-green-600 mt-1">✓ Chave configurada — deixe em branco para manter a atual</p>
               )}
               <p className="text-xs text-gray-400 mt-1">
+                {form.provider !== 'gemini' && <>O áudio que o cliente manda é transcrito pelo Gemini antes de chegar ao Claude. Sem esta chave, o agente ignora áudio. </>}
                 Obtenha em <span className="font-mono">aistudio.google.com</span>
               </p>
             </div>
@@ -509,33 +692,28 @@ function ConfigurarAgente() {
             </select>
           </div>
 
-          {/* Nome e Tom */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Nome do agente</label>
-              <input
-                type="text"
-                value={form.nome_agente || ''}
-                onChange={e => set('nome_agente', e.target.value)}
-                placeholder="Ex: Ana"
-                className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Tom de voz</label>
-              <select
-                value={form.tom}
-                onChange={e => set('tom', e.target.value as any)}
-                className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-              >
-                {TONS.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-400 mt-1">
-                {TONS.find(t => t.value === form.tom)?.desc}
-              </p>
-            </div>
+          {/* Tom de voz — o "Nome do agente" saiu daqui: a identidade não é global, é de
+              quem está atendendo. O agente assina com o nome do dono do número que está
+              na conversa (e, no follow-up, do responsável pelo lead). */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Tom de voz</label>
+            <select
+              value={form.tom}
+              onChange={e => set('tom', e.target.value as any)}
+              className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+            >
+              {TONS.map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              {TONS.find(t => t.value === form.tom)?.desc}
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              O agente se apresenta com o nome de <strong>quem está atendendo</strong> —
+              o dono do número em que a conversa acontece. No follow-up automático, o
+              responsável pelo lead. Não há um nome fixo por empresa.
+            </p>
           </div>
 
           {/* Área do negócio */}
@@ -548,14 +726,14 @@ function ConfigurarAgente() {
               placeholder="Ex: academia de dança, clínica de estética, escola de inglês..."
               className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
             />
-            <p className="text-xs text-gray-400 mt-1">Isso vai para o system prompt para contextualizar o agente</p>
+            <p className="text-xs text-gray-400 mt-1">Uma linha basta: o agente usa isso para entender de que negócio está falando.</p>
           </div>
 
           {/* System prompt extra */}
-          <div>
+          <div data-tour="agcfg-instrucoes">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Instruções adicionais
-              <span className="ml-1.5 text-xs font-normal text-gray-400">(system prompt)</span>
+              Instruções para o agente
+              <span className="ml-1.5 text-xs font-normal text-gray-400">(valem para toda conversa)</span>
             </label>
             <textarea
               value={form.system_prompt_extra || ''}
@@ -570,8 +748,8 @@ function ConfigurarAgente() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Histórico de contexto
-                <span className="ml-1 text-xs text-gray-400">mensagens</span>
+                Mensagens que ele relê
+                <span className="ml-1 text-xs text-gray-400">(3 a 20)</span>
               </label>
               <input
                 type="number"
@@ -581,12 +759,12 @@ function ConfigurarAgente() {
                 onChange={e => set('contexto_mensagens', parseInt(e.target.value))}
                 className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
               />
-              <p className="text-xs text-gray-400 mt-1">Mensagens anteriores enviadas ao modelo</p>
+              <p className="text-xs text-gray-400 mt-1">Quantas mensagens anteriores da conversa ele lê antes de responder.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Tamanho máximo da resposta
-                <span className="ml-1 text-xs text-gray-400">tokens</span>
+                <span className="ml-1 text-xs text-gray-400">(tokens)</span>
               </label>
               <input
                 type="number"
@@ -597,20 +775,21 @@ function ConfigurarAgente() {
                 onChange={e => set('max_tokens', parseInt(e.target.value))}
                 className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
               />
+              <p className="text-xs text-gray-400 mt-1">1.000 tokens ≈ 750 palavras. O padrão (1024) sobra para WhatsApp.</p>
             </div>
           </div>
 
           {/* Delay de resposta */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Delay antes de responder
+              Espera antes de responder
             </label>
             <select
               value={form.delay_segundos ?? 0}
               onChange={e => set('delay_segundos', parseInt(e.target.value))}
               className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
             >
-              <option value={0}>Sem delay (responde imediatamente)</option>
+              <option value={0}>Não espera (responde na hora)</option>
               <option value={5}>5 segundos</option>
               <option value={10}>10 segundos</option>
               <option value={15}>15 segundos</option>
@@ -620,47 +799,53 @@ function ConfigurarAgente() {
               <option value={300}>5 minutos</option>
             </select>
             <p className="text-xs text-gray-400 mt-1">
-              Tempo de espera após receber a mensagem antes de processar. Útil para parecer mais natural.
+              Quanto tempo ele aguarda depois da mensagem chegar. Ajuda a parecer gente — e junta numa resposta só quem manda várias mensagens seguidas.
             </p>
+          </div>
+
+          {/* Silêncio (migration 077): sem isto o agente responde TODA mensagem — até
+              "ok", figurinha e assunto pessoal no número do dono. */}
+          <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-200 bg-gray-50 dark:bg-gray-800/40 dark:border-gray-700">
+            <div>
+              <p className="font-medium text-gray-900 text-sm">Pode ficar em silêncio</p>
+              <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                O agente não responde quando a mensagem não pede resposta ("ok", "obrigada",
+                figurinha, "vejo depois") ou é assunto pessoal — convite, família, evento. Ele
+                nunca aceita compromisso em nome de quem atende. A mensagem fica como não lida
+                para você responder.
+              </p>
+            </div>
+            <Switch
+              checked={!!form.pode_ficar_em_silencio}
+              onChange={(v) => set('pode_ficar_em_silencio', v)}
+              aria-label="Permitir que o agente fique em silêncio"
+            />
           </div>
 
           {/* Aviso */}
           <div className="flex gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
             <Info size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-amber-700">
-              O agente responde automaticamente apenas mensagens de <strong>texto</strong>. Arquivos de áudio, imagens e documentos são armazenados mas não processados pela IA.
+              O agente lê <strong>texto</strong> e entende <strong>áudio</strong> quando há chave do Gemini. Imagens e documentos ficam na conversa, mas a IA não os abre.
             </p>
           </div>
-        </>
-      ) : (
-        /* Aba Acesso */
-        <div className="space-y-4">
-          <div className="p-4 rounded-xl bg-primary-50 border border-primary-200">
-            <p className="text-sm font-medium text-primary-800">Quem pode ativar/desativar o agente nos leads?</p>
-            <p className="text-xs text-primary-600 mt-1">
-              Por padrão, qualquer usuário com acesso ao CRM pode ativar o agente individualmente por lead.
-              Use os checkboxes abaixo para restringir o acesso se necessário.
-            </p>
-          </div>
-          <div className="p-4 rounded-xl border bg-gray-50">
-            <p className="text-sm text-gray-500 flex items-center gap-2">
-              <Users size={16} />
-              A seleção de usuários específicos estará disponível em breve.
-              Por enquanto, todos os usuários com acesso ao CRM podem usar o agente.
-            </p>
-          </div>
-        </div>
-      )}
+      </>
 
-      {/* Botão salvar */}
-      <div className="flex justify-end pt-2 pb-6">
+      {/* Botão salvar — preso ao pé da área de rolagem: o formulário é longo e o
+          primeiro controle (ligar o agente) fica a três telas do botão. */}
+      <div className={`-mx-4 px-4 py-3 flex items-center justify-end gap-3 border-t ${
+        pendente ? 'sticky bottom-0 bg-amber-50 border-amber-200 dark:bg-gray-900 dark:border-amber-500/40' : 'border-transparent'
+      }`}>
+        {pendente && (
+          <span className="text-sm text-amber-800 dark:text-amber-300 mr-auto" role="status">Alterações não salvas</span>
+        )}
         <button
           onClick={handleSave}
-          disabled={updateConfig.isPending}
+          disabled={updateConfig.isPending || !pendente}
           className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
         >
           <Save size={15} />
-          {updateConfig.isPending ? 'Salvando...' : 'Salvar configurações'}
+          {updateConfig.isPending ? 'Salvando...' : pendente ? 'Salvar configurações' : 'Tudo salvo'}
         </button>
       </div>
     </div>
@@ -734,27 +919,27 @@ function ComoFunciona() {
     {id:'fu-g-red',c1:'#f87171',c2:'#dc2626'},
   ]
 
+  /**
+   * Ferramentas do agente do CRM — as 9 que ele realmente tem.
+   *
+   * Em 14/08/2026 o conjunto financeiro (`listar_clientes`, `buscar_cliente`,
+   * `listar_receitas`, `listar_despesas`, `criar_receita`, `criar_despesa`,
+   * `criar_sessao`, `listar_sessoes`) foi REMOVIDO: este agente conversa com o
+   * LEAD pelo WhatsApp, que é terceiro não confiável, e prompt não é barreira de
+   * segurança — a carteira de clientes e o financeiro da empresa ficavam a um
+   * pedido bem construído de distância. Quem tem o conjunto financeiro é o Duo,
+   * no chat interno, que só a própria equipe acessa.
+   */
   const ferramentas = [
-    // CRM
-    { name: 'criar_tarefa',           icon: CheckSquare,  desc: 'Agenda ligação, reunião, follow-up ou proposta vinculada ao lead' },
-    { name: 'listar_tarefas',         icon: List,         desc: 'Lista todas as tarefas do lead (pendentes e concluídas)' },
+    { name: 'agendar_reuniao',        icon: CalendarCheck, desc: 'Marca a reunião na agenda do lead e liga os lembretes automáticos (véspera, 1h antes e resgate de no-show). Se já existe reunião pendente, REMARCA a mesma em vez de criar outra — duas tarefas significariam duas réguas de lembrete para a mesma pessoa' },
+    { name: 'criar_tarefa',           icon: CheckSquare,  desc: 'Ligação, e-mail, follow-up, proposta ou visita, com data e hora convertidas do fuso de Brasília para o formato que o CRM guarda. Reunião NÃO entra aqui — tem ferramenta própria' },
+    { name: 'listar_tarefas',         icon: List,         desc: 'Tarefas do lead, com status e vencimento' },
     { name: 'concluir_tarefa',        icon: CheckCircle,  desc: 'Marca uma tarefa do lead como concluída' },
-    { name: 'mover_lead_estagio',     icon: GitBranch,    desc: 'Move o lead para outro estágio do funil de vendas' },
-    { name: 'criar_anotacao',         icon: FileText,     desc: 'Registra nota, observação ou lembrete no histórico do lead' },
-    { name: 'atualizar_lead',         icon: Edit2,        desc: 'Atualiza temperatura, valor potencial, email, empresa, cargo ou notas' },
-    { name: 'marcar_lead_perdido',    icon: XCircle,      desc: 'Marca o lead como perdido registrando o motivo' },
-    { name: 'buscar_atividades_lead', icon: Search,       desc: 'Busca histórico completo de movimentações, tarefas e mensagens do lead' },
-    // Sessões
-    { name: 'criar_sessao',           icon: CalendarCheck, desc: 'Agenda reunião ou sessão no módulo financeiro vinculada ao lead' },
-    { name: 'listar_sessoes',         icon: Calendar,     desc: 'Lista sessões agendadas em um período' },
-    // Clientes
-    { name: 'listar_clientes',        icon: Users,        desc: 'Lista clientes cadastrados no módulo financeiro' },
-    { name: 'buscar_cliente',         icon: Search,       desc: 'Busca um cliente específico por ID no módulo financeiro' },
-    // Financeiro
-    { name: 'criar_receita',          icon: TrendingUp,   desc: 'Registra receita ou recebimento no módulo financeiro' },
-    { name: 'listar_receitas',        icon: BarChart2,    desc: 'Lista receitas por período e status de pagamento' },
-    { name: 'criar_despesa',          icon: TrendingDown, desc: 'Registra despesa ou gasto no módulo financeiro' },
-    { name: 'listar_despesas',        icon: BarChart2,    desc: 'Lista despesas por período e status de pagamento' },
+    { name: 'mover_lead_estagio',     icon: GitBranch,    desc: 'Move o lead para outro estágio do funil. Só entre os estágios que o prompt lista — id desconhecido é recusado' },
+    { name: 'criar_anotacao',         icon: FileText,     desc: 'Registra nota no histórico do lead, gravada com autoria "agente" para o próprio agente não reler isso depois como se fosse observação de um vendedor' },
+    { name: 'atualizar_lead',         icon: Edit2,        desc: 'Temperatura, valor potencial, e-mail, empresa, cargo, probabilidade e notas' },
+    { name: 'marcar_lead_perdido',    icon: XCircle,      desc: 'Move para o estágio de perdido do funil registrando o motivo' },
+    { name: 'buscar_atividades_lead', icon: Search,       desc: 'Histórico de movimentações, tarefas, anotações e mensagens do lead' },
   ]
 
   return (
@@ -791,9 +976,13 @@ function ComoFunciona() {
           <div>
             <h3 className="font-bold text-xl text-white">Arquitetura dos Agentes de IA</h3>
             <p className="text-primary-200 text-sm mt-1.5 max-w-lg leading-relaxed">
-              Dois mecanismos independentes: <strong className="text-white">Agente Reativo</strong> (responde WhatsApp em tempo real via BullMQ)
-              e <strong className="text-white">Follow-up Agendado</strong> (cron 1min, manual ou IA). Guards multicamada,
-              contexto unificado via <code className="text-primary-100 font-mono text-xs">historico_mensagens</code> e ferramentas CRM integradas.
+              Três mecanismos independentes: <strong className="text-white">Agente Reativo</strong> (responde o lead no WhatsApp),
+              <strong className="text-white"> Follow-up Agendado</strong> (cadência por estágio, manual ou por IA) e
+              <strong className="text-white"> Duo</strong> (assistente interno da equipe, fora do WhatsApp).
+              Cada regra de negócio tem <strong className="text-white">um dono só</strong>: quando o envio acontece é a cadência,
+              quando é permitido enviar é a janela, o espaçamento entre envios é o anti-ban, e quem tem o direito de
+              processar é o claim. Contexto de IA vem de <code className="text-primary-100 font-mono text-xs">historico_mensagens</code>,
+              a conversa do contato — não do lead.
             </p>
           </div>
         </div>
@@ -811,43 +1000,72 @@ function ComoFunciona() {
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="text-left px-4 py-2.5 text-gray-500 font-medium w-32">Mecanismo</th>
-                <th className="text-left px-4 py-2.5 text-gray-500 font-medium">Trigger</th>
+                <th className="text-left px-4 py-2.5 text-gray-500 font-medium">O que dispara</th>
                 <th className="text-left px-4 py-2.5 text-gray-500 font-medium">Ferramentas</th>
-                <th className="text-left px-4 py-2.5 text-gray-500 font-medium">Contexto</th>
+                <th className="text-left px-4 py-2.5 text-gray-500 font-medium">Janela</th>
+                <th className="text-left px-4 py-2.5 text-gray-500 font-medium">Anti-ban</th>
                 <th className="text-left px-4 py-2.5 text-gray-500 font-medium">Loop</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               <tr className="hover:bg-gray-50/50">
                 <td className="px-4 py-2.5"><span className="font-semibold text-primary-700">Agente Reativo</span></td>
-                <td className="px-4 py-2.5 text-gray-600">Msg WA chega → BullMQ</td>
-                <td className="px-4 py-2.5 text-gray-600">17 (CRM + Financeiro)</td>
-                <td className="px-4 py-2.5 text-gray-600">historico_mensagens + anotações + tags</td>
-                <td className="px-4 py-2.5"><span className="text-green-600 font-medium">Sim</span> (máx 10 iter + 2min)</td>
+                <td className="px-4 py-2.5 text-gray-600">O lead escreve → fila BullMQ</td>
+                <td className="px-4 py-2.5 text-gray-600">9 (só CRM)</td>
+                <td className="px-4 py-2.5 text-gray-600">Sim, no enfileiramento</td>
+                <td className="px-4 py-2.5 text-gray-400">Não entra</td>
+                <td className="px-4 py-2.5"><span className="text-green-600 dark:text-green-400 font-medium">Sim</span> (10 iter · 45s por chamada · 2min total)</td>
               </tr>
               <tr className="hover:bg-gray-50/50">
-                <td className="px-4 py-2.5"><span className="font-semibold text-orange-700">Follow-up IA</span></td>
+                <td className="px-4 py-2.5"><span className="font-semibold text-orange-700 dark:text-orange-300">Follow-up IA</span></td>
                 <td className="px-4 py-2.5 text-gray-600">Cron 1min (instância 0)</td>
-                <td className="px-4 py-2.5 text-gray-600">Nenhuma (1 chamada)</td>
-                <td className="px-4 py-2.5 text-gray-600">historico_mensagens + anotações + tags</td>
+                <td className="px-4 py-2.5 text-gray-400">Nenhuma — escreve e envia</td>
+                <td className="px-4 py-2.5 text-gray-600">Sim, no envio</td>
+                <td className="px-4 py-2.5 text-gray-600">Sim, por chip</td>
                 <td className="px-4 py-2.5"><span className="text-gray-400">Não</span></td>
               </tr>
               <tr className="hover:bg-gray-50/50">
-                <td className="px-4 py-2.5"><span className="font-semibold text-blue-700">Follow-up Manual</span></td>
+                <td className="px-4 py-2.5"><span className="font-semibold text-blue-700 dark:text-blue-300">Follow-up Manual</span></td>
                 <td className="px-4 py-2.5 text-gray-600">Cron 1min (instância 0)</td>
-                <td className="px-4 py-2.5 text-gray-600">—</td>
-                <td className="px-4 py-2.5 text-gray-600">Mensagem pré-definida</td>
+                <td className="px-4 py-2.5 text-gray-400">—</td>
+                <td className="px-4 py-2.5 text-gray-600">Sim, no envio</td>
+                <td className="px-4 py-2.5 text-gray-600">Sim, por chip</td>
                 <td className="px-4 py-2.5"><span className="text-gray-400">Não</span></td>
               </tr>
               <tr className="hover:bg-gray-50/50">
-                <td className="px-4 py-2.5"><span className="font-semibold text-teal-700">Sexta-feira</span></td>
-                <td className="px-4 py-2.5 text-gray-600">HTTP POST (chat web)</td>
-                <td className="px-4 py-2.5 text-gray-600">10 Financeiro + 1 admin</td>
-                <td className="px-4 py-2.5 text-gray-600">chat_financeiro_historico</td>
-                <td className="px-4 py-2.5"><span className="text-green-600 font-medium">Sim</span> (máx 10 iter + 2min)</td>
+                <td className="px-4 py-2.5"><span className="font-semibold text-emerald-700 dark:text-emerald-300">Lembrete de reunião</span></td>
+                <td className="px-4 py-2.5 text-gray-600">Cron 1min · marcos da tarefa</td>
+                <td className="px-4 py-2.5 text-gray-400">—</td>
+                <td className="px-4 py-2.5 text-amber-700 dark:text-amber-300">Regra própria</td>
+                <td className="px-4 py-2.5 text-amber-700 dark:text-amber-300">Ainda não</td>
+                <td className="px-4 py-2.5"><span className="text-gray-400">Não</span></td>
+              </tr>
+              <tr className="hover:bg-gray-50/50">
+                <td className="px-4 py-2.5"><span className="font-semibold text-violet-700 dark:text-violet-300">Disparo em massa</span></td>
+                <td className="px-4 py-2.5 text-gray-600">Manual ou agendado</td>
+                <td className="px-4 py-2.5 text-gray-400">—</td>
+                <td className="px-4 py-2.5 text-amber-700 dark:text-amber-300">Ainda não</td>
+                <td className="px-4 py-2.5 text-amber-700 dark:text-amber-300">Intervalo próprio</td>
+                <td className="px-4 py-2.5"><span className="text-gray-400">Não</span></td>
+              </tr>
+              <tr className="hover:bg-gray-50/50">
+                <td className="px-4 py-2.5"><span className="font-semibold text-teal-700 dark:text-teal-300">Duo</span></td>
+                <td className="px-4 py-2.5 text-gray-600">Chat na web (não é WhatsApp)</td>
+                <td className="px-4 py-2.5 text-gray-600">11 financeiras</td>
+                <td className="px-4 py-2.5 text-gray-400">Não se aplica</td>
+                <td className="px-4 py-2.5 text-gray-400">Não se aplica</td>
+                <td className="px-4 py-2.5"><span className="text-green-600 dark:text-green-400 font-medium">Sim</span> (10 iter · 2min)</td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div className="px-4 py-2.5 border-t border-gray-100 bg-amber-50/60">
+          <p className="text-xs text-amber-800 leading-relaxed">
+            <strong>Onde ainda há regra separada:</strong> lembrete de reunião tem janela própria (bloqueia fim de semana e
+            horário fora de 06h–22h, em vez de usar a janela da empresa) e o disparo em massa tem intervalo próprio, por
+            disparo, sem consultar o espaçamento do chip. Os dois estão mapeados para unificação; até então, um disparo
+            pode sair grudado com um follow-up no mesmo número.
+          </p>
         </div>
       </div>
 
@@ -964,8 +1182,8 @@ function ComoFunciona() {
 
             <g className="fn-node" style={{animationDelay:'0.44s'}}>
               <rect x={12} y={YD5-20} width={100} height={40} rx={7} fill="url(#g-orange)" filter="url(#sh)"/>
-              <text x={62} y={YD5-5} textAnchor="middle" dominantBaseline="middle" fontSize="8" fontWeight="700" fill="#fff">Aguarda 120s</text>
-              <text x={62} y={YD5+9} textAnchor="middle" dominantBaseline="middle" fontSize="7.5" fill="#fff">agrega múltiplas msgs</text>
+              <text x={62} y={YD5-5} textAnchor="middle" dominantBaseline="middle" fontSize="8" fontWeight="700" fill="#fff">Aguarda delay/janela</text>
+              <text x={62} y={YD5+9} textAnchor="middle" dominantBaseline="middle" fontSize="7.5" fill="#fff">agrega msgs do período</text>
             </g>
 
             <g className="fn-node" style={{animationDelay:'0.28s'}}>
@@ -1002,7 +1220,7 @@ function ComoFunciona() {
             <g className="fn-node" style={{animationDelay:'0.76s'}}>
               <rect x={408} y={YD6-22} width={148} height={44} rx={7} fill="url(#g-purple)" filter="url(#sh)"/>
               <text x={482} y={YD6-7} textAnchor="middle" dominantBaseline="middle" fontSize="8" fontWeight="700" fill="#4c1d95">Executa ferramenta</text>
-              <text x={482} y={YD6+8} textAnchor="middle" dominantBaseline="middle" fontSize="7.5" fill="#13264C">tarefa / estágio / financeiro</text>
+              <text x={482} y={YD6+8} textAnchor="middle" dominantBaseline="middle" fontSize="7.5" fill="#13264C">tarefa / reunião / estágio</text>
             </g>
 
             <g className="fn-node" style={{animationDelay:'0.8s'}}>
@@ -1086,13 +1304,41 @@ function ComoFunciona() {
         </div>
         <p className="text-xs text-gray-500 mb-3 leading-relaxed">
           O scheduler roda a cada minuto <strong>exclusivamente na instância 0</strong> do cluster PM2 — eliminando envios duplicados em ambiente de 3 instâncias.
-          Respeita data agendada, janela de horário (<code className="text-xs font-mono bg-gray-100 px-1 rounded">hora_inicio / hora_fim</code>) e dias da semana configurados.
-          Fora da janela, o registro permanece <code className="text-xs font-mono bg-gray-100 px-1 rounded">pendente</code> e é tentado novamente no próximo ciclo.
-          Tipo <strong>Manual</strong> envia mensagem pré-definida; tipo <strong>Agente IA</strong> lê o histórico real
-          de WhatsApp (<code className="text-xs font-mono bg-gray-100 px-1 rounded">historico_mensagens</code>), as anotações do CRM, as tags e a
-          data atual para formular uma mensagem personalizada por lead. Após o envio, uma
-          anotação é criada automaticamente no lead para rastreabilidade no CRM.
+          Respeita data agendada, horário exato e dias da semana configurados; fora da janela o registro
+          permanece <code className="text-xs font-mono bg-gray-100 px-1 rounded">pendente</code> e é tentado no próximo ciclo.
+          Os passos saem <strong>sempre em ordem e no máximo um por lead por dia</strong> — quando dois passos colidem no mesmo dia
+          (ex.: um passo rola do fim de semana para segunda), o seguinte é empurrado, preservando o intervalo desenhado na cadência.
+          Passo tipo <strong>Manual</strong> envia mensagem pré-definida (com variáveis como [PrimeiroNome] e anexo de mídia);
+          passo tipo <strong>Agente IA</strong> lê a <strong>conversa completa do contato</strong> no WhatsApp
+          (<code className="text-xs font-mono bg-gray-100 px-1 rounded">historico_mensagens</code>), as anotações do CRM, as tags e a
+          data e hora atuais (fuso de Brasília) para escrever uma mensagem personalizada — sem repetir perguntas já respondidas
+          e com saudação coerente com o horário. Após o envio, uma
+          anotação é criada automaticamente no lead para rastreabilidade.
         </p>
+
+        {/* Como montar o fluxo de atendimento (cadência por estágio) */}
+        <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 leading-relaxed">
+          <p className="font-semibold mb-1">🧭 Montando o fluxo de atendimento — visão "Fluxo" do CRM</p>
+          <p>
+            Em <strong>CRM / Funil → botão "Fluxo"</strong> você enxerga e edita a operação inteira: cada estágio vira um
+            card com a sua <strong>cadência de passos</strong> (ex.: <code className="font-mono bg-emerald-100 px-1 rounded">+2d</code>, <code className="font-mono bg-emerald-100 px-1 rounded">+3d</code>, <code className="font-mono bg-emerald-100 px-1 rounded">+6d</code>),
+            contados da <em>entrada do lead no estágio</em> ou do <em>passo anterior</em>. Cada passo pode ser
+            <strong> WhatsApp manual</strong> (script fixo) ou <strong>Agente IA</strong> (instrução do que buscar naquele toque).
+          </p>
+          <p className="mt-1">
+            As setas embaixo do card mostram as automações de movimento: <strong>"Ao responder →"</strong> (qualquer resposta
+            do lead move para o próximo estágio e encerra a cadência atual) e <strong>"Após a cadência →"</strong> (terminou os passos
+            sem resposta, o último passo move o lead — ex.: para Nutrição). Mover de estágio sempre encerra a régua antiga e
+            inicia a do estágio novo.
+          </p>
+          <p className="mt-1">
+            Ícones no cabeçalho do estágio (kanban e fluxo): <strong>🤖 robô</strong> = agente de IA reativo ativo
+            (responde as mensagens recebidas na hora, seguindo a instrução do estágio) · <strong>🔔 sino</strong> = cadência
+            de follow-up ativa · o estágio <em>Reunião Agendada</em> ainda tem lembretes automáticos (−24h/−1h) e régua de no-show —
+            que <strong>não disparam em fins de semana</strong> nem quando a reunião está <strong>sem horário definido</strong>, sempre no fuso de Brasília.
+          </p>
+        </div>
+
         {/* Distinção: manual vs estágio */}
         <div className="mb-3 rounded-xl border border-orange-100 bg-orange-50 p-3 text-xs text-orange-800 leading-relaxed">
           <p className="font-semibold mb-1">⚡ Follow-up Individual vs Follow-up de Estágio</p>
@@ -1102,8 +1348,9 @@ function ComoFunciona() {
             um <em>override explícito</em> <code className="font-mono bg-orange-100 px-1 rounded">leads.agente_ia_ativo = false</code> no lead.
           </p>
           <p className="mt-1">
-            <strong>Origem <code className="font-mono bg-orange-100 px-1 rounded">estagio</code></strong> (criado automaticamente pela configuração do estágio):
-            cancela se o agente não estiver ativo por nenhuma fonte (estágio ou lead).
+            <strong>Origem <code className="font-mono bg-orange-100 px-1 rounded">estagio</code></strong> (criado automaticamente pela cadência do estágio):
+            cancela se o agente não estiver ativo por nenhuma fonte (estágio ou lead), se o lead for arquivado
+            ou quando ele muda de estágio (a cadência nova assume).
           </p>
         </div>
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -1200,14 +1447,14 @@ function ComoFunciona() {
 
               <g className="fn-node" style={{animationDelay:'0.24s'}}>
                 <path d={fuDp(FCX,FYD2)} fill="url(#fu-g-amber)" filter="url(#fu-sh)"/>
-                <text x={FCX} y={FYD2-8} textAnchor="middle" dominantBaseline="middle" fontSize="8.5" fontWeight="600" fill="#fff">Data / hora</text>
-                <text x={FCX} y={FYD2+8} textAnchor="middle" dominantBaseline="middle" fontSize="8.5" fontWeight="600" fill="#fff">/ dia OK?</text>
+                <text x={FCX} y={FYD2-8} textAnchor="middle" dominantBaseline="middle" fontSize="8.5" fontWeight="600" fill="#fff">Dentro da</text>
+                <text x={FCX} y={FYD2+8} textAnchor="middle" dominantBaseline="middle" fontSize="8.5" fontWeight="600" fill="#fff">janela?</text>
               </g>
 
               <g className="fn-node" style={{animationDelay:'0.28s'}}>
                 <rect x={12} y={FYD2-20} width={106} height={40} rx={7} fill="url(#fu-g-orange)" filter="url(#fu-sh)"/>
-                <text x={65} y={FYD2-5} textAnchor="middle" dominantBaseline="middle" fontSize="8" fontWeight="700" fill="#fff">Pula ciclo</text>
-                <text x={65} y={FYD2+9} textAnchor="middle" dominantBaseline="middle" fontSize="7.5" fill="#fff">tenta no próximo</text>
+                <text x={65} y={FYD2-5} textAnchor="middle" dominantBaseline="middle" fontSize="8" fontWeight="700" fill="#fff">Reagenda p/</text>
+                <text x={65} y={FYD2+9} textAnchor="middle" dominantBaseline="middle" fontSize="7.5" fill="#fff">próxima abertura</text>
               </g>
 
               <g className="fn-node" style={{animationDelay:'0.32s'}}>
@@ -1257,6 +1504,85 @@ function ComoFunciona() {
         </div>
       </div>
 
+      {/* ── Responsabilidades: uma dona para cada regra ── */}
+      <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+          <h4 className="text-sm font-semibold text-gray-800">Por trás dos panos: quem decide o quê</h4>
+          <p className="text-xs text-gray-500 mt-0.5">
+            O sistema já teve a mesma pergunta respondida em dois lugares diferentes, com respostas em conflito.
+            Hoje cada uma destas seis perguntas tem uma fonte única.
+          </p>
+        </div>
+        <div className="divide-y divide-gray-50">
+          {[
+            { t: 'Agendamento — QUANDO o toque deve sair',
+              d: 'A cadência do estágio. Cada passo tem base (entrada no estágio ou horário do passo anterior), atraso em minutos/horas/dias ou data fixa, hora exata e dias da semana permitidos. O primeiro passo sempre conta da entrada. Nada além da cadência decide o ritmo — não existe teto de "um toque por dia" nem de "um envio por empresa por ciclo": os dois existiram e foram removidos, porque atropelavam o horário que o administrador desenhou.' },
+            { t: 'Janela — QUANDO é permitido falar com o lead',
+              d: 'Uma configuração por empresa (Agendamentos → Horário de envio): início, fim e dias da semana. Padrão 08:00–20:00, todos os dias. Vale para o follow-up e para o agente reativo — o reativo tinha 08h–20h escrito no código. Os dias do PASSO são interseccionados com os dias da janela: o passo pode restringir mais, nunca ampliar. Follow-up atrasado não escapa da janela: ele é reagendado para a próxima abertura, com alguns minutos de folga aleatória para a fila não sair em rajada às 8h.' },
+            { t: 'Anti-ban — o espaçamento entre envios automáticos',
+              d: 'Medido por CHIP (o número que envia), nunca por empresa: o risco de bloqueio é do número, e medir por empresa fazia o chip de uma pessoa segurar a fila de outra sem reduzir risco nenhum. Conta só automação — follow-up, disparo, agente de IA e lembrete entram; conversa manual do operador e mensagem recebida NÃO entram. Antes qualquer saída contava, e um operador ativo o dia todo empurrava a fila indefinidamente, sem erro e sem alerta. O intervalo é aleatório entre um mínimo e um máximo configuráveis por empresa.' },
+            { t: 'Concorrência — quem tem o direito de processar',
+              d: 'A API roda em 3 instâncias e o cron dispara a cada minuto. Antes de enviar, o ciclo RECLAMA o registro com uma escrita condicional no banco: de dois ciclos concorrentes, um vence e o outro vê que não pegou nada. A garantia é do Postgres, não da memória do processo. Um registro reclamado não aparece mais na fila, então nem outro ciclo nem outra instância pega o mesmo follow-up.' },
+            { t: 'Retry — o que fazer quando falha',
+              d: 'Cada categoria de erro tem um destino próprio (tabela abaixo) e todas as que re-tentam têm teto: 8 tentativas. Ao estourar, o follow-up vira "falhou" com o motivo acumulado, aparece na tela e pode ser reagendado depois que o problema for corrigido. Existe ainda um disjuntor por chip: diagnosticado um número bloqueado, os demais follow-ups daquele responsável param de ser tentados no resto do ciclo — sem isso, 40 follow-ups gastariam 40 tentativas num problema que é um só.' },
+            { t: 'Pós-envio — como confirmar o que aconteceu',
+              d: 'Se o processo morre no meio de um envio (restart, OOM, orçamento estourado), o registro fica "processando". Um reaper resolve no ciclo seguinte pela EVIDÊNCIA no histórico: existe uma saída de follow-up, sem erro, na janela de tempo daquele envio? Então saiu — marca como enviado. Não existe? Volta para a fila. Nunca por palpite: chutar "provavelmente não enviou" mandaria a mensagem duas vezes, que é o pior desfecho.' },
+          ].map((x) => (
+            <div key={x.t} className="px-5 py-3">
+              <p className="text-xs font-semibold text-gray-800">{x.t}</p>
+              <p className="text-xs text-gray-600 mt-1 leading-relaxed">{x.d}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Categorias de erro ── */}
+      <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+          <h4 className="text-sm font-semibold text-gray-800">O que acontece quando um follow-up falha</h4>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Quem decide não é o código HTTP, é a categoria. O mesmo 503 pode ser instância reiniciando ou chip banido,
+            e os destinos são opostos — por isso o sistema consulta o estado real do número antes de escolher.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="text-left px-4 py-2.5 text-gray-500 font-medium">Categoria</th>
+                <th className="text-left px-4 py-2.5 text-gray-500 font-medium">Quando</th>
+                <th className="text-left px-4 py-2.5 text-gray-500 font-medium">Destino</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {[
+                ['Instabilidade', 'Rede, rate limit, sobrecarga, timeout', 'Adia 15min · teto de 8 tentativas'],
+                ['WhatsApp indisponível', 'A instância respondeu 503 e o diagnóstico diz que ela só está reconectando', 'Adia 30min · teto de 8 · abre o disjuntor do chip'],
+                ['Número desconectado', 'Diagnóstico confirma ban, logout ou sessão inválida', 'Falha na hora — esperar não resolve. Reconecte o número e reagende'],
+                ['Número sem WhatsApp', 'A instância confirmou que o telefone não tem conta (422)', 'Falha definitiva, sem retry. Corrija o telefone do lead'],
+                ['IA sem saldo/chave', 'O provedor recusou por credencial ou saldo', 'Pausa a EMPRESA por 60min — a fila inteira cairia igual'],
+                ['Agente não configurado', 'A empresa não tem agente de IA configurado', 'Falha explícita e reagendável. Antes era adiada de hora em hora, para sempre, sem nada na tela'],
+                ['Conflito de configuração', 'Os dias do passo não têm nenhum dia em comum com a janela da empresa', 'Falha explícita — não existe dia possível. Nunca envia num dia não autorizado'],
+                ['Lead arquivado', 'O lead foi arquivado e a régua deixou de valer', 'Encerrado como cancelado, com motivo. Reative o lead para retomar'],
+              ].map(([c, q, d]) => (
+                <tr key={c} className="hover:bg-gray-50/50">
+                  <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{c}</td>
+                  <td className="px-4 py-2.5 text-gray-600">{q}</td>
+                  <td className="px-4 py-2.5 text-gray-600">{d}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50">
+          <p className="text-xs text-gray-600 leading-relaxed">
+            Falha nenhuma some em silêncio: o motivo aparece no card do lead, em linguagem de operador, com o que
+            precisa ser feito antes de reagendar. Quando a causa não se resolve com o tempo, a tela avisa que
+            reagendar sem corrigir vai falhar de novo.
+          </p>
+        </div>
+      </div>
+
       {/* Notices */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
 
@@ -1264,13 +1590,46 @@ function ComoFunciona() {
         <div className="flex gap-3 p-3.5 rounded-xl bg-amber-50 border border-amber-200 sm:col-span-2">
           <FileText size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-xs font-semibold text-amber-800">Contexto unificado — fonte única de verdade</p>
+            <p className="text-xs font-semibold text-amber-800">Contexto da IA — as duas pontas recebem a mesma coisa</p>
             <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
-              Agente reativo e follow-up IA leem da <strong>mesma fonte</strong>: <code className="font-mono bg-amber-100 px-1 rounded">historico_mensagens</code> — o histórico
-              real do WhatsApp, incluindo conversas anteriores à ativação do agente. Junto vão as
-              últimas <strong>20 anotações</strong> do CRM, as <strong>tags</strong> do lead, o nome do responsável atual e
-              a <strong>data de hoje</strong> (fuso America/São_Paulo) — garantindo que o agente saiba calcular prazos,
-              dizer "amanhã" ou "essa semana" com precisão.
+              O follow-up de IA e o agente reativo montam o contexto com as <strong>mesmas funções</strong>, para não
+              acontecer de um saber algo que o outro não sabe. Vão juntos: a conversa do WhatsApp lida
+              por <strong>contato</strong> (um contato pode ter leads em vários funis, e ler só por lead perdia metade
+              do diálogo), o lead completo do banco, o estágio atual, a instrução do estágio, a instrução daquele passo
+              da cadência, a agenda (tarefas pendentes, encerradas e reunião marcada), as 20 últimas anotações
+              <strong> com autoria</strong> e a data e hora de São Paulo. Mensagem de grupo fica fora: ela é gravada no
+              contato do participante e não é conversa 1:1 com o lead.
+            </p>
+          </div>
+        </div>
+
+        {/* Reunião marcada */}
+        <div className="flex gap-3 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+          <CalendarCheck size={15} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-semibold text-emerald-800">Reunião marcada é compromisso, não sugestão</p>
+            <p className="text-xs text-emerald-700 mt-0.5 leading-relaxed">
+              Havendo reunião pendente, o prompt recebe a data e a hora exatas e a instrução de tratá-las como
+              combinadas: não propor outro horário, não pedir para remarcar por conta própria e não criar outra tarefa
+              de reunião. Se a hora não foi preenchida no sistema (o formulário preenche com "agora" quando alguém
+              escolhe só o dia), o agente é instruído a <strong>confirmar</strong> em vez de afirmar um horário que
+              ninguém combinou — e o lembrete automático não sai nesse caso, porque mandar "sua conversa é às 10h37"
+              com hora inventada é pior que não mandar nada.
+            </p>
+          </div>
+        </div>
+
+        {/* Autoria das anotações */}
+        <div className="flex gap-3 p-3.5 rounded-xl bg-violet-50 border border-violet-200">
+          <FileText size={15} className="text-violet-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-semibold text-violet-800">Anotações têm autor</p>
+            <p className="text-xs text-violet-700 mt-0.5 leading-relaxed">
+              Cada anotação é gravada como <strong>usuário</strong>, <strong>agente</strong> ou <strong>sistema</strong>, e
+              o prompt rotula a origem linha por linha. O agente registra uma nota a cada follow-up enviado; sem o
+              rótulo, ele relia as próprias mensagens como se fossem observações escritas por um vendedor — eco que
+              virava contexto falso a cada novo toque. As notas continuam no histórico: o que mudou é ele saber quem
+              escreveu cada uma. A autoria nunca vem do cliente, para não ser possível forjar "evento do sistema".
             </p>
           </div>
         </div>
@@ -1279,13 +1638,15 @@ function ComoFunciona() {
         <div className="flex gap-3 p-3.5 rounded-xl bg-blue-50 border border-blue-200">
           <Info size={15} className="text-blue-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-xs font-semibold text-blue-800">Guards do agente reativo (5 camadas)</p>
+            <p className="text-xs font-semibold text-blue-800">Guards do agente reativo</p>
             <ul className="text-xs text-blue-700 mt-1 space-y-0.5 leading-relaxed list-none">
-              <li>🔹 <strong>Elegibilidade</strong> — só processa tipo texto</li>
-              <li>🔹 <strong>Lead no CRM</strong> — descarta mensagens de contatos não vinculados</li>
-              <li>🔹 <strong>Agente ativo</strong> — verifica config global + estágio + lead</li>
-              <li>🔹 <strong>Anti-loop</strong> — aborta se o contato é o próprio número da instância WA</li>
-              <li>🔹 <strong>Anti-duplicação</strong> — aborta se a vendedora respondeu durante o delay</li>
+              <li>🔹 <strong>Elegibilidade</strong> — só texto (e áudio, depois de transcrito); grupo nunca dispara resposta</li>
+              <li>🔹 <strong>Um lead principal</strong> — contato com leads em vários funis gera UMA resposta, não uma por lead</li>
+              <li>🔹 <strong>Agente ativo</strong> — override do lead &gt; toggle do estágio &gt; inativo</li>
+              <li>🔹 <strong>Anti-loop</strong> — aborta se o contato é o próprio número da instância</li>
+              <li>🔹 <strong>Agregação</strong> — mensagens que chegam durante o delay entram na mesma resposta; se chegam com o turno já rodando, viram uma continuação em vez de sumir</li>
+              <li>🔹 <strong>Anti-duplicação</strong> — aborta se saiu resposta <strong>bem-sucedida</strong> durante o delay. Falha de envio não conta: o balão vermelho é tentativa, não resposta, e antes ele silenciava o agente justamente quando o envio anterior tinha falhado</li>
+              <li>🔹 <strong>Retry seguro</strong> — falha transitória antes de qualquer ferramenta é re-tentada; depois de uma ferramenta ter rodado, não, porque repetir o turno recriaria tarefa e moveria estágio de novo</li>
             </ul>
           </div>
         </div>
@@ -1296,10 +1657,13 @@ function ComoFunciona() {
           <div>
             <p className="text-xs font-semibold text-orange-800">Guards do follow-up agendado</p>
             <ul className="text-xs text-orange-700 mt-1 space-y-0.5 leading-relaxed">
-              <li>🔸 <strong>Janela de horário</strong> — fora da janela, deixa pendente e tenta no próximo minuto</li>
-              <li>🔸 <strong>Anti-duplicação 60min</strong> — se houve envio nos últimos 60min, adia (não falha)</li>
-              <li>🔸 <strong>Override de lead</strong> — cancela se <code className="font-mono bg-orange-100 px-0.5 rounded">agente_ia_ativo = false</code> no lead</li>
-              <li>🔸 <strong>Anotação automática</strong> — cria nota no CRM após envio para rastreabilidade</li>
+              <li>🔸 <strong>Conversa viva</strong> — adia 15min se o <strong>LEAD</strong> escreveu na última hora. Só a fala dele conta: até 25/08 o ramo de IA olhava qualquer mensagem, inclusive as nossas, e isso virava um teto de "um toque por hora" que empurrava todo passo curto da cadência</li>
+              <li>🔸 <strong>Ordem da cadência</strong> — um passo não passa na frente de outro anterior que ainda esteja pendente ou em voo, mesmo que um adiamento tenha reordenado os horários</li>
+              <li>🔸 <strong>Fila isolada</strong> — por empresa e, dentro dela, por chip, em paralelo. Um chip parado não segura outro; uma empresa pausada não segura as demais</li>
+              <li>🔸 <strong>Orçamento</strong> — 45s por chamada ao provedor, 90s por follow-up e 55s por ciclo. Nenhuma chamada pendurada segura a fila das outras empresas</li>
+              <li>🔸 <strong>Lead arquivado</strong> — não recebe cadência, e o que estiver pendente é encerrado com motivo em todo ciclo (vale mesmo quando o lead foi arquivado direto no banco)</li>
+              <li>🔸 <strong>Envio verificado</strong> — falha no WhatsApp nunca marca como enviado; mensagem sem texto e sem mídia não é disparada</li>
+              <li>🔸 <strong>Grupo não conta</strong> — atividade em grupo não adia nem bloqueia follow-up 1:1</li>
             </ul>
           </div>
         </div>
@@ -1308,11 +1672,13 @@ function ComoFunciona() {
         <div className="flex gap-3 p-3.5 rounded-xl bg-primary-50 border border-primary-200">
           <Zap size={15} className="text-primary-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-xs font-semibold text-primary-800">Ativação por estágio ou lead</p>
+            <p className="text-xs font-semibold text-primary-800">Três níveis de instrução</p>
             <p className="text-xs text-primary-700 mt-0.5 leading-relaxed">
-              Ative o agente para <strong>todos os leads de um estágio</strong> (configurações da coluna no Kanban)
-              ou <strong>individualmente</strong> por lead com override. Prioridade: override de lead &gt; estágio &gt; inativo.
-              Leads sem contato WhatsApp vinculado recebem alerta visual mas não enviam mensagens.
+              <strong>Empresa</strong> (aqui, em Configurar Agente): quem ele é, tom e regras gerais.
+              <strong> Estágio</strong> (configurações da coluna no Kanban): como responder nesta etapa do funil — é a
+              instrução do agente <em>reativo</em>. <strong>Passo da cadência</strong>: o que aquele toque específico deve
+              dizer. Os três chegam juntos ao prompt e não competem. Ativação segue a mesma hierarquia: override do
+              lead &gt; toggle do estágio &gt; inativo — o 🤖 no cabeçalho da coluna mostra quando está ligado.
             </p>
           </div>
         </div>
@@ -1321,26 +1687,48 @@ function ComoFunciona() {
         <div className="flex gap-3 p-3.5 rounded-xl bg-primary-50 border border-primary-200">
           <Mic size={15} className="text-primary-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-xs font-semibold text-primary-800">Áudio via Gemini</p>
+            <p className="text-xs font-semibold text-primary-800">Áudio, mídia e privacidade</p>
             <p className="text-xs text-primary-700 mt-0.5 leading-relaxed">
-              Áudios do WhatsApp são transcritos automaticamente pelo Gemini e processados como texto.
-              <strong> Requer API Key Gemini configurada.</strong> Imagens e documentos são armazenados mas não analisados pela IA.
+              Áudio do WhatsApp é transcrito pelo Gemini e entra como texto (<strong>requer chave Gemini</strong>).
+              Imagem e documento são armazenados, mas não analisados pela IA. Desde 25/08 a mídia de conversa
+              <strong> não é mais pública</strong>: o acesso passa por autenticação e o sistema confere no banco de qual
+              empresa é cada arquivo antes de entregá-lo — a árvore de pastas não serve para isso, porque grava id de
+              usuário num caminho e id de empresa no outro.
             </p>
           </div>
         </div>
 
-        {/* Sexta-feira */}
+        {/* Como o agente escreve */}
+        <div className="flex gap-3 p-3.5 rounded-xl bg-gray-50 border border-gray-200 sm:col-span-2">
+          <Bot size={15} className="text-gray-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-semibold text-gray-800">Como o agente escreve — e o que ele não faz</p>
+            <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">
+              Ele se apresenta com o nome de <strong>quem é dono do número que está enviando</strong>, não de quem criou o
+              follow-up: um número se apresentando como outra pessoa é o tipo de detalhe que o lead percebe. Mensagens
+              curtas, sem asterisco, sem lista, saudação coerente com a hora de São Paulo, e blocos separados por linha
+              em branco saem como mensagens separadas (no máximo 3 por turno). Ele <strong>nunca</strong> menciona que
+              criou tarefa, moveu estágio ou agendou algo — essas ações acontecem em silêncio. E nunca promete preço,
+              desconto ou condição que não esteja confirmada.
+            </p>
+          </div>
+        </div>
+
+        {/* Duo */}
         <div className="flex gap-3 p-3.5 rounded-xl bg-teal-50 border border-teal-200 sm:col-span-2">
           <Bot size={15} className="text-teal-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-xs font-semibold text-teal-800">Sexta-feira — assistente interno da equipe</p>
+            <p className="text-xs font-semibold text-teal-800">Duo — assistente interno da equipe</p>
             <p className="text-xs text-teal-700 mt-0.5 leading-relaxed">
-              Mecanismo completamente separado do agente CRM. Atende a <strong>equipe interna</strong> via chat na interface web —
-              não opera no WhatsApp. Tem acesso a 10 ferramentas financeiras (consultar receitas, despesas, saldo,
-              parcelas, criar lançamentos) e, para <code className="font-mono bg-teal-100 px-1 rounded">super_admin</code>, gerenciar assinaturas de empresas.
-              Usa loop agentic (máx 10 iterações + deadline 2min) e mantém histórico separado
-              em <code className="font-mono bg-teal-100 px-1 rounded">chat_financeiro_historico</code>.
-              As credenciais de API (chave Claude/Gemini) são compartilhadas com o agente CRM — configurar uma vez serve para ambos.
+              Mecanismo separado do agente do CRM: atende a <strong>equipe</strong> pelo chat da interface e não opera no
+              WhatsApp. Tem <strong>11 ferramentas financeiras</strong> (resumo, receitas, despesas, categorias, parcelas
+              pendentes, evolução mensal, lançamentos) e, para <code className="font-mono bg-teal-100 px-1 rounded">super_admin</code>,
+              gestão de assinatura de empresa. Foi por existir esse canal interno que o agente do WhatsApp
+              <strong> perdeu</strong> o conjunto financeiro em 14/08: conversar com um lead é conversar com terceiro não
+              confiável, e prompt não é barreira de segurança. O Duo tem histórico próprio e configuração própria de
+              liga/desliga; o que ele compartilha com o agente do CRM é só a credencial de IA. No formato, o prompt
+              proíbe título, tabela, divisória e citação, limita emoji a um, mira 4–8 linhas e manda encerrar quando a
+              resposta acaba — tabela numa janela de 380px é ilegível mesmo renderizada.
             </p>
           </div>
         </div>
@@ -1353,35 +1741,39 @@ function ComoFunciona() {
 // ─── Componente principal ──────────────────────────────────────────────────────
 
 export const AgenteFinanceiro: React.FC = () => {
-  const [aba, setAba] = useState<Aba>('assistente')
   const { user } = useAuth()
 
-  const podeConfigurar =
-    user?.nivel === 'super_admin' ||
-    user?.nivel === 'admin_empresa' ||
-    user?.tipo_usuario === 'master'
+  // Configurar o agente é exclusivo do CREATOR (o dono) — mesma regra do backend em
+  // agente-ia.controller.ts. Master administra usuários, mas não mexe no prompt.
+  const podeConfigurar = podeConfigurarAgenteIA(user)
 
   const tabs: { key: Aba; label: string }[] = [
-    { key: 'assistente', label: 'Sexta-feira' },
+    { key: 'assistente', label: 'Duo' },
     ...(podeConfigurar ? [{ key: 'configurar' as Aba, label: 'Configurar Agente' }] : []),
     { key: 'como-funciona', label: 'Como Funciona' },
   ]
+  // Na URL, para o F5 reabrir a mesma aba; só vale aba que este papel enxerga.
+  const [aba, setAba] = useAbaNaUrl<Aba>('aba', 'assistente', tabs.map((t) => t.key))
 
+  // h-full, não h-screen: a área útil já vem descontada da barra de topo do mobile.
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-full">
       <Header
-        title="Sexta-feira"
+        title="Duo"
         subtitle="Sua consultora de sistema, operação e abordagens — também responde no WhatsApp"
         tourId="agente"
       />
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 px-4 bg-white flex-shrink-0" data-tour="agente-abas">
+      {/* overflow-x-auto + whitespace-nowrap: em telas estreitas as abas rolam
+          lateralmente em vez de quebrar o rótulo em duas linhas. */}
+      <div className="flex overflow-x-auto border-b border-gray-200 px-4 bg-white flex-shrink-0" data-tour="agente-abas">
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setAba(tab.key)}
-            className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+            data-tour={`agente-tab-${tab.key}`}
+            className={`whitespace-nowrap px-4 sm:px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
               aba === tab.key
                 ? 'border-primary-600 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'

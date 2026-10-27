@@ -4,9 +4,12 @@ import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
 import { Button, MetricCard, Card, Modal, ModalFooter, Input, Select, Spinner, Badge } from '@/components/ui'
 import { Table, TableHead, TableBody, TableRow, TableHeaderCell, TableCell } from '@/components/ui/Table'
-import { Edit, Filter, X, Calendar, CreditCard, DollarSign, CheckCircle, Clock } from 'lucide-react'
+import { Edit, Trash2, Filter, X, Calendar, CreditCard, DollarSign, CheckCircle, Clock } from 'lucide-react'
 import { parcelasApi, clientsApi } from '@/api'
 import type { ParcelaReceita, ParcelaDespesa } from '@/types'
+import { formatDate as formatDateUtil } from '@/utils/format'
+import { LinkVideo } from '@/tutoriais/LinkVideo'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
 
 type TabType = 'receitas' | 'despesas'
 
@@ -23,6 +26,7 @@ export const ParcelasList: React.FC = () => {
   const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false)
   const [isEmailPreviewOpen, setIsEmailPreviewOpen] = useState(false)
   const queryClient = useQueryClient()
+  const { Cliente, cliente, clientes } = useTermoCliente()
 
   // Build filters
   const buildReceitasFilters = () => {
@@ -98,6 +102,25 @@ export const ParcelasList: React.FC = () => {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erro ao atualizar parcela')
+    }
+  })
+
+  // Excluir a parcela aberta na edição (confirmação dentro do próprio modal)
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false)
+  const excluirMutation = useMutation({
+    mutationFn: ({ tipo, id }: { tipo: 'receitas' | 'despesas'; id: string }) => parcelasApi.excluirParcela(tipo, id),
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['parcelas-receitas'] })
+      queryClient.invalidateQueries({ queryKey: ['parcelas-despesas'] })
+      queryClient.invalidateQueries({ queryKey: ['revenues-list'] })
+      queryClient.invalidateQueries({ queryKey: ['expenses-list'] })
+      toast.success(r.lancamento_excluido ? 'Parcela excluída. Era a única, então o lançamento saiu junto.' : 'Parcela excluída.')
+      setConfirmandoExclusao(false)
+      setIsEditModalOpen(false)
+      setSelectedParcela(null)
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erro ao excluir parcela')
     }
   })
 
@@ -269,9 +292,9 @@ export const ParcelasList: React.FC = () => {
     }).format(value)
   }
 
-  const formatDate = (date: Date | string) => {
-    return new Date(date).toLocaleDateString('pt-BR')
-  }
+  // Delegar ao util: datas puras (DATE) não podem ser convertidas pelo fuso local,
+  // senão exibem o dia anterior no Brasil (UTC-3).
+  const formatDate = (date: Date | string) => formatDateUtil(date)
 
   const getStatusColor = (status: string) => {
     if (status === 'PAGO') return 'success'
@@ -289,9 +312,22 @@ export const ParcelasList: React.FC = () => {
     vencimento.setHours(0, 0, 0, 0)
     const diffDays = Math.floor((vencimento.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 
-    if (diffDays < 0) return 'bg-red-50' // Overdue
-    if (diffDays <= 7) return 'bg-yellow-50' // Due soon
+    // Sem a variante dark, a linha ficava rosa/amarelo claro com o texto branco
+    // do tema escuro por cima — ilegível.
+    if (diffDays < 0) return 'bg-red-50 dark:bg-red-950/40' // Overdue
+    if (diffDays <= 7) return 'bg-yellow-50 dark:bg-yellow-950/40' // Due soon
     return ''
+  }
+
+  // Fundo da coluna presa à direita (Ações): tem de ser OPACO, senão o texto das
+  // colunas que rolam por baixo aparece através dele. No claro as cores da linha
+  // já são opacas; no escuro a linha usa /40 sobre o gray-800, e aqui vai a mistura
+  // já pronta (red-950 e yellow-950 a 40% sobre #1f2937).
+  const getStickyBg = (parcela: ParcelaReceita | ParcelaDespesa) => {
+    const linha = getRowHighlight(parcela)
+    if (linha.startsWith('bg-red')) return 'bg-red-50 dark:bg-[#2e1d25]'
+    if (linha.startsWith('bg-yellow')) return 'bg-yellow-50 dark:bg-[#2d2523]'
+    return 'bg-white dark:bg-gray-800'
   }
 
   const getEmailStatus = (parcela: ParcelaReceita | ParcelaDespesa) => {
@@ -307,7 +343,7 @@ export const ParcelasList: React.FC = () => {
       })
 
       return {
-        text: `E-mail enviado em ${dataFormatada}`,
+        text: `E-mail em ${dataFormatada}`,
         color: 'text-green-700',
         bgColor: 'bg-green-100 px-2 py-1 rounded text-xs font-medium',
         icon: '✓'
@@ -332,7 +368,7 @@ export const ParcelasList: React.FC = () => {
       }
     }
 
-    return { text: 'Nenhum e-mail enviado', color: 'text-gray-400', bgColor: '', icon: '' }
+    return { text: 'Sem e-mail', color: 'text-gray-400 text-xs', bgColor: '', icon: '' }
   }
 
   const isLoading = activeTab === 'receitas' ? isLoadingReceitas : isLoadingDespesas
@@ -347,7 +383,7 @@ export const ParcelasList: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-full min-h-[60vh]">
         <Spinner size="lg" />
       </div>
     )
@@ -378,6 +414,7 @@ export const ParcelasList: React.FC = () => {
         title="Gestão de Parcelas"
         subtitle="Acompanhe e gerencie todas as parcelas de receitas e despesas"
         tourId="parcelas"
+        action={<LinkVideo video="parcelas-marcar-paga" />}
       />
 
       <div className="p-4 sm:p-6">
@@ -473,7 +510,7 @@ export const ParcelasList: React.FC = () => {
             {activeTab === 'receitas' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Cliente
+                  {Cliente}
                 </label>
                 <Select
                   value={clienteFilter}
@@ -537,7 +574,12 @@ export const ParcelasList: React.FC = () => {
 
           {/* Botões de E-mail e WhatsApp (só para receitas de usuários PJ) */}
           {activeTab === 'receitas' && (
-            <div className="flex items-center gap-2 pt-4 border-t border-gray-200" data-tour="parcelas-cobranca">
+            <div
+              /* flex-wrap: com whitespace-nowrap nos dois botões, em tela estreita o
+                 segundo era empurrado para fora em vez de descer para a linha de baixo. */
+              className="flex flex-wrap items-center gap-2 pt-4 border-t border-gray-200"
+              data-tour="parcelas-cobranca"
+            >
               <Button
                 variant="outline"
                 onClick={() => setIsEmailPreviewOpen(true)}
@@ -589,23 +631,28 @@ export const ParcelasList: React.FC = () => {
                 ✅ <strong>{selectedParcelasIds.length}</strong> parcela(s) selecionada(s) para envio de cobrança
               </p>
               <p className="text-xs text-blue-600 mt-1">
-                💡 Somente parcelas atrasadas com cliente vinculado receberão notificações
+                💡 Somente parcelas atrasadas com {cliente} vinculado receberão notificações
               </p>
               <p className="text-xs text-blue-600 mt-1">
-                📧 E-mail: Cliente deve ter e-mail cadastrado | 📱 WhatsApp: Cliente deve ter telefone cadastrado e WhatsApp conectado
+                📧 E-mail: {Cliente} deve ter e-mail cadastrado | 📱 WhatsApp: {Cliente} deve ter telefone cadastrado e WhatsApp conectado
               </p>
             </div>
           )}
         </Card>
 
-        {/* Table */}
+        {/* Table
+            Cabe na largura sem rolar para o lado (15/10/2026): antes eram 10 colunas
+            com px-6 e sem quebra de linha, e em notebook com zoom só apareciam
+            Parcela e Receita — o lápis de editar ficava lá no fim da rolagem
+            horizontal. Agora: células mais justas, descrição/nome quebram em até
+            2 linhas, Vencimento+Pagamento e Status+E-mail viram uma coluna cada, e
+            Ações fica presa à direita caso ainda falte espaço. */}
         <Card>
-          <div className="overflow-x-auto">
           <Table>
             <TableHead>
               <TableRow>
                 {activeTab === 'receitas' && (
-                  <TableHeaderCell className="w-12">
+                  <TableHeaderCell className="!px-3 w-10">
                     <input
                       type="checkbox"
                       checked={selectedParcelasIds.length === parcelas.length && parcelas.length > 0}
@@ -614,25 +661,28 @@ export const ParcelasList: React.FC = () => {
                     />
                   </TableHeaderCell>
                 )}
-                <TableHeaderCell>Parcela</TableHeaderCell>
-                <TableHeaderCell>
+                <TableHeaderCell className="!px-3">Parcela</TableHeaderCell>
+                <TableHeaderCell className="!px-3">
                   {activeTab === 'receitas' ? 'Receita' : 'Despesa'}
                 </TableHeaderCell>
-                {activeTab === 'receitas' && <TableHeaderCell>Cliente</TableHeaderCell>}
-                <TableHeaderCell>Valor</TableHeaderCell>
-                <TableHeaderCell>Vencimento</TableHeaderCell>
-                <TableHeaderCell>Pagamento</TableHeaderCell>
-                <TableHeaderCell>Status</TableHeaderCell>
-                <TableHeaderCell>Status de E-mail</TableHeaderCell>
-                <TableHeaderCell>Ações</TableHeaderCell>
+                {activeTab === 'receitas' && <TableHeaderCell className="!px-3">{Cliente}</TableHeaderCell>}
+                <TableHeaderCell className="!px-3 text-right">Valor</TableHeaderCell>
+                <TableHeaderCell className="!px-3">Vencimento</TableHeaderCell>
+                <TableHeaderCell className="!px-3">Status</TableHeaderCell>
+                <TableHeaderCell className="!px-3 sticky right-0 bg-gray-50 dark:bg-gray-900 text-center">
+                  <span className="sr-only">Ações</span>
+                  <Edit className="w-4 h-4 inline" aria-hidden />
+                </TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {parcelas && parcelas.length > 0 ? (
-                parcelas.map((parcela) => (
+                parcelas.map((parcela) => {
+                  const emailStatus = getEmailStatus(parcela)
+                  return (
                   <TableRow key={parcela.id} className={getRowHighlight(parcela)}>
                     {activeTab === 'receitas' && (
-                      <TableCell>
+                      <TableCell className="!px-3">
                         <input
                           type="checkbox"
                           checked={selectedParcelasIds.includes(parcela.id)}
@@ -641,61 +691,63 @@ export const ParcelasList: React.FC = () => {
                         />
                       </TableCell>
                     )}
-                    <TableCell>
+                    <TableCell className="!px-3 text-gray-600 dark:text-gray-300">
                       {parcela.numero_parcela}/{parcela.total_parcelas}
                     </TableCell>
-                    <TableCell>
-                      <div className="font-medium text-gray-900">
+                    <TableCell className="!px-3 !whitespace-normal min-w-[9rem]">
+                      <div className="font-medium text-gray-900 dark:text-white line-clamp-2">
                         {activeTab === 'receitas'
                           ? (parcela as ParcelaReceita).receita_descricao || 'Sem descrição'
                           : (parcela as ParcelaDespesa).despesa_descricao || 'Sem descrição'}
                       </div>
                     </TableCell>
                     {activeTab === 'receitas' && (
-                      <TableCell>
-                        {(parcela as ParcelaReceita).cliente_nome || '-'}
+                      <TableCell className="!px-3 !whitespace-normal min-w-[8rem]">
+                        <div className="line-clamp-2">{(parcela as ParcelaReceita).cliente_nome || '-'}</div>
                       </TableCell>
                     )}
-                    <TableCell className="font-medium">
+                    <TableCell className="!px-3 font-medium text-right">
                       {formatCurrency(parcela.valor)}
                     </TableCell>
-                    <TableCell>{formatDate(parcela.data_vencimento)}</TableCell>
-                    <TableCell>
-                      {parcela.data_pagamento
-                        ? formatDate(parcela.data_pagamento)
-                        : '-'}
+                    <TableCell className="!px-3 !whitespace-normal min-w-[6.5rem]">
+                      <div className="whitespace-nowrap">{formatDate(parcela.data_vencimento)}</div>
+                      {parcela.data_pagamento && (
+                        <div className="text-xs text-emerald-700 dark:text-emerald-400">
+                          pago em {formatDate(parcela.data_pagamento)}
+                        </div>
+                      )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="!px-3 !whitespace-normal min-w-[7rem]">
                       <Badge variant={getStatusColor(parcela.status)}>
                         {parcela.status}
                       </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {(() => {
-                        const emailStatus = getEmailStatus(parcela)
-                        return (
-                          <span className={`${emailStatus.color} ${emailStatus.bgColor}`}>
+                      {/* Parcela paga/cancelada sem e-mail: não há o que avisar — a linha fica limpa */}
+                      {activeTab === 'receitas' && emailStatus.text && !(emailStatus.text === 'Sem e-mail' && (parcela.status === 'PAGO' || parcela.status === 'CANCELADO')) && (
+                        <div className="mt-1">
+                          <span className={`inline-block ${emailStatus.color} ${emailStatus.bgColor}`}>
                             {emailStatus.icon && <span className="mr-1">{emailStatus.icon}</span>}
                             {emailStatus.text}
                           </span>
-                        )
-                      })()}
+                        </div>
+                      )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className={`!px-2 sticky right-0 text-center ${getStickyBg(parcela)}`}>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleEditStatus(parcela)}
                         title="Editar parcela"
+                        aria-label="Editar parcela"
                       >
                         <Edit className="w-4 h-4" />
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))
+                  )
+                })
               ) : (
                 <tr>
-                  <td colSpan={activeTab === 'receitas' ? 9 : 8} className="text-center py-12 text-gray-500">
+                  <td colSpan={activeTab === 'receitas' ? 8 : 6} className="text-center py-12 text-gray-500">
                     <p>
                       {statusFilter
                         ? `Nenhuma parcela encontrada com status "${statusFilter}"`
@@ -711,7 +763,6 @@ export const ParcelasList: React.FC = () => {
               )}
             </TableBody>
           </Table>
-          </div>
         </Card>
       </div>
 
@@ -721,6 +772,7 @@ export const ParcelasList: React.FC = () => {
         onClose={() => {
           setIsEditModalOpen(false)
           setSelectedParcela(null)
+          setConfirmandoExclusao(false)
         }}
         title="Editar Parcela"
         size="md"
@@ -805,13 +857,51 @@ export const ParcelasList: React.FC = () => {
             </div>
           </div>
 
-          <ModalFooter>
+          {confirmandoExclusao && selectedParcela && (
+            <div className="mt-4 p-3 rounded-lg border border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-900/20" role="alert">
+              <p className="text-sm text-red-800 dark:text-red-200">
+                Excluir a parcela {selectedParcela.numero_parcela}/{selectedParcela.total_parcelas}?
+                {Number(selectedParcela.total_parcelas) > 1
+                  ? ' As outras parcelas continuam e o valor total do lançamento diminui.'
+                  : ' É a única parcela, então o lançamento inteiro será excluído.'}
+                {' '}Não dá para desfazer.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => setConfirmandoExclusao(false)}>
+                  Não excluir
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  className="bg-red-600 hover:bg-red-700"
+                  disabled={excluirMutation.isPending}
+                  onClick={() => excluirMutation.mutate({ tipo: activeTab === 'receitas' ? 'receitas' : 'despesas', id: selectedParcela.id })}
+                >
+                  {excluirMutation.isPending ? <><Spinner size="sm" className="mr-2" />Excluindo...</> : 'Sim, excluir'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <ModalFooter className="flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              className="mr-auto text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+              onClick={() => setConfirmandoExclusao(true)}
+              disabled={confirmandoExclusao}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Excluir parcela
+            </Button>
             <Button
               type="button"
               variant="outline"
               onClick={() => {
                 setIsEditModalOpen(false)
                 setSelectedParcela(null)
+                setConfirmandoExclusao(false)
               }}
             >
               Cancelar
@@ -844,7 +934,7 @@ export const ParcelasList: React.FC = () => {
         <div className="space-y-4">
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <p className="text-sm text-blue-800">
-              ℹ️ Este é o formato do e-mail que será enviado para clientes com parcelas atrasadas.
+              ℹ️ Este é o formato do e-mail que será enviado para {clientes} com parcelas atrasadas.
             </p>
           </div>
 
@@ -856,7 +946,7 @@ export const ParcelasList: React.FC = () => {
             <div className="bg-gray-50 p-6">
               <div className="bg-red-50 border-l-4 border-red-600 p-4 mb-4">
                 <p className="text-sm text-gray-700">
-                  <strong>Prezado(a) [Nome do Cliente],</strong>
+                  <strong>Prezado(a) [Nome do {Cliente}],</strong>
                 </p>
                 <p className="text-sm text-gray-700 mt-2">
                   Identificamos que existe uma parcela em atraso referente ao serviço/produto <strong>[Descrição]</strong>.
@@ -900,7 +990,7 @@ export const ParcelasList: React.FC = () => {
 
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
             <p className="text-sm text-amber-800">
-              <strong>💡 Nota:</strong> O e-mail real será personalizado com os dados específicos de cada parcela e cliente.
+              <strong>💡 Nota:</strong> O e-mail real será personalizado com os dados específicos de cada parcela e {cliente}.
             </p>
           </div>
         </div>

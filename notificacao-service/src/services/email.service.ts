@@ -1,43 +1,81 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import { createDecipheriv } from 'crypto';
+import { query } from '../config/database';
 
 dotenv.config();
 
-function createTransporter() {
-  const host = process.env.SMTP_HOST || 'smtp.gmail.com';
-  const port = parseInt(process.env.SMTP_PORT || '465');
-  const secure = port === 465;
+// Cada empresa cobra os próprios clientes pela conta de e-mail que ELA configurou
+// (configuracoes_smtp). Não há SMTP de reserva: empresa sem configuração não envia
+// (regra de 16/09/2026 — nada de uma conta é usado por outra).
+//
+// A senha está cifrada com a SMTP_ENCRYPTION_KEY da API. A chave é lida do .env da
+// API, que é onde ela mora — sem uma segunda cópia aqui.
+const ENV_DA_API = '/var/www/apps/gestao_financeira/api/.env';
 
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+function chaveSmtp(): Buffer {
+  let hex = process.env.SMTP_ENCRYPTION_KEY || '';
+  if (!hex) {
+    try { hex = dotenv.parse(fs.readFileSync(ENV_DA_API)).SMTP_ENCRYPTION_KEY || ''; } catch { /* sem .env */ }
+  }
+  if (hex.length !== 64) throw new Error('SMTP_ENCRYPTION_KEY indisponível');
+  return Buffer.from(hex, 'hex');
 }
+
+function decifrar(encoded: string): string {
+  const [ivHex, encHex] = encoded.split(':');
+  if (!ivHex || !encHex) throw new Error('Senha SMTP em formato inválido');
+  const decipher = createDecipheriv('aes-256-cbc', chaveSmtp(), Buffer.from(ivHex, 'hex'));
+  return Buffer.concat([decipher.update(Buffer.from(encHex, 'hex')), decipher.final()]).toString('utf8');
+}
+
+export interface SmtpEmpresa {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  from: string;
+  fromName: string;
+}
+
+/** SMTP ativo da empresa dona do usuário, ou null. */
+export const smtpDoUsuario = async (usuarioId: number): Promise<SmtpEmpresa | null> => {
+  const r = await query(
+    `SELECT c.smtp_host, c.smtp_port, c.smtp_user, c.smtp_pass_enc, c.email_from, c.email_from_name
+       FROM usuarios u
+       JOIN configuracoes_smtp c ON c.empresa_id = u.empresa_id
+      WHERE u.id = $1 AND c.ativo = true AND c.smtp_pass_enc IS NOT NULL`,
+    [usuarioId]
+  );
+  const c = r.rows[0];
+  if (!c?.smtp_host || !c?.smtp_user) return null;
+  return {
+    host: c.smtp_host,
+    port: Number(c.smtp_port),
+    user: c.smtp_user,
+    pass: decifrar(c.smtp_pass_enc),
+    from: c.email_from || c.smtp_user,
+    fromName: c.email_from_name || 'Cobrança',
+  };
+};
 
 export interface EmailData {
   to: string;
   subject: string;
   html: string;
-  from?: string;
 }
 
-export const sendEmail = async (data: EmailData): Promise<any> => {
-  const fromEmail = process.env.EMAIL_FROM || process.env.SMTP_USER;
-  const fromName = process.env.EMAIL_FROM_NAME || 'Cobrança';
-
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    throw new Error('SMTP não configurado. Defina SMTP_USER e SMTP_PASS no .env');
-  }
-
-  const transporter = createTransporter();
+export const sendEmail = async (data: EmailData, smtp: SmtpEmpresa): Promise<any> => {
+  const transporter = nodemailer.createTransport({
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.port === 465,
+    auth: { user: smtp.user, pass: smtp.pass },
+  });
 
   const info = await transporter.sendMail({
-    from: data.from || `"${fromName}" <${fromEmail}>`,
+    from: `"${smtp.fromName}" <${smtp.from}>`,
     to: data.to,
     subject: data.subject,
     html: data.html,

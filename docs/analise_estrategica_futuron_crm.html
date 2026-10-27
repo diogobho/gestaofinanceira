@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Análise Estratégica — Futuron CRM</title>
+<style>
+  :root {
+    --navy:#13264C; --navy2:#1d3766; --gold:#D2B773; --green:#10b981; --red:#ef4444;
+    --amber:#f59e0b; --bg:#f6f7fb; --card:#fff; --border:#e3e7f0; --text:#1e293b; --muted:#64748b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.55;padding-bottom:60px}
+  header{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;padding:38px 20px 30px;text-align:center;border-bottom:4px solid var(--gold)}
+  header h1{font-size:1.5rem} header h1 span{color:var(--gold)}
+  header p{color:#c7d2e6;font-size:.85rem;margin-top:6px;max-width:760px;margin-left:auto;margin-right:auto}
+  .wrap{max-width:960px;margin:0 auto;padding:0 16px}
+  h2{color:var(--navy);font-size:1.15rem;margin:38px 0 6px;display:flex;align-items:center;gap:8px}
+  h2::after{content:'';flex:1;height:2px;background:linear-gradient(90deg,var(--gold),transparent)}
+  h3{color:var(--navy);font-size:.95rem;margin:20px 0 8px}
+  p.sub{font-size:.82rem;color:var(--muted);margin-bottom:14px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin:10px 0;box-shadow:0 1px 4px rgba(19,38,76,.06)}
+  table{width:100%;border-collapse:collapse;font-size:.8rem;margin:10px 0;background:#fff;border-radius:10px;overflow:hidden}
+  th{background:var(--navy);color:#fff;text-align:left;padding:8px 10px;font-weight:600}
+  td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:nth-child(even) td{background:#fafbfe}
+  .tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;margin:10px 0}
+  .tablewrap table{margin:0;border-radius:0}
+  ul{margin:6px 0 6px 20px;font-size:.85rem} li{margin:3px 0}
+  .ok{color:#047857;font-weight:600}.bad{color:#b91c1c;font-weight:600}.mid{color:#b45309;font-weight:600}
+  .pill{display:inline-block;font-size:.68rem;font-weight:700;padding:2px 9px;border-radius:999px;margin-right:4px}
+  .p-alto{background:#fee2e2;color:#b91c1c}.p-medio{background:#fef3c7;color:#b45309}.p-baixo{background:#e0e7ff;color:#3730a3}
+  .p-facil{background:#d1fae5;color:#047857}.p-media{background:#fef3c7;color:#b45309}.p-dificil{background:#fee2e2;color:#b91c1c}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:12px 0}
+  .kpi{background:var(--navy);color:#fff;border-radius:12px;padding:14px;text-align:center}
+  .kpi b{display:block;font-size:1.25rem;color:var(--gold)} .kpi span{font-size:.7rem;color:#c7d2e6}
+  .note{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;font-size:.8rem;color:#92400e;margin:10px 0}
+  .faq-q{font-weight:700;color:var(--navy);font-size:.87rem;margin-top:12px}
+  .faq-a{font-size:.83rem;color:var(--text);margin-top:2px}
+  .lp-section{border-left:3px solid var(--gold);padding:10px 14px;margin:10px 0;background:#fff;border-radius:0 10px 10px 0;border-top:1px solid var(--border);border-right:1px solid var(--border);border-bottom:1px solid var(--border)}
+  .lp-section h4{color:var(--navy);font-size:.85rem;margin-bottom:4px}
+  .lp-section .copy{font-size:.85rem;background:#f8fafc;border-radius:8px;padding:10px 12px;margin-top:6px;white-space:pre-line}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.78rem;background:#eef1f7;padding:1px 5px;border-radius:4px}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+  .toc a{font-size:.75rem;text-decoration:none;color:var(--navy);background:#fff;border:1px solid var(--border);padding:5px 12px;border-radius:999px}
+  footer{text-align:center;font-size:.72rem;color:var(--muted);margin-top:36px}
+  @media print{.card,.tablewrap{box-shadow:none}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Análise Estratégica — <span>Futuron CRM</span></h1>
+  <p>Product Marketing · Benchmark · Financeiro · Estratégia Comercial · Landing Page — 16/07/2026<br>
+  Produto atual: "Gestão Financeira CRM — DuoFuturo" (duofuturo.tech/gestao) · dados reais da operação</p>
+</header>
+
+<div class="wrap">
+
+<div class="toc">
+  <a href="#resumo">Sumário Executivo</a><a href="#landing">Auditoria da Landing</a><a href="#bench">Benchmark</a>
+  <a href="#fin">Análise Financeira</a><a href="#comercial">Estratégia Comercial</a><a href="#premium">Serviço Premium</a>
+  <a href="#suporte">Suporte</a><a href="#faq">FAQ</a><a href="#novalanding">Nova Landing (copy)</a><a href="#prioridades">Prioridades</a>
+</div>
+
+<!-- ============ SUMÁRIO ============ -->
+<h2 id="resumo">1 · Sumário Executivo</h2>
+<div class="card">
+  <p style="font-size:.87rem">O produto tem <b>funcionalidade acima da média da categoria no preço em que compete</b> (funil + financeiro + WhatsApp + agente de IA que conversa de verdade), mas a landing atual <b>vende "controle financeiro" quando o mercado paga por "vender mais no WhatsApp com IA"</b>. Os concorrentes globais (Kommo, GoHighLevel) ancoram exatamente nessa promessa. Três movimentos concentram ~80% do potencial de ganho:</p>
+  <ul>
+    <li><b>Reposicionar a promessa</b>: de "gestão financeira" para "CRM com IA que atende, qualifica e agenda no WhatsApp — com o financeiro junto". O financeiro vira diferencial, não headline.</li>
+    <li><b>Trial de 7 dias sem cartão</b> + onboarding guiado (os tutoriais interativos já existem no produto — nenhum concorrente local tem isso tão pronto).</li>
+    <li><b>Prova social e demonstração</b>: hoje a landing não tem nenhum depoimento, número real ou vídeo. É o maior gap vs. todos os 4 concorrentes.</li>
+  </ul>
+  <div class="kpis">
+    <div class="kpi"><b>~79%</b><span>margem bruta por cliente (plano Profissional)</span></div>
+    <div class="kpi"><b>R$ 227</b><span>ARPU projetado (mix de planos)</span></div>
+    <div class="kpi"><b>~R$ 4.500</b><span>LTV projetado (churn 5%/mês)</span></div>
+    <div class="kpi"><b>55–90</b><span>clientes p/ payback do investimento</span></div>
+  </div>
+</div>
+
+<!-- ============ AUDITORIA LANDING ============ -->
+<h2 id="landing">2 · Auditoria da Landing Atual</h2>
+<p class="sub">Analisado: <code>/var/www/apps/landing/gestao-financeira.html</code> (produto) e <code>index.html</code> (hub DuoFuturo).</p>
+
+<div class="card">
+<h3>O que está bom ✅</h3>
+<ul>
+  <li>Estrutura clássica correta: hero → recursos → como funciona → planos → FAQ → CTA final.</li>
+  <li>Copy do hero é limpa e orientada a dor ("pare de apagar incêndio com planilhas").</li>
+  <li>Seção "parceiro de tecnologia" (Enterprise sob medida) é um diferencial real que nenhum concorrente de prateleira oferece.</li>
+  <li>Preços transparentes em reais, sem fidelidade — bom para a persona 40+.</li>
+  <li>Página leve e estática (performance boa por natureza), SSL ativo, meta description presente.</li>
+</ul>
+<h3>Pontos fracos ❌ (ordenados por dano à conversão)</h3>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>Problema</th><th>Evidência</th><th>Dano</th></tr>
+<tr><td>1</td><td><b>Zero prova social</b></td><td>Nenhum depoimento, logo de cliente, número real, print de resultado. Contadores do hero exibem "0" quando o JS de animação não roda</td><td class="bad">Alto</td></tr>
+<tr><td>2</td><td><b>Promessa desalinhada com o mercado</b></td><td>Headline vende "controle financeiro"; a demanda (e o preço aceito) está em "vender no WhatsApp com IA". IA e WhatsApp aparecem só no 4º-5º card de recursos</td><td class="bad">Alto</td></tr>
+<tr><td>3</td><td><b>Sem trial explícito</b></td><td>CTA "Criar minha conta" leva a cadastro com pagamento; concorrentes oferecem 14 dias grátis sem cartão em destaque</td><td class="bad">Alto</td></tr>
+<tr><td>4</td><td><b>Nenhuma demonstração visual do produto</b></td><td>Sem screenshot real, GIF ou vídeo do kanban/agente respondendo. O mock do hero é abstrato</td><td class="bad">Alto</td></tr>
+<tr><td>5</td><td><b>FAQ raso (4 perguntas)</b></td><td>Não responde implantação, migração, treinamento, cancelamento, segurança em profundidade — as dúvidas da persona 40+</td><td class="mid">Médio</td></tr>
+<tr><td>6</td><td><b>Agente IA subvendido</b></td><td>"Automações & Agente IA" em 1 linha. O agente qualifica com SPIN, agenda reunião e faz follow-up sozinho — isso é a feature mais vendável do produto e está invisível</td><td class="bad">Alto</td></tr>
+<tr><td>7</td><td><b>Um único caminho de conversão</b></td><td>Não há "Agendar demonstração" nem WhatsApp flutuante — para tíquete R$ 219–397 e persona 40+, a venda assistida converte mais que self-service</td><td class="mid">Médio</td></tr>
+<tr><td>8</td><td><b>SEO básico</b></td><td>Sem schema.org (Product/FAQPage), sem og:image específica, títulos não miram termos de busca ("CRM WhatsApp", "CRM com IA")</td><td class="mid">Médio</td></tr>
+<tr><td>9</td><td><b>Marca dupla confusa</b></td><td>DuoFuturo × Futuron × "Gestão Financeira CRM": três nomes. "Futuron CRM" é mais forte e único como marca de produto</td><td class="mid">Médio</td></tr>
+<tr><td>10</td><td><b>Planos sem âncora de comparação</b></td><td>Sem tabela de recursos lado a lado; sem plano anual com desconto (aumenta LTV e caixa)</td><td class="p-baixo mid">Médio</td></tr>
+</table></div>
+</div>
+
+<!-- ============ BENCHMARK ============ -->
+<h2 id="bench">3 · Benchmark de Mercado</h2>
+<p class="sub">Kommo, Pipedrive (página CRM p/ WhatsApp), GoHighLevel e Bitrix24 — analisados em 16/07/2026.</p>
+
+<div class="tablewrap"><table>
+<tr><th></th><th>Kommo</th><th>Pipedrive</th><th>GoHighLevel</th><th>Bitrix24</th><th style="background:#8a6d2f">Futuron CRM (hoje)</th></tr>
+<tr><td><b>Posicionamento</b></td><td>CRM de conversas com IA (WhatsApp/Insta/TikTok)</td><td>CRM de vendas clássico + integração WhatsApp</td><td>Sistema operacional de negócio com IA (agências)</td><td>Workspace tudo-em-um (CRM+tarefas+RH)</td><td>Gestão financeira + CRM</td></tr>
+<tr><td><b>Headline</b></td><td>"Escale conversas, evite o caos"</td><td>"CRM para WhatsApp: gerencie suas conversas no Pipedrive"</td><td>"Power up your business with AI"</td><td>"Seu espaço de trabalho definitivo"</td><td>"O seu negócio sob controle total"</td></tr>
+<tr><td><b>CTA principal</b></td><td>"Grátis por 14 dias"</td><td>"Teste grátis"</td><td>"Start 14 Day Free Trial"</td><td>"Comece grátis"</td><td>"Criar minha conta" (sem trial)</td></tr>
+<tr><td><b>Preço de entrada</b></td><td>US$ 15/usuário/mês (~R$ 82)</td><td>~US$ 14/usuário/mês</td><td>US$ 97/mês (conta)</td><td>Grátis / planos fixos por empresa</td><td>R$ 79/mês (empresa, 2 usuários)</td></tr>
+<tr><td><b>Trial</b></td><td>14 dias sem cartão</td><td>14 dias</td><td>14 dias, "cancele quando quiser"</td><td>Plano grátis para sempre</td><td class="bad">Não tem</td></tr>
+<tr><td><b>Prova social</b></td><td>100 mil clientes, depoimentos c/ foto, selo Meta Partner, G2</td><td>Marca global, fraca nesta página</td><td>Números massivos (7M chamadas IA, US$ 5,2 bi vendas), prêmios</td><td>15 milhões de organizações, cases com % de resultado</td><td class="bad">Nenhuma</td></tr>
+<tr><td><b>IA</b></td><td>Central (agente de IA nas conversas)</td><td>"Em breve"</td><td>Central (voice AI, conversation AI)</td><td>CoPilot (produtividade)</td><td class="ok">Agente real que qualifica/agenda/faz follow-up — mas escondido na página</td></tr>
+<tr><td><b>WhatsApp</b></td><td>Nativo, multi-números</td><td>Integração oficial (custo por template)</td><td>Canal entre vários</td><td>Canal do contact center</td><td class="ok">Nativo multi-número por usuário + disparos + anti-ban</td></tr>
+<tr><td><b>Financeiro integrado</b></td><td class="bad">Não</td><td class="bad">Não</td><td>Pagamentos/faturas</td><td>Parcial</td><td class="ok">Completo (receitas, despesas, parcelas, cobrança, Open Finance)</td></tr>
+<tr><td><b>Onboarding</b></td><td>Vídeos + parceiros</td><td>Academy</td><td>Comunidade + suporte 24/7</td><td>Central de ajuda gigante</td><td class="ok">Tutoriais interativos dentro do app (subvendido)</td></tr>
+<tr><td><b>Retenção</b></td><td>Automação instalada = lock-in</td><td>Ecossistema</td><td>Comunidade + white label</td><td>Dados centralizados</td><td>Automações + histórico + financeiro (lock-in natural forte)</td></tr>
+</table></div>
+
+<div class="card">
+<h3>Leituras do benchmark</h3>
+<ul>
+  <li><b>Todos os 4 dão acesso grátis antes de cobrar.</b> É o padrão da categoria — sem trial, a landing compete em desvantagem estrutural.</li>
+  <li><b>Kommo é o concorrente direto de posicionamento</b> (conversas + IA + WhatsApp, PT-BR). A resposta do Futuron: mesmo território, com dois trunfos que ela não tem — <b>financeiro integrado</b> e <b>implantação assistida com equipe local</b>.</li>
+  <li><b>GoHighLevel mostra o teto do modelo</b>: cobra US$ 97–297 por CONTA (não por usuário) — exatamente o modelo do Futuron. Validam preço por empresa com usuários inclusos.</li>
+  <li><b>Preço por empresa é vantagem competitiva</b> contra Kommo/Pipedrive (que cobram por usuário): para uma equipe de 5 pessoas, Kommo Avançado ≈ R$ 680/mês vs. Futuron Profissional R$ 219. <b>Essa conta precisa estar na landing.</b></li>
+  <li><b>Prova social quantificada</b> (Bitrix24: "+43% conversão") é o formato que mais converte — coletar 3 depoimentos com número já muda o patamar da página.</li>
+</ul>
+</div>
+
+<!-- ============ FINANCEIRO ============ -->
+<h2 id="fin">4 · Análise Financeira</h2>
+<p class="sub">Base: infraestrutura real (VPS 4 vCPU/16 GB compartilhada entre os produtos, WhatsApp via API própria sem custo por mensagem, IA Anthropic/Gemini por uso, gateway Asaas). Valores marcados como estimativa onde não há fatura no repositório.</p>
+
+<div class="card">
+<h3>4.1 Custo por usuário / empresa (mensal)</h3>
+<div class="tablewrap"><table>
+<tr><th>Item</th><th>Hoje (14 empresas)</th><th>Base p/ escala</th><th>Obs.</th></tr>
+<tr><td>VPS 4 vCPU/16 GB (compartilhada)</td><td>~R$ 150 (est.)</td><td>1 VPS a cada ~50–60 empresas c/ WhatsApp (RAM das instâncias é o gargalo: ~200 MB cada)</td><td>estimativa de mercado (Contabo/Hetzner)</td></tr>
+<tr><td>Banco PostgreSQL</td><td>incluído (151 MB)</td><td>incluído até ~x30 o volume atual</td><td>medido</td></tr>
+<tr><td>WhatsApp (API própria/Baileys)</td><td>R$ 0/mensagem</td><td>R$ 0 — <b>risco:</b> não-oficial; plano B = API oficial (R$ 0,20–0,50/conversa)</td><td>real</td></tr>
+<tr><td>IA (agente + Sexta-feira)</td><td>~R$ 0,08–0,12 por resposta (Sonnet)</td><td>empresa ativa c/ agente: R$ 20–60/mês; heavy: R$ 100+</td><td>estimado por tokens</td></tr>
+<tr><td>E-mail (Brevo)</td><td>R$ 0–89</td><td>R$ 89 fixo a partir de volume</td><td>faixa do plano</td></tr>
+<tr><td>Domínios/SSL</td><td>~R$ 5</td><td>~R$ 5</td><td>Let's Encrypt grátis</td></tr>
+<tr><td>Gateway (Asaas)</td><td>por transação (~R$ 2 + %)</td><td>~1,5% da receita</td><td>tabela padrão</td></tr>
+<tr><td><b>Total base fixa</b></td><td><b>~R$ 250/mês</b></td><td><b>~R$ 250 + R$ 30–45 por empresa ativa</b></td><td></td></tr>
+</table></div>
+<p style="font-size:.83rem"><b>Custo médio operacional por empresa</b> (diluindo a base fixa): hoje ≈ <b>R$ 45–55</b>; a 100 clientes ≈ <b>R$ 38–48</b> (IA é o item dominante). <b>Por usuário</b> (média 2,5 usuários/empresa): ≈ <b>R$ 16–20</b>.</p>
+</div>
+
+<div class="card">
+<h3>4.2 Margem por cliente — três cenários (plano Profissional R$ 219)</h3>
+<div class="tablewrap"><table>
+<tr><th>Cenário</th><th>Custo/empresa</th><th>Margem bruta</th><th>% bruta</th><th>Margem líquida*</th><th>% líquida</th></tr>
+<tr><td><b>Conservador</b> (IA heavy + API oficial WhatsApp)</td><td>R$ 95</td><td>R$ 124</td><td>57%</td><td>R$ 84</td><td>38%</td></tr>
+<tr><td><b>Realista</b> (uso médio, WhatsApp próprio)</td><td>R$ 45</td><td>R$ 174</td><td class="ok">79%</td><td>R$ 134</td><td class="ok">61%</td></tr>
+<tr><td><b>Agressivo</b> (uso leve, plano anual à vista)</td><td>R$ 32</td><td>R$ 187</td><td>85%</td><td>R$ 152</td><td>69%</td></tr>
+</table></div>
+<p style="font-size:.78rem;color:var(--muted)">*Líquida desconta ~6% impostos (Simples faixa inicial), 1,5% gateway e rateio de suporte (R$ 25/cliente). Starter (R$ 79) opera com margem bruta ~R$ 45 (57%) — funciona como porta de entrada, não como motor de lucro.</p>
+</div>
+
+<div class="card">
+<h3>4.3 Investimento total realizado (estimativa)</h3>
+<div class="tablewrap"><table>
+<tr><th>Item</th><th>Estimativa</th><th>Base</th></tr>
+<tr><td>Desenvolvimento (~5 meses, fev–jul/2026, dev + IA assistida, produto completo: CRM, financeiro, WhatsApp multiusuário, agente IA, disparos, tours)</td><td>R$ 66.000–102.000</td><td>550–850 h × R$ 120/h</td></tr>
+<tr><td>Design/identidade + landing</td><td>R$ 4.000–8.000</td><td>est.</td></tr>
+<tr><td>Infra acumulada (6 meses) + ferramentas + APIs de teste</td><td>R$ 2.500–4.000</td><td>est.</td></tr>
+<tr><td>Consultorias/indireto</td><td>R$ 3.000–6.000</td><td>est.</td></tr>
+<tr><td><b>Investimento acumulado</b></td><td><b>R$ 75.000–120.000</b></td><td></td></tr>
+</table></div>
+<p style="font-size:.83rem"><b>Valor do ativo criado:</b> replicar este produto do zero a preço de agência (R$ 150–180/h, sem o aprendizado embutido) custaria <b>R$ 250.000–400.000</b>. Com 100 clientes pagantes (MRR R$ 22,7k), o ativo passa a valer por múltiplo de receita SaaS (3–5× ARR): <b>R$ 800k–1,4 mi</b>.</p>
+</div>
+
+<div class="card">
+<h3>4.4 Payback</h3>
+<div class="tablewrap"><table>
+<tr><th>Cenário</th><th>Investimento</th><th>Margem líquida/cliente</th><th>Clientes p/ pagar em 12 meses</th><th>Leitura</th></tr>
+<tr><td>Conservador</td><td>R$ 120.000</td><td>R$ 84</td><td><b>~119 clientes</b></td><td>12 × 119 × 84 ≈ R$ 120k</td></tr>
+<tr><td>Realista</td><td>R$ 95.000</td><td>R$ 134</td><td><b>~59 clientes</b></td><td>12 × 59 × 134 ≈ R$ 95k</td></tr>
+<tr><td>Otimista</td><td>R$ 75.000</td><td>R$ 152 + setup Premium</td><td><b>~35 clientes</b></td><td>Premium antecipa caixa</td></tr>
+</table></div>
+<p style="font-size:.83rem">Traduzindo: <b>mantendo ~60 clientes ativos por um ano, o investimento inteiro volta</b>. Cada venda do serviço Premium (seção 6) encurta o payback em ~2 clientes-mês.</p>
+</div>
+
+<div class="card">
+<h3>4.5 Custo de manutenção (mensal) &nbsp;·&nbsp; 4.6 Custo de atualização</h3>
+<div class="tablewrap"><table>
+<tr><th>Manutenção</th><th>R$/mês</th><th></th><th>Atualização/evolução</th><th>R$/mês</th></tr>
+<tr><td>Infra + monitoramento + backups</td><td>200–350</td><td></td><td>Novas funcionalidades (20–40 h/mês)</td><td>2.400–4.800</td></tr>
+<tr><td>Correções/bugs (8–16 h)</td><td>960–1.920</td><td></td><td>Atualização de APIs (WhatsApp/IA/Asaas)</td><td>300–600</td></tr>
+<tr><td>Banco (vacuum, índices, crescimento)</td><td>incluso</td><td></td><td>Evolução de modelos de IA (prompts, testes)</td><td>300–600</td></tr>
+<tr><td>Suporte N1 (até ~50 clientes)</td><td>1.500–2.500</td><td></td><td><b>Total anual evolução</b></td><td><b>R$ 36k–72k</b></td></tr>
+<tr><td><b>Total manutenção</b></td><td><b>R$ 2.7k–4.8k</b></td><td></td><td></td><td></td></tr>
+</table></div>
+</div>
+
+<!-- ============ COMERCIAL ============ -->
+<h2 id="comercial">5 · Estratégia Comercial</h2>
+
+<div class="card">
+<h3>5.1 Trial de 7 dias — desenho recomendado</h3>
+<ul>
+  <li><b>Sem cartão de crédito</b> (padrão dos 4 concorrentes; para a persona 40+ pedir cartão antes de mostrar valor mata a conversão).</li>
+  <li><b>Acesso ao plano Profissional inteiro</b> durante o trial (quem prova o CRM+WhatsApp converte melhor do que quem prova só o financeiro), com limites de segurança: <b>1 número de WhatsApp, 30 disparos/dia, 50 respostas de IA, 500 leads importados</b>.</li>
+  <li><b>Ativação guiada</b> (o "aha moment" precisa acontecer em 10 minutos): checklist de 4 passos no primeiro login — conectar WhatsApp → importar/criar 5 leads → ativar o agente em 1 estágio → receber a 1ª resposta da IA. Os tutoriais interativos já existentes conduzem cada passo.</li>
+  <li><b>Régua de conversão</b> (usar o próprio produto!): D0 boas-vindas + convite p/ implantação assistida · D2 "seu agente respondeu X leads" · D5 caso de cliente + oferta · D6 aviso de expiração + desconto de 20% no 1º mês · D7 expira → modo leitura por 7 dias (dados retidos = motivo de voltar).</li>
+  <li><b>Meta de referência do funil</b>: visita→trial 8–12%, trial→pago 15–25% (com implantação assistida no meio, 30%+).</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>5.2 Projeção de vendas (ARPU R$ 227 — mix 20% Starter / 60% Profissional / 20% Enterprise)</h3>
+<div class="tablewrap"><table>
+<tr><th>Clientes</th><th>MRR</th><th>ARR</th><th>Custo op./mês</th><th>Lucro bruto/mês</th><th>Lucro líquido/mês*</th><th>Estrutura necessária</th></tr>
+<tr><td>10</td><td>R$ 2.270</td><td>R$ 27.240</td><td>R$ 700</td><td>R$ 1.570</td><td>R$ 1.200</td><td>fundador + suporte próprio</td></tr>
+<tr><td>50</td><td>R$ 11.350</td><td>R$ 136.200</td><td>R$ 2.500</td><td>R$ 8.850</td><td>R$ 6.600</td><td>+ 1 pessoa suporte/CS meio período</td></tr>
+<tr><td>100</td><td>R$ 22.700</td><td>R$ 272.400</td><td>R$ 4.800</td><td>R$ 17.900</td><td>R$ 12.900</td><td>1 CS full + 2ª VPS</td></tr>
+<tr><td>250</td><td>R$ 56.750</td><td>R$ 681.000</td><td>R$ 12.500</td><td>R$ 44.250</td><td>R$ 30.000</td><td>2 CS + 1 dev + infra dedicada</td></tr>
+<tr><td>500</td><td>R$ 113.500</td><td>R$ 1.362.000</td><td>R$ 27.000</td><td>R$ 86.500</td><td>R$ 55.000</td><td>time de 5–7 pessoas</td></tr>
+<tr><td>1000</td><td>R$ 227.000</td><td>R$ 2.724.000</td><td>R$ 58.000</td><td>R$ 169.000</td><td>R$ 105.000</td><td>time 10–14 + infra em nuvem gerenciada</td></tr>
+</table></div>
+<p style="font-size:.78rem;color:var(--muted)">*Líquido após impostos (Simples, faixas progressivas), gateway, folha de suporte/CS e manutenção. Não inclui marketing.</p>
+<div class="tablewrap"><table>
+<tr><th>Unit economics</th><th>Valor</th><th>Como foi calculado</th></tr>
+<tr><td>LTV (receita)</td><td><b>R$ 4.540</b></td><td>ARPU R$ 227 ÷ churn 5%/mês (vida média 20 meses)</td></tr>
+<tr><td>LTV (margem)</td><td><b>~R$ 3.100</b></td><td>LTV × margem realista 68%</td></tr>
+<tr><td>CAC máximo saudável</td><td><b>R$ 1.000</b></td><td>⅓ do LTV-margem (regra 3:1)</td></tr>
+<tr><td>CAC estimado por canal</td><td>Indicação: R$ 100–300 · Conteúdo/SEO: R$ 300–600 · Tráfego pago: R$ 600–1.200</td><td>benchmarks BR para SaaS PME de tíquete ~R$ 200</td></tr>
+<tr><td>Payback do CAC</td><td><b>4–7 meses</b></td><td>CAC ÷ margem mensal por cliente</td></tr>
+</table></div>
+</div>
+
+<!-- ============ PREMIUM ============ -->
+<h2 id="premium">6 · Serviço Premium (Implantação + Consultoria)</h2>
+<div class="card">
+<p style="font-size:.85rem">A persona (empresário 40+, clínicas, consultorias) <b>não quer configurar software — quer o problema resolvido</b>. O Premium transforma isso em receita e derruba o churn dos primeiros 90 dias (cliente implantado não cancela). É também o que nenhum concorrente global entrega em português com equipe própria.</p>
+<div class="tablewrap"><table>
+<tr><th></th><th>Implantação Express</th><th>Implantação Premium ⭐</th><th>Acompanhamento Premium (mensal)</th></tr>
+<tr><td><b>Escopo</b></td><td>Setup essencial</td><td>Operação completa de atendimento</td><td>Consultor dedicado contínuo</td></tr>
+<tr><td><b>Entregáveis</b></td><td>WhatsApp conectado · funil configurado · importação de contatos · 1 treinamento (1h30)</td><td>Tudo do Express + desenho do fluxo comercial · cadências de follow-up por estágio · agente de IA calibrado (persona, produtos, objeções) · lembretes de reunião · 2 treinamentos · 30 dias de ajustes</td><td>Reunião mensal de resultados · ajustes de cadência e IA · novos fluxos · prioridade em suporte e roadmap</td></tr>
+<tr><td><b>Horas</b></td><td>6–8 h</td><td>16–24 h</td><td>4–6 h/mês</td></tr>
+<tr><td><b>Preço sugerido</b></td><td><b>R$ 897</b> (único)</td><td><b>R$ 2.497</b> (único ou 3× R$ 897)</td><td><b>R$ 797/mês</b> (mín. 3 meses)</td></tr>
+<tr><td><b>Margem</b></td><td>~55%</td><td>~55–60%</td><td>~60%</td></tr>
+</table></div>
+<ul>
+  <li><b>Cobrança separada da assinatura</b> (produto ≠ serviço), via Asaas com parcelamento.</li>
+  <li><b>Oferta no momento certo</b>: no fim do trial e no upgrade para Enterprise ("assinou Enterprise, a implantação Express é cortesia" — custo baixo, percepção alta).</li>
+  <li>Meta: 30% dos novos clientes com algum pacote → a 10 vendas/mês, Premium adiciona <b>R$ 8–15k/mês</b> de receita de serviço.</li>
+</ul>
+</div>
+
+<!-- ============ SUPORTE ============ -->
+<h2 id="suporte">7 · Estrutura de Suporte</h2>
+<div class="card">
+<div class="tablewrap"><table>
+<tr><th>Canal</th><th>Uso</th><th>Horário</th><th>SLA 1ª resposta</th></tr>
+<tr><td><b>WhatsApp (número exclusivo de suporte)</b></td><td>Canal principal — a persona vive nele</td><td>Seg–sex 8h–18h</td><td>Starter: 8h úteis · Profissional: 4h · Enterprise: <b>1h</b></td></tr>
+<tr><td>E-mail (suporte@)</td><td>Casos formais, anexos, financeiro</td><td>24/7 (fila)</td><td>1 dia útil</td></tr>
+<tr><td>Central de ajuda</td><td>Autoatendimento: docs + os tutoriais interativos do app + vídeos curtos</td><td>24/7</td><td>—</td></tr>
+<tr><td>Sexta-feira (IA no app)</td><td>1º nível automático: dúvidas de uso respondidas na hora</td><td>24/7</td><td>imediato</td></tr>
+</table></div>
+<h3>Número exclusivo de suporte — integração com o próprio CRM (dogfooding)</h3>
+<ul>
+  <li>Um número WhatsApp dedicado, conectado a uma <b>instância do próprio Futuron</b>, com funil "Suporte": Novo chamado → Em atendimento → Aguardando cliente → Resolvido.</li>
+  <li><b>Agente de IA reativo no estágio "Novo chamado"</b>: identifica o cliente, coleta o problema, responde as dúvidas comuns (base: a doc do produto) e escala para humano quando necessário — exatamente o produto que se vende, virando case vivo.</li>
+  <li>Fluxo: recepção IA (0–5 min) → triagem (bug/dúvida/financeiro) → humano N1 → dev N2 quando técnico → follow-up automático de satisfação D+1 (cadência).</li>
+  <li>Processo: todo chamado vira lead no funil de suporte com anotações — histórico completo por cliente, métricas no dashboard (volume, tempo de resolução).</li>
+</ul>
+</div>
+
+<!-- ============ FAQ ============ -->
+<h2 id="faq">8 · FAQ Completo (persona: empresários e profissionais 40+, clínicas, consultorias)</h2>
+<div class="card">
+<p class="faq-q">1. Meus dados e as conversas dos meus clientes ficam seguros?</p>
+<p class="faq-a">Sim. Cada empresa tem um ambiente isolado — seus dados nunca se misturam com os de outra conta. O acesso é controlado por usuário e senha com níveis de permissão, tudo trafega criptografado (HTTPS) e fazemos backups automáticos. Você é dono dos seus dados: pode exportá-los quando quiser.</p>
+<p class="faq-q">2. Eu não sou "bom de tecnologia". Vou conseguir usar?</p>
+<p class="faq-a">Foi desenhado exatamente para você. A tela funciona como um quadro de post-its (arrasta o cliente de uma coluna para outra) e o sistema tem tutoriais guiados que mostram, passo a passo e dentro da própria tela, como fazer cada coisa. E se preferir não configurar nada, nossa equipe implanta tudo para você (Implantação Assistida).</p>
+<p class="faq-q">3. Preciso instalar alguma coisa? Funciona no celular?</p>
+<p class="faq-a">Nada de instalação. É 100% na nuvem: abre no navegador do computador, tablet ou celular. Sua equipe pode trabalhar de lugares diferentes ao mesmo tempo.</p>
+<p class="faq-q">4. Como funciona a conexão com o WhatsApp? Uso o meu número?</p>
+<p class="faq-a">Sim, você conecta o seu próprio número (ou um número da empresa) lendo um QR Code — como o WhatsApp Web. Cada vendedor pode ter o seu. As conversas aparecem dentro do CRM, ligadas ao cliente certo, e os envios automáticos respeitam intervalos de segurança para proteger seu número.</p>
+<p class="faq-q">5. O que exatamente a Inteligência Artificial faz? Ela vai falar besteira com meu cliente?</p>
+<p class="faq-a">O agente de IA responde os leads no WhatsApp seguindo as SUAS instruções: seu tom de voz, seus produtos, seus preços e suas regras (o que pode e o que não pode dizer). Ele lê o histórico da conversa antes de responder, qualifica o lead, agenda reuniões e faz follow-up de quem parou de responder. Você liga e desliga por etapa do funil ou por cliente específico — e pode assumir a conversa a qualquer momento.</p>
+<p class="faq-q">6. Quanto tempo leva para estar funcionando?</p>
+<p class="faq-a">O básico (conta criada, WhatsApp conectado, funil pronto) leva menos de 1 dia. Uma operação completa com automações e IA calibrada leva de 3 a 7 dias com a Implantação Assistida — nossa equipe configura junto com você.</p>
+<p class="faq-q">7. Já uso outro CRM (ou planilhas). Consigo migrar?</p>
+<p class="faq-a">Sim. Você importa seus contatos e leads por planilha (CSV/Excel) em minutos, e também consegue trazer contatos direto do seu WhatsApp. Na Implantação Assistida, nós fazemos a migração para você.</p>
+<p class="faq-q">8. Preciso treinar minha equipe?</p>
+<p class="faq-a">O sistema ensina sozinho (tutoriais interativos em cada tela), e os pacotes de implantação incluem treinamento ao vivo para a equipe. Novos funcionários aprendem no primeiro dia.</p>
+<p class="faq-q">9. Como funciona a contratação? Tem fidelidade?</p>
+<p class="faq-a">Assinatura mensal no cartão, boleto ou Pix — sem fidelidade e sem multa. Você pode fazer upgrade quando a equipe crescer e cancelar quando quiser, direto na plataforma, sem ligar para ninguém.</p>
+<p class="faq-q">10. E se eu cancelar, perco meu histórico?</p>
+<p class="faq-a">Não. Antes de sair você exporta seus clientes, conversas e lançamentos. Mantemos seus dados por 90 dias após o cancelamento, caso decida voltar.</p>
+<p class="faq-q">11. Que tipo de suporte eu tenho?</p>
+<p class="faq-a">Suporte em português por WhatsApp e e-mail, em horário comercial, com tempos de resposta garantidos por plano (no Enterprise, 1 hora). Além da central de ajuda e da assistente de IA dentro do sistema, disponível 24/7.</p>
+<p class="faq-q">12. Serve para o meu ramo (clínica, consultoria, serviços)?</p>
+<p class="faq-a">O funil é 100% configurável: as etapas, as mensagens automáticas e o comportamento da IA se adaptam ao seu processo — primeira consulta, proposta, contrato, retorno. Clínicas usam os lembretes de reunião (24h e 1h antes, com resgate de faltas); consultorias usam a qualificação automática e o funil de propostas.</p>
+</div>
+
+<!-- ============ NOVA LANDING ============ -->
+<h2 id="novalanding">9 · Nova Landing Page — estrutura e copy completa</h2>
+<p class="sub">Reescrita seguindo o que funciona nos 4 concorrentes, adaptado à persona BR 40+. Marca sugerida: <b>Futuron CRM</b> (produto), "by DuoFuturo" no rodapé.</p>
+
+<div class="lp-section"><h4>SEÇÃO 1 — HERO</h4>
+<div class="copy">Badge: ⚡ CRM + WhatsApp + Inteligência Artificial
+
+H1: Seu WhatsApp vendendo — até quando você não está olhando.
+
+Sub: O Futuron CRM organiza seus leads em um funil visual, responde no WhatsApp com IA treinada no seu negócio, agenda reuniões e ainda cuida do financeiro. Tudo em um lugar, em português, com gente de verdade para implantar com você.
+
+CTA primário: [ Testar grátis por 7 dias ]  — sem cartão de crédito
+CTA secundário: [ Agendar demonstração ]
+
+Micro-prova (abaixo do CTA): ✓ Pronto em 1 dia  ✓ Sem fidelidade  ✓ Suporte em português
+
+Visual: vídeo/GIF de 30s — lead manda mensagem → IA responde → card anda no kanban → reunião agendada.</div></div>
+
+<div class="lp-section"><h4>SEÇÃO 2 — DOR (identificação)</h4>
+<div class="copy">H2: Quantos clientes você perdeu por demorar a responder?
+
+3 cartões:
+🕐 "Vi sua mensagem só à noite" — Lead que espera 4 horas fecha com o concorrente que respondeu em 4 minutos.
+📋 "Tá tudo na cabeça (ou na planilha)" — Follow-up esquecido é venda esquecida. Ninguém lembra de todo mundo.
+💸 "Vendi, mas não sei se lucrei" — Vender sem enxergar o caixa é dirigir olhando só o retrovisor.</div></div>
+
+<div class="lp-section"><h4>SEÇÃO 3 — SOLUÇÃO (o agente de IA como protagonista)</h4>
+<div class="copy">H2: Conheça o vendedor que nunca dorme
+
+Sub: O agente de IA do Futuron atende cada lead no WhatsApp como o seu melhor vendedor atenderia:
+
+✓ Responde na hora, no seu tom de voz, seguindo as suas regras
+✓ Faz as perguntas certas e qualifica o lead (quem tem potencial sobe no funil sozinho)
+✓ Agenda a reunião e envia lembretes — inclusive quando o cliente falta
+✓ Retoma quem parou de responder, com follow-ups que citam a conversa (nada de mensagem robótica)
+✓ Você assume a conversa quando quiser, com todo o histórico na tela
+
+Visual: simulação de conversa real (bolhas WhatsApp) ao lado do kanban se movendo.</div></div>
+
+<div class="lp-section"><h4>SEÇÃO 4 — COMO FUNCIONA (3 passos)</h4>
+<div class="copy">01 Conecte — Leia um QR Code e seu WhatsApp está dentro do CRM. Importe seus contatos em minutos.
+02 Configure (ou deixe com a gente) — Monte seu funil e as mensagens automáticas de cada etapa — ou peça a Implantação Assistida.
+03 Venda com o piloto automático — A IA atende, qualifica e agenda. Você acompanha tudo no painel e foca em fechar.</div></div>
+
+<div class="lp-section"><h4>SEÇÃO 5 — RECURSOS (grade 6, ordem nova)</h4>
+<div class="copy">🤖 Agente de IA no WhatsApp — treinado no seu negócio, por etapa do funil
+📊 Funil visual (Kanban) — arraste leads, veja tudo em Lista ou no Fluxo de automações
+📨 Follow-up automático — cadências por etapa: D+1, D+3, D+6… nunca mais esqueça um lead
+📢 Disparos em massa protegidos — mensagens personalizadas com intervalo anti-bloqueio
+📅 Reuniões sem furo — lembretes 24h/1h antes + resgate automático de quem faltou
+💰 Financeiro integrado — receitas, despesas, parcelas e cobrança (o que nenhum CRM tem)</div></div>
+
+<div class="lp-section"><h4>SEÇÃO 6 — PROVA SOCIAL (nova — crítica)</h4>
+<div class="copy">H2: Quem usa, não volta para a planilha
+
+• 3 depoimentos com foto, nome, empresa e NÚMERO ("reduzi o tempo de resposta de horas para minutos", "x% mais reuniões agendadas")
+• Contadores reais: leads gerenciados · mensagens automatizadas · reuniões agendadas (o sistema já tem esses números)
+• Logos de clientes (com autorização)
+[Enquanto não há depoimentos coletados: usar case interno Escola Panthers com resultados reais e print do funil.]</div></div>
+
+<div class="lp-section"><h4>SEÇÃO 7 — COMPARAÇÃO DE PREÇO (nova)</h4>
+<div class="copy">H2: CRM com IA não precisa custar por usuário
+
+Tabela: "Equipe de 5 pessoas/mês" → Kommo Avançado ~R$ 680 · Pipedrive ~R$ 400 + extras · Futuron Profissional R$ 219 (tudo incluso)
+Linha final: "Aqui o preço é por empresa. Cresça a equipe sem susto na fatura."</div></div>
+
+<div class="lp-section"><h4>SEÇÃO 8 — PLANOS (com trial e anual)</h4>
+<div class="copy">Toggle: Mensal / Anual (2 meses grátis)
+
+Starter R$ 79 — começar a organizar (2 usuários, funil, financeiro, IA financeira)
+Profissional R$ 219 ⭐ mais popular — vender no WhatsApp (5 usuários, disparos WhatsApp/e-mail, importação, agendamentos)
+Enterprise R$ 397 — operação no piloto automático (8 usuários, WhatsApp por usuário, AGENTE DE IA COMPLETO, automações de estágio, suporte 1h)
+
+Todos com: [ Testar grátis por 7 dias ] — sem cartão
+Abaixo: + Implantação Assistida a partir de R$ 897 (opcional) — nossa equipe configura tudo para você</div></div>
+
+<div class="lp-section"><h4>SEÇÃO 9 — IMPLANTAÇÃO ASSISTIDA (diferencial local)</h4>
+<div class="copy">H2: Você não vai ficar sozinho com um software novo
+
+"Toda ferramenta te abandona depois do cadastro. Aqui, uma equipe brasileira desenha seu funil, conecta seu WhatsApp, calibra a IA com seus produtos e treina sua equipe — em até 7 dias você está operando."
+CTA: [ Quero implantação assistida ]</div></div>
+
+<div class="lp-section"><h4>SEÇÃO 10 — FAQ (as 12 perguntas da seção 8 deste relatório)</h4>
+<div class="copy">Com schema.org/FAQPage para SEO.</div></div>
+
+<div class="lp-section"><h4>SEÇÃO 11 — CTA FINAL + WhatsApp flutuante</h4>
+<div class="copy">H2: Pare de perder venda por falta de resposta.
+Sub: Teste grátis por 7 dias. Se não fizer sentido, é só não continuar — sem cartão, sem fidelidade, sem ligação chata.
+[ Criar minha conta grátis ]   [ Falar com um especialista no WhatsApp ]
+
++ Botão WhatsApp flutuante na página inteira (o mesmo número de suporte/vendas, atendido pelo agente de IA — a própria landing vira demonstração do produto).</div></div>
+
+<div class="card">
+<h3>Melhorias técnicas da página</h3>
+<ul>
+  <li><b>SEO</b>: title "CRM com WhatsApp e IA para pequenas empresas | Futuron CRM"; schema.org Product + FAQPage + Organization; og:image com screenshot real; página de blog/casos para termos "CRM WhatsApp", "automação WhatsApp", "IA para vendas".</li>
+  <li><b>Performance/mobile</b>: manter estático; converter imagens a WebP; vídeo do hero com poster + lazy; garantir CTAs com 44px+ de toque.</li>
+  <li><b>Analytics</b>: eventos de clique por CTA/seção (GA4 ou Plausible) + pixel Meta para remarketing — hoje não há medição de conversão.</li>
+  <li><b>Fluxo pós-clique</b>: cadastro em 2 campos (e-mail + WhatsApp) → resto no onboarding. Cada campo extra derruba conversão.</li>
+</ul>
+</div>
+
+<!-- ============ PRIORIDADES ============ -->
+<h2 id="prioridades">10 · Relatório Executivo — Prioridades (impacto × esforço)</h2>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>Ação</th><th>Impacto</th><th>Implementação</th><th>Por quê primeiro</th></tr>
+<tr><td>1</td><td>Trial 7 dias sem cartão (limites + régua de conversão)</td><td><span class="pill p-alto">Alto</span></td><td><span class="pill p-media">Média</span></td><td>Padrão da categoria; destrava todo o funil de aquisição</td></tr>
+<tr><td>2</td><td>Novo hero: promessa WhatsApp+IA, CTA de trial, vídeo/GIF de 30s do produto</td><td><span class="pill p-alto">Alto</span></td><td><span class="pill p-facil">Fácil</span></td><td>Maior alavanca de conversão por real investido</td></tr>
+<tr><td>3</td><td>Coletar 3 depoimentos com números + contadores reais na landing</td><td><span class="pill p-alto">Alto</span></td><td><span class="pill p-facil">Fácil</span></td><td>Único elemento em que o Futuron perde de TODOS os concorrentes</td></tr>
+<tr><td>4</td><td>WhatsApp flutuante na landing atendido pelo próprio agente de IA</td><td><span class="pill p-alto">Alto</span></td><td><span class="pill p-facil">Fácil</span></td><td>Demonstração viva do produto + captura de lead morno</td></tr>
+<tr><td>5</td><td>Seção "Agente de IA" como protagonista + comparação de preço vs. concorrentes</td><td><span class="pill p-alto">Alto</span></td><td><span class="pill p-facil">Fácil</span></td><td>Diferencial real hoje invisível na página</td></tr>
+<tr><td>6</td><td>Lançar Implantação Assistida (Express R$ 897 / Premium R$ 2.497)</td><td><span class="pill p-alto">Alto</span></td><td><span class="pill p-media">Média</span></td><td>Receita imediata, churn menor, encurta payback</td></tr>
+<tr><td>7</td><td>FAQ completo (12 perguntas) + schema.org</td><td><span class="pill p-medio">Médio</span></td><td><span class="pill p-facil">Fácil</span></td><td>Persona 40+ decide pelo risco percebido; SEO de brinde</td></tr>
+<tr><td>8</td><td>Número exclusivo de suporte no próprio CRM (funil + IA de triagem)</td><td><span class="pill p-medio">Médio</span></td><td><span class="pill p-media">Média</span></td><td>Retenção + case interno permanente</td></tr>
+<tr><td>9</td><td>Plano anual com 2 meses grátis</td><td><span class="pill p-medio">Médio</span></td><td><span class="pill p-facil">Fácil</span></td><td>Caixa antecipado e churn contratualmente menor</td></tr>
+<tr><td>10</td><td>Unificar marca como "Futuron CRM" (produto) by DuoFuturo</td><td><span class="pill p-medio">Médio</span></td><td><span class="pill p-media">Média</span></td><td>Três nomes hoje; marca única indexa e memoriza melhor</td></tr>
+<tr><td>11</td><td>Analytics de conversão (GA4/Plausible + eventos por CTA)</td><td><span class="pill p-medio">Médio</span></td><td><span class="pill p-facil">Fácil</span></td><td>Sem medição não há otimização das etapas seguintes</td></tr>
+<tr><td>12</td><td>Onboarding com checklist de ativação (4 passos no 1º login)</td><td><span class="pill p-alto">Alto</span></td><td><span class="pill p-media">Média</span></td><td>Trial→pago é onde o dinheiro aparece; tours já existem</td></tr>
+<tr><td>13</td><td>Blog/casos para SEO ("CRM WhatsApp", "IA para vendas")</td><td><span class="pill p-medio">Médio</span></td><td><span class="pill p-dificil">Difícil</span></td><td>Canal de CAC baixo, efeito em 3–6 meses</td></tr>
+<tr><td>14</td><td>Avaliar WhatsApp API oficial como opção Enterprise</td><td><span class="pill p-baixo">Baixo</span></td><td><span class="pill p-dificil">Difícil</span></td><td>Mitiga risco regulatório; custo/msg muda o unit economics — só quando houver escala</td></tr>
+</table></div>
+
+<div class="note"><b>Sequência sugerida (90 dias):</b> Semanas 1–2 → itens 2, 3, 5, 7 (nova landing no ar). Semanas 3–5 → itens 1, 4, 11 (trial + medição). Semanas 6–8 → itens 6, 12 (Premium + ativação). Semanas 9–12 → itens 8, 9, 10. O item 13 roda em paralelo contínuo.</div>
+
+<footer>Análise gerada em 16/07/2026 · dados reais: 14 empresas cadastradas, 6 assinaturas ativas, planos R$ 79/219/397, infra VPS 4vCPU/16GB · benchmark: kommo.com/br, pipedrive.com/pt, gohighlevel.com, bitrix24.com.br · valores estimados sinalizados como (est.)</footer>
+
+</div>
+</body>
+</html>

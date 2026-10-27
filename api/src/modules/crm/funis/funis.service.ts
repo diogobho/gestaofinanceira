@@ -1,4 +1,4 @@
-import { query } from '../../../config/database';
+import { query, pool } from '../../../config/database';
 
 export interface Funil {
   id: number;
@@ -42,6 +42,8 @@ export const funisService = {
     const result = await query(
       `SELECT f.*,
         (SELECT COUNT(*) FROM leads l WHERE l.funil_id = f.id AND l.arquivado = false) as total_leads,
+        -- Inclui arquivados: é o número que a exclusão do funil realmente apaga.
+        (SELECT COUNT(*) FROM leads l WHERE l.funil_id = f.id) as total_leads_geral,
         (SELECT COUNT(*) FROM estagios_funil e WHERE e.funil_id = f.id) as total_estagios
        FROM funis f
        WHERE f.empresa_id = $1 AND f.ativo = true${tipoFilter}
@@ -230,27 +232,49 @@ export const funisService = {
     return result.rows[0];
   },
 
-  async delete(id: number, empresaId: number): Promise<boolean> {
+  /**
+   * Exclui o funil e TUDO que está pendurado nele: leads (com tarefas, anotações,
+   * follow-ups agendados, tags e contexto do agente, por cascata), estágios e
+   * automações. Operação destrutiva e sem desfazer — a interface pede confirmação
+   * digitando o nome do funil e mostra a contagem de leads antes.
+   *
+   * Antes a exclusão era barrada quando havia qualquer lead; hoje ela leva os leads
+   * junto, de propósito. Só os funis padrão (aquisição e CX) continuam protegidos:
+   * eles são recriados automaticamente pelo sistema e apagá-los não resolveria nada.
+   *
+   * Retorna quantos leads foram removidos (para a mensagem de confirmação) ou null
+   * se o funil não existe na empresa.
+   */
+  async delete(id: number, empresaId: number): Promise<{ leadsRemovidos: number } | null> {
     const funil = await this.getById(id, empresaId);
-    if (!funil) return false;
+    if (!funil) return null;
 
-    // Não permitir deletar funil padrão
     if (funil.padrao) {
-      throw new Error('Não é possível deletar o funil padrão');
+      throw new Error('Não é possível deletar o funil padrão do CRM');
+    }
+    if (funil.padrao_cx) {
+      throw new Error('Não é possível deletar o funil padrão do CX');
     }
 
-    // Verificar se há leads
-    const leadsResult = await query(
-      `SELECT COUNT(*) as count FROM leads WHERE funil_id = $1`,
-      [id]
-    );
-
-    if (parseInt(leadsResult.rows[0].count) > 0) {
-      throw new Error('Não é possível deletar funil com leads. Mova ou delete os leads primeiro.');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Leads primeiro, explicitamente: estagios_funil também cascateia de funis e
+      // leads.estagio_id é RESTRICT — apagar nesta ordem não depende de o Postgres
+      // resolver as duas cascatas na ordem certa.
+      const del = await client.query(
+        `DELETE FROM leads WHERE funil_id = $1 AND empresa_id = $2`,
+        [id, empresaId]
+      );
+      await client.query(`DELETE FROM funis WHERE id = $1 AND empresa_id = $2`, [id, empresaId]);
+      await client.query('COMMIT');
+      return { leadsRemovidos: del.rowCount ?? 0 };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-
-    await query(`DELETE FROM funis WHERE id = $1 AND empresa_id = $2`, [id, empresaId]);
-    return true;
   },
 
   async getStats(funilId: number, empresaId: number): Promise<any> {

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, Plus, Edit2 } from 'lucide-react'
+import { ChevronDown, Plus, Edit2, Trash2, Eraser } from 'lucide-react'
 import type { Funil } from '@/types/crm'
 
 interface FunilSelectorProps {
@@ -8,9 +8,12 @@ interface FunilSelectorProps {
   onSelect: (funilId: number) => void
   onCreateNew: () => void
   onEdit: (funil: Funil) => void
+  onDelete?: (funil: Funil) => void
+  /** Apaga os leads e mantém o funil. Só vem para quem administra a conta. */
+  onEsvaziar?: (funil: Funil) => void
 }
 
-export default function FunilSelector({ funis, selectedFunilId, onSelect, onCreateNew, onEdit }: FunilSelectorProps) {
+export default function FunilSelector({ funis, selectedFunilId, onSelect, onCreateNew, onEdit, onDelete, onEsvaziar }: FunilSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -66,17 +69,46 @@ export default function FunilSelector({ funis, selectedFunilId, onSelect, onCrea
                   <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">padrao</span>
                 )}
               </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onEdit(funil)
-                  setIsOpen(false)
-                }}
-                className="p-1 text-gray-400 hover:text-primary-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Editar funil"
-              >
-                <Edit2 size={14} />
-              </button>
+              <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEdit(funil)
+                    setIsOpen(false)
+                  }}
+                  className="p-1 text-gray-400 hover:text-primary-600"
+                  title="Editar funil"
+                >
+                  <Edit2 size={14} />
+                </button>
+                {onEsvaziar && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEsvaziar(funil)
+                      setIsOpen(false)
+                    }}
+                    className="p-1 text-gray-400 hover:text-red-600"
+                    title="Esvaziar funil (exclui os leads e mantém o funil)"
+                  >
+                    <Eraser size={14} />
+                  </button>
+                )}
+                {/* Funis padrão são recriados pelo sistema — não faz sentido excluir. */}
+                {onDelete && !funil.padrao && !funil.padrao_cx && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDelete(funil)
+                      setIsOpen(false)
+                    }}
+                    className="p-1 text-gray-400 hover:text-red-600"
+                    title="Excluir funil (apaga os leads dentro dele)"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
 

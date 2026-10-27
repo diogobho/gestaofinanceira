@@ -1,12 +1,14 @@
 import { Response } from 'express';
 import { AuthRequest } from '../../../middlewares/auth.middleware';
 import { disparosEmailService } from './disparos-email.service';
+import { ERRO_SEM_SMTP } from '../../../services/email.service';
 
 export const disparosEmailController = {
   async listarLeads(req: AuthRequest, res: Response) {
     try {
       const empresaId = req.user!.empresa_id!;
-      const { funil_id, search, page, per_page, estagio_id, responsavel_id, temperatura, origem } = req.query;
+      const { funil_id, search, page, per_page, estagio_id, responsavel_id, temperatura, origem,
+              sem_tarefa, com_tarefa_hoje, com_tarefa_atrasada } = req.query;
       if (!funil_id) return res.status(400).json({ error: 'funil_id é obrigatório' });
       const result = await disparosEmailService.listarLeads(
         empresaId,
@@ -19,6 +21,9 @@ export const disparosEmailController = {
           responsavel_id: responsavel_id ? parseInt(responsavel_id as string) : undefined,
           temperatura: temperatura as string | undefined,
           origem: origem as string | undefined,
+          sem_tarefa: sem_tarefa === 'true',
+          com_tarefa_hoje: com_tarefa_hoje === 'true',
+          com_tarefa_atrasada: com_tarefa_atrasada === 'true',
         }
       );
       res.json(result);
@@ -32,7 +37,8 @@ export const disparosEmailController = {
       const empresaId = req.user!.empresa_id!;
       const usuarioId = req.user!.userId!;
       const { assunto, template, funil_id, todos, estagio_pos_disparo_id, agendado_para,
-              estagio_id, responsavel_id, temperatura, origem } = req.body;
+              estagio_id, responsavel_id, temperatura, origem,
+              sem_tarefa, com_tarefa_hoje, com_tarefa_atrasada } = req.body;
 
       if (!assunto || !template) {
         return res.status(400).json({ error: 'assunto e template são obrigatórios' });
@@ -63,11 +69,14 @@ export const disparosEmailController = {
         responsavel_id: responsavel_id ? Number(responsavel_id) : undefined,
         temperatura: temperatura || undefined,
         origem: origem || undefined,
+        sem_tarefa: sem_tarefa === 'true' || sem_tarefa === true,
+        com_tarefa_hoje: com_tarefa_hoje === 'true' || com_tarefa_hoje === true,
+        com_tarefa_atrasada: com_tarefa_atrasada === 'true' || com_tarefa_atrasada === true,
       });
 
       res.json({ disparo_id: disparoId });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.message === ERRO_SEM_SMTP ? 400 : 500).json({ error: err.message });
     }
   },
 

@@ -12,19 +12,89 @@ export interface Funil {
   created_at: string;
   updated_at: string;
   total_leads?: number;
+  /** Total de leads incluindo arquivados — o que a exclusão do funil apaga de fato. */
+  total_leads_geral?: number;
   total_estagios?: number;
+}
+
+/** Um toque (mensagem agendada) da cadência de um estágio. */
+export interface PassoFollowupConfig {
+  base?: 'entrada' | 'anterior'; // 'entrada' = da entrada no estágio | 'anterior' = do passo anterior
+  tipo: 'manual' | 'agente_ia';
+  mensagem?: string;
+  instrucao_ia?: string;
+  // Mídia opcional (só tipo manual)
+  media_url?: string | null;
+  media_mimetype?: string | null;
+  media_filename?: string | null;
+  // Padrão único de agendamento
+  modo?: 'dias' | 'data'; // 'dias' = após X unidade | 'data' = data fixa
+  atraso_dias?: number | null;   // quantidade (X) do atraso
+  atraso_unidade?: 'minuto' | 'hora' | 'dia'; // unidade do atraso (default 'dia')
+  data_fixa?: string | null;     // 'YYYY-MM-DD'
+  hora_envio?: string | null;    // 'HH:MM'
+  dias_semana?: number[] | null; // 0=Dom..6=Sáb, null = todos os dias
+  // Número oficial: modelo aprovado que sai no lugar do passo com a janela de 24h fechada.
+  modelo_whatsapp?: { nome: string; idioma?: string; variaveis: string[]; cabecalho?: string | null } | null;
+  // Passo só para algumas origens do lead (ex.: Clube do Livro e Desafio na Entrada do funil 74).
+  origens?: { modo: 'so' | 'exceto'; contem: string[] } | null;
 }
 
 export interface EstagioFollowupConfig {
   ativo: boolean;
-  tipo: 'manual' | 'agente_ia';
+  /** Nutrição: quem responde volta para a etapa de onde veio. */
+  voltar_ao_responder?: boolean;
+  /** A cadência conta do silêncio do lead: cada resposta recomeça os toques (funil 74, 13/10/2026). */
+  reiniciar_ao_responder?: boolean;
+  // Cadência de vários toques. Configs antigas (campos no topo) continuam válidas
+  // e são lidas como um passo único.
+  passos?: PassoFollowupConfig[];
+  // --- Campos legados (passo único) ---
+  tipo?: 'manual' | 'agente_ia';
   mensagem?: string;
   instrucao_ia?: string;
-  data?: string;          // 'YYYY-MM-DD' — apenas para manual: data de envio
-  hora_inicio?: string;   // 'HH:MM' — manual: hora de envio; agente_ia: início da janela
-  hora_fim?: string;      // 'HH:MM' — agente_ia: fim da janela
-  dias_semana?: number[]; // 0=Dom..6=Sáb, undefined = todos os dias
+  media_url?: string | null;
+  media_mimetype?: string | null;
+  media_filename?: string | null;
+  modo?: 'dias' | 'data';
+  atraso_dias?: number | null;
+  atraso_unidade?: 'minuto' | 'hora' | 'dia';
+  data_fixa?: string | null;
+  hora_envio?: string | null;
+  dias_semana?: number[] | null;
 }
+
+export interface MarcoReuniaoLembrete {
+  marco: string;               // id estável: lembrete_24h, lembrete_1h, noshow_d0…
+  grupo?: 'lembrete' | 'noshow';
+  offset_min: number;          // <0 antes da reunião, >=0 depois (no-show)
+  tolerancia_min?: number;
+  mensagem: string;
+}
+
+export interface ReuniaoLembretesConfig {
+  ativo: boolean;
+  marcos: MarcoReuniaoLembrete[];
+}
+
+/**
+ * Categorias de falha que o motor de follow-up grava em `erro_categoria`.
+ * Fonte no backend: `shared/erros.ts` (CategoriaErro) + os estados que o próprio
+ * motor nomeia (`conflito_config`, `config_ausente`, `destino_invalido`) e o
+ * encerramento por lead arquivado.
+ */
+export type FollowupErroCategoria =
+  | 'ia_credencial'
+  | 'canal_indefinido'
+  | 'canal_bloqueado'
+  | 'destino_invalido'
+  | 'transitorio'
+  | 'conflito_config'
+  | 'config_ausente'
+  | 'lead_arquivado'
+  /** Cancelamento feito por uma pessoa na tela — o motivo digitado fica em `erro`. */
+  | 'cancelado_usuario'
+  | 'desconhecido';
 
 export interface FollowupAgendado {
   id: number;
@@ -35,13 +105,25 @@ export interface FollowupAgendado {
   tipo: 'manual' | 'agente_ia';
   mensagem?: string;
   instrucao_ia?: string;
-  status: 'pendente' | 'enviado' | 'falhou' | 'cancelado';
+  media_url?: string | null;
+  media_mimetype?: string | null;
+  media_filename?: string | null;
+  // 'processando' = reclamado por um ciclo do scheduler (migration 070). Aparece na
+  // listagem, então o type precisa conhecê-lo — sem isso a tela cai no rótulo de
+  // "desconhecido" justamente durante o envio.
+  status: 'pendente' | 'processando' | 'enviado' | 'falhou' | 'cancelado';
   erro?: string;
+  /** Categoria da última falha (migration 070). Ver `utils/followupErros.ts`. */
+  erro_categoria?: FollowupErroCategoria | null;
+  tentativas?: number;
   enviado_at?: string;
   origem: 'lead' | 'estagio';
-  hora_inicio?: string;
-  hora_fim?: string;
-  dias_semana?: number[];
+  modo?: 'dias' | 'data';
+  atraso_dias?: number | null;
+  atraso_unidade?: 'minuto' | 'hora' | 'dia';
+  data_fixa?: string | null;
+  hora_envio?: string | null;
+  dias_semana?: number[] | null;
   created_at: string;
   updated_at: string;
   // Campos de joins
@@ -71,10 +153,15 @@ export interface EstagioFunil {
   is_entrada: boolean;
   is_ganho: boolean;
   is_perdido: boolean;
-  agente_ia_ativo?: boolean;
-  instrucoes_agente_ia?: string;
   estagio_apos_resposta_id?: number | null;
+  estagio_apos_envio_id?: number | null;
   followup_config?: EstagioFollowupConfig | null;
+  auto_criar_lead?: boolean;
+  auto_criar_lead_usuarios?: number[] | null;
+  agente_ia_ativo?: boolean;
+  instrucoes_agente_ia?: string | null;   // orientação do agente reativo neste estágio
+  reuniao_lembretes?: ReuniaoLembretesConfig | null;
+  tarefas_entrada?: TarefaDoEstagio[];
   created_at: string;
   updated_at: string;
   total_leads?: number;
@@ -94,6 +181,11 @@ export interface Lead {
   cargo?: string;
   titulo?: string;
   cpf_cnpj?: string;
+  // O que o lead contou (migration 100): variáveis dos modelos do número oficial.
+  negocio?: string | null;
+  objetivo?: string | null;
+  desafio?: string | null;
+  duvida?: string | null;
   valor_potencial?: number;
   temperatura: 'frio' | 'morno' | 'quente';
   probabilidade?: number;
@@ -112,6 +204,8 @@ export interface Lead {
   estagio_nome?: string;
   estagio_cor?: string;
   foto_url?: string;
+  /** Da conversa vinculada (contatos_whatsapp) — é o que ordena "Última mensagem primeiro". */
+  ultima_mensagem_at?: string | null;
   contato?: ContatoWhatsApp;
   tags?: Tag[];
   codigo_externo?: string;
@@ -132,6 +226,11 @@ export interface Lead {
   total_tarefas_pendentes?: number;
   total_anotacoes?: number;
   total_disparos?: number;
+  /** Mensagens recebidas na conversa — só vem com a ordem "Mais mensagens recebidas". */
+  total_recebidas?: number;
+  /** Segundos até a janela de 24h do oficial fechar (0 = fechada) — só com a ordem "janela_24h". */
+  janela_resta_seg?: number | null;
+  ultima_entrada_at?: string | null;
   ultimo_estagio_disparo?: string | null;
   total_no_estagio?: number;
   followup_pendente_count?: number;
@@ -162,6 +261,20 @@ export interface Tag {
   nome: string;
   cor: string;
   created_at: string;
+}
+
+export interface Origem {
+  id: number;
+  empresa_id: number;
+  nome: string;
+  cor: string | null;
+  created_at: string;
+  total_leads?: number;
+}
+
+export interface CreateOrigemDto {
+  nome: string;
+  cor?: string;
 }
 
 export interface AtividadeLead {
@@ -214,6 +327,10 @@ export interface UpdateLeadDto {
   cargo?: string;
   titulo?: string;
   cpf_cnpj?: string;
+  negocio?: string | null;
+  objetivo?: string | null;
+  desafio?: string | null;
+  duvida?: string | null;
   valor_potencial?: number;
   temperatura?: 'frio' | 'morno' | 'quente';
   probabilidade?: number;
@@ -268,12 +385,14 @@ export interface ParticipanteGrupo {
   id: string;
   number: string;
   isAdmin: boolean;
+  /** Nome que a conta já tem para o número (contato, agenda do chip ou lead) */
+  nome?: string | null;
 }
 
 export interface ImportarParticipantesResult {
-  importados: number;
-  ignorados: number;
-  erros: number;
+  criados: number;
+  jaExistem: number;
+  comNome: number;
 }
 
 // Resultado da sincronização
@@ -307,6 +426,8 @@ export interface FunilDiarioEntry {
 
 export interface FunilAnalytics {
   acumulado: FunilEstagioAcumulado[];
+  /** Perda e etapas depois do ganho (Nutrição): fora da sequência do funil. */
+  laterais?: Array<{ estagio_id: number; estagio_nome: string; estagio_cor: string; tipo: 'perda' | 'paralela'; leads: number }>;
   diario: FunilDiarioEntry[];
   boca_funil: number;
   taxa_conversao_geral: number;
@@ -346,6 +467,11 @@ export interface Tarefa {
   status_visual?: TarefaStatusVisual;
   created_at: string;
   updated_at: string;
+  /** Meet/Teams da reunião, quando ela está na agenda do responsável (agenda externa, 103). */
+  link_reuniao?: string | null;
+  agenda_provedor?: 'google' | 'microsoft' | null;
+  /** Duração da reunião em minutos (104); null = 60. */
+  duracao_min?: number | null;
 }
 
 export interface CreateTarefaDto {
@@ -356,6 +482,7 @@ export interface CreateTarefaDto {
   data_vencimento: string;
   prioridade?: TarefaPrioridade;
   responsavel_id?: number;
+  duracao_min?: number | null;
 }
 
 export interface UpdateTarefaDto {
@@ -366,11 +493,15 @@ export interface UpdateTarefaDto {
   prioridade?: TarefaPrioridade;
   status?: TarefaStatus;
   responsavel_id?: number;
+  duracao_min?: number | null;
 }
 
 // Anotacoes
 
 export type AnotacaoTipo = 'nota' | 'importante' | 'lembrete';
+/** Quem escreveu a anotação (migration 069) — o agente de IA usa isso para não
+ *  confundir os próprios registros automáticos com observações de um vendedor. */
+export type AnotacaoOrigem = 'usuario' | 'agente' | 'sistema';
 
 export interface Anotacao {
   id: number;
@@ -380,6 +511,7 @@ export interface Anotacao {
   usuario_nome?: string;
   conteudo: string;
   tipo: AnotacaoTipo;
+  origem?: AnotacaoOrigem;
   created_at: string;
   updated_at: string;
 }
@@ -406,11 +538,22 @@ export interface HistoricoMensagem {
   media_mimetype?: string;
   media_tamanho?: number;
   gifPlayback?: boolean;
+  /** Arquivo apagado pela cota de mídia da conta (migration 076). */
+  midia_expirada_em?: string | null;
   enviado_at: string;
   lido_at?: string;
   entregue_at?: string;
   erro?: string;
   created_at: string;
+  /** id do WhatsApp da mensagem que esta responde (#188, migration 086). */
+  resposta_a_message_id?: string | null;
+  /** Trecho da mensagem citada, quando ela está no histórico do CRM. */
+  citada_conteudo?: string | null;
+  citada_direcao?: 'entrada' | 'saida' | null;
+  citada_tipo?: HistoricoMensagem['tipo'] | null;
+  /** Última reação de cada lado; nula = sem reação. */
+  reacao_contato?: string | null;
+  reacao_minha?: string | null;
 }
 
 // Agente IA
@@ -432,9 +575,24 @@ export interface AgenteIAConfig {
   contexto_mensagens: number;
   usuarios_habilitados: number[];
   delay_segundos: number;
+  /** Pode não responder quando a mensagem não pede resposta (migration 077). */
+  pode_ficar_em_silencio?: boolean;
+  /** Follow-ups de IA parados na fila (só saem quando o agente estiver ativo). */
+  followups_pausados?: number;
 }
 
 export interface AgenteIALeadStatus {
   ativo: boolean;
   fonte: 'lead' | 'estagio' | 'inativo';
+}
+
+/** Tarefa criada sozinha quando o card entra no estágio (108). */
+export interface TarefaDoEstagio {
+  titulo: string;
+  descricao?: string | null;
+  tipo?: 'ligacao' | 'email' | 'follow_up' | 'proposta' | 'visita' | 'outros';
+  prioridade?: 'baixa' | 'normal' | 'alta' | 'urgente';
+  prazo?: number;
+  unidade?: 'hora' | 'dia';
+  hora?: string | null;
 }

@@ -33,6 +33,8 @@ router.get('/estagios/:estagioId/leads', leadsController.listByEstagio);
 // Rotas diretas em /leads (estáticas antes das parametrizadas)
 router.get('/leads/origens', leadsController.getOrigens);
 router.get('/leads/verificar-duplicata', leadsController.verificarDuplicata);
+router.get('/leads/excluir-em-massa', leadsController.previaExclusaoEmMassa);
+router.post('/leads/excluir-em-massa', leadsController.excluirEmMassa);
 router.get('/leads/:id', leadsController.getById);
 router.get('/leads/:id/atividades', leadsController.getAtividades);
 router.post('/leads', leadsController.create);
@@ -51,6 +53,8 @@ router.delete('/leads/:id/tags/:tagId', leadsController.removeTag);
 // WhatsApp messaging via lead (auto-cria contato se necessario)
 router.post('/leads/:id/mensagem', leadsController.enviarMensagemWhatsApp);
 router.post('/leads/:id/media', upload.single('file'), leadsController.enviarMediaWhatsApp);
+router.post('/leads/:id/whatsapp/modelo', leadsController.enviarModeloWhatsApp);
+router.post('/leads/:id/mensagens/:mensagemId/reacao', leadsController.reagirMensagemWhatsApp);
 router.get('/leads/:id/historico-whatsapp', leadsController.getHistoricoWhatsApp);
 router.post('/leads/:id/marcar-lido', leadsController.marcarLidoWhatsApp);
 

@@ -1,8 +1,8 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useState, useCallback } from 'react'
 import toast from 'react-hot-toast'
-import { funisApi, estagiosApi, leadsApi, contatosApi, tagsApi, tarefasApi, anotacoesApi, dashboardApi, agenteIaApi, usuariosEmpresaApi, followupsApi, FiltrosLead } from '@/api/crm'
-import type { CreateLeadDto, UpdateLeadDto, MoverLeadDto, CreateTagDto, CreateTarefaDto, UpdateTarefaDto, CreateAnotacaoDto, Lead, EstagioFunil, AgenteIAConfig } from '@/types/crm'
+import { funisApi, estagiosApi, leadsApi, contatosApi, tagsApi, origensApi, tarefasApi, anotacoesApi, dashboardApi, agenteIaApi, usuariosEmpresaApi, followupsApi, FiltrosLead, type Granularidade } from '@/api/crm'
+import type { CreateLeadDto, UpdateLeadDto, MoverLeadDto, CreateTagDto, CreateOrigemDto, CreateTarefaDto, UpdateTarefaDto, CreateAnotacaoDto, Lead, EstagioFunil, AgenteIAConfig } from '@/types/crm'
 
 // ========== FUNIS ==========
 
@@ -88,14 +88,22 @@ export const useUpdateEstagio = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; agente_ia_ativo?: boolean; instrucoes_agente_ia?: string; estagio_apos_resposta_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null }> }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<{ nome: string; cor: string; is_ganho?: boolean; is_perdido?: boolean; estagio_apos_resposta_id?: number | null; estagio_apos_envio_id?: number | null; followup_config?: import('@/types/crm').EstagioFollowupConfig | null; auto_criar_lead?: boolean; auto_criar_lead_usuarios?: number[] | null; agente_ia_ativo?: boolean; instrucoes_agente_ia?: string | null; reuniao_lembretes?: import('@/types/crm').ReuniaoLembretesConfig | null; tarefas_entrada?: import('@/types/crm').TarefaDoEstagio[] }> }) =>
       estagiosApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'estagios'] })
       queryClient.invalidateQueries({ queryKey: ['crm', 'funis'] })
       toast.success('Estágio atualizado!')
     },
-    onError: () => {
+    onError: (err: any) => {
+      // Conflito entre os dias do passo e a janela de envio da empresa: o backend
+      // recusa e devolve 400 com a explicação. Mostrar "Erro ao atualizar estágio"
+      // esconderia justamente a informação que resolve o problema.
+      const msg = err?.response?.data?.message
+      if (err?.response?.status === 400 && msg) {
+        toast.error(msg, { duration: 9000 })
+        return
+      }
       toast.error('Erro ao atualizar estágio')
     },
   })
@@ -141,6 +149,11 @@ export const useLeads = (funilId: number | undefined, filtros: FiltrosLead = {})
     queryFn: () => leadsApi.listByFunil(funilId!, filtros),
     enabled: !!funilId,
     refetchInterval: 30000,
+    // Trocar filtro mantém os cards na tela até os novos chegarem: sem isto o
+    // `isLoading` troca o quadro inteiro pelo spinner e desmonta o painel de filtros
+    // no meio do clique. Só no MESMO funil — os cards de outro não têm coluna aqui.
+    placeholderData: (anterior, consulta) =>
+      consulta?.queryKey[2] === funilId ? anterior : undefined,
   })
 }
 
@@ -285,6 +298,20 @@ export const useDeleteLead = () => {
   })
 }
 
+export const useExcluirLeadsEmMassa = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ funilId, estagioId }: { funilId: number; estagioId?: number }) =>
+      leadsApi.excluirEmMassa(funilId, estagioId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['crm'] })
+      const n = data?.excluidos ?? 0
+      toast.success(n === 1 ? '1 lead excluído.' : `${n} leads excluídos.`)
+    },
+  })
+}
+
 export const useLeadAtividades = (leadId: number | undefined) => {
   return useQuery({
     queryKey: ['crm', 'leads', leadId, 'atividades'],
@@ -384,8 +411,8 @@ export const useLeadEnviarMensagem = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ leadId, mensagem }: { leadId: number; mensagem: string }) =>
-      leadsApi.enviarMensagem(leadId, mensagem),
+    mutationFn: ({ leadId, mensagem, respostaA }: { leadId: number; mensagem: string; respostaA?: string | null }) =>
+      leadsApi.enviarMensagem(leadId, mensagem, respostaA),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
       queryClient.invalidateQueries({ queryKey: ['crm', 'historico'] })
@@ -394,6 +421,23 @@ export const useLeadEnviarMensagem = () => {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erro ao enviar mensagem')
+    },
+  })
+}
+
+// Reagir a uma mensagem da conversa do card (#188)
+export const useLeadReagirMensagem = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ leadId, mensagemId, emoji }: { leadId: number; mensagemId: number; emoji: string }) =>
+      leadsApi.reagirMensagem(leadId, mensagemId, emoji),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'historico'] })
+      queryClient.invalidateQueries({ queryKey: ['crm', 'lead-historico'] })
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Não foi possível reagir')
     },
   })
 }
@@ -452,7 +496,6 @@ export const useCreateTag = () => {
     mutationFn: (data: CreateTagDto) => tagsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'tags'] })
-      toast.success('Tag criada!')
     },
   })
 }
@@ -465,6 +508,62 @@ export const useDeleteTag = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'tags'] })
       toast.success('Tag deletada!')
+    },
+  })
+}
+
+// ===== Origens (catálogo gerenciável) =====
+export const useOrigensCatalogo = () => {
+  return useQuery({
+    queryKey: ['crm', 'origens'],
+    queryFn: () => origensApi.list(),
+  })
+}
+
+export const useCreateOrigem = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: CreateOrigemDto) => origensApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'origens'] })
+      toast.success('Origem criada!')
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message || 'Erro ao criar origem')
+    },
+  })
+}
+
+export const useUpdateOrigem = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<CreateOrigemDto> }) =>
+      origensApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'origens'] })
+      queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
+      toast.success('Origem atualizada!')
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message || 'Erro ao atualizar origem')
+    },
+  })
+}
+
+export const useDeleteOrigem = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) => origensApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'origens'] })
+      queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
+      toast.success('Origem removida!')
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message || 'Erro ao remover origem')
     },
   })
 }
@@ -500,6 +599,24 @@ export const useTarefasLead = (leadId: number | undefined) => {
     queryKey: ['crm', 'tarefas', leadId],
     queryFn: () => tarefasApi.listByLead(leadId!),
     enabled: !!leadId,
+  })
+}
+
+/**
+ * Tarefas da empresa inteira (a tela de Agendamentos as mostra ao lado dos
+ * follow-ups). Reusa `GET /crm/tarefas` — o mesmo endpoint que a tela já chamava
+ * direto; o que muda é ganhar cache e não refazer a consulta a cada render.
+ */
+export const useTarefasEmpresa = (filtros?: {
+  status?: string
+  responsavel_id?: number
+  funil_tipo?: 'aquisicao' | 'cx'
+}) => {
+  return useQuery({
+    queryKey: ['crm', 'tarefas-empresa', filtros?.status, filtros?.responsavel_id, filtros?.funil_tipo],
+    queryFn: () => tarefasApi.listByEmpresa(filtros),
+    refetchInterval: 60000,
+    placeholderData: keepPreviousData,
   })
 }
 
@@ -655,7 +772,10 @@ export const useImportarParticipantes = () => {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
       queryClient.invalidateQueries({ queryKey: ['crm', 'contatos'] })
-      toast.success(`${data.importados} lead(s) importado(s) com sucesso!`)
+      const partes = [`${data.criados} lead(s) importado(s)`]
+      if (data.criados > 0 && data.comNome < data.criados) partes.push(`${data.criados - data.comNome} sem nome salvo`)
+      if (data.jaExistem > 0) partes.push(`${data.jaExistem} já estava(m) no funil`)
+      toast.success(partes.join(' · '))
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erro ao importar participantes')
@@ -713,9 +833,15 @@ export const useDeleteFunil = () => {
 
   return useMutation({
     mutationFn: (id: number) => funisApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['crm', 'funis'] })
-      toast.success('Funil excluido!')
+    onSuccess: (data) => {
+      // Apagar o funil apaga os leads dele — o kanban e as listas precisam recarregar.
+      queryClient.invalidateQueries({ queryKey: ['crm'] })
+      const n = data?.leadsRemovidos ?? 0
+      toast.success(
+        n > 0
+          ? `Funil excluído com ${n} lead${n > 1 ? 's' : ''}.`
+          : 'Funil excluído!'
+      )
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erro ao excluir funil')
@@ -731,11 +857,32 @@ export interface DashboardDateFilters {
   responsavel_id?: number
 }
 
-export const useCRMDashboard = (funilId?: number, filters?: DashboardDateFilters) => {
+/**
+ * `opcoes.comparacao`: a consulta do período ANTERIOR (cartões com "subiu/caiu").
+ * Ela não roda sem período e não segura o dado velho — número de outro recorte
+ * com o rótulo novo seria uma comparação errada.
+ */
+export const useCRMDashboard = (
+  funilId?: number,
+  filters?: DashboardDateFilters,
+  granularidade?: Granularidade,
+  opcoes?: { comparacao?: boolean; enabled?: boolean }
+) => {
   return useQuery({
-    queryKey: ['crm', 'dashboard', funilId, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id],
-    queryFn: () => dashboardApi.getMetricas(funilId, filters),
+    enabled: opcoes?.enabled ?? true,
+    // A granularidade entra na chave: sem isso, trocar de dia para mês devolve
+    // o cache anterior e o gráfico não muda.
+    queryKey: ['crm', 'dashboard', funilId, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id, granularidade],
+    queryFn: () => dashboardApi.getMetricas(funilId, filters, granularidade),
     staleTime: 60000,
+    /*
+      Mantém os dados do filtro anterior enquanto o novo carrega.
+      Sem isto, mudar qualquer filtro cria uma queryKey nova, `isLoading` volta a
+      ser true, a página inteira é trocada por um spinner, a altura colapsa e o
+      navegador joga o scroll para o topo. Com `keepPreviousData` o conteúdo
+      continua na tela e só `isFetching` muda.
+    */
+    placeholderData: opcoes?.comparacao ? undefined : keepPreviousData,
   })
 }
 
@@ -743,6 +890,17 @@ export const useCRMFunilAnalytics = (funilId?: number, dias?: number, filters?: 
   return useQuery({
     queryKey: ['crm', 'dashboard', 'funil', funilId, dias, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id],
     queryFn: () => dashboardApi.getFunilAnalytics(funilId, dias, filters),
+    placeholderData: keepPreviousData,
+    staleTime: 60000,
+  })
+}
+
+export const useCRMProdutividade = (funilId?: number, filters?: DashboardDateFilters) => {
+  return useQuery({
+    queryKey: ['crm', 'dashboard', 'produtividade', funilId, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id],
+    queryFn: () => dashboardApi.getProdutividade(funilId!, filters),
+    enabled: !!funilId,
+    placeholderData: keepPreviousData,
     staleTime: 60000,
   })
 }
@@ -926,19 +1084,6 @@ export const useAgenteIAUpdateConfig = () => {
   })
 }
 
-export const useAgenteIAToggleEstagio = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ estagioId, ativo }: { estagioId: number; ativo: boolean }) =>
-      agenteIaApi.toggleEstagio(estagioId, ativo),
-    onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['crm', 'estagios'] })
-      toast.success(vars.ativo ? 'Agente IA ativado para este estágio' : 'Agente IA desativado para este estágio')
-    },
-    onError: () => toast.error('Erro ao alterar agente IA'),
-  })
-}
-
 export const useAgenteIAToggleLead = () => {
   const queryClient = useQueryClient()
   return useMutation({
@@ -984,7 +1129,7 @@ export const useCreateFollowup = () => {
   return useMutation({
     mutationFn: ({ leadId, data }: {
       leadId: number
-      data: { agendado_para: string; tipo: 'manual' | 'agente_ia'; mensagem?: string; instrucao_ia?: string; hora_inicio?: string; hora_fim?: string; dias_semana?: number[] }
+      data: Parameters<typeof followupsApi.criar>[1]
     }) => followupsApi.criar(leadId, data),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'followups', vars.leadId] })
@@ -1024,18 +1169,28 @@ export const useReagendarFollowup = () => {
   })
 }
 
-export const useAllFollowups = (filtro: 'hoje' | 'semana' | 'atrasados' | 'todos' = 'hoje', status?: string) => {
+export const useAllFollowups = (
+  filtro: 'hoje' | 'semana' | 'atrasados' | 'todos' = 'hoje',
+  status?: string,
+  funilTipo?: 'aquisicao' | 'cx'
+) => {
   return useQuery({
-    queryKey: ['crm', 'followups-todos', filtro, status],
-    queryFn: () => followupsApi.listarTodos(filtro, status),
+    queryKey: ['crm', 'followups-todos', filtro, status, funilTipo],
+    queryFn: () => followupsApi.listarTodos(filtro, status, funilTipo),
     refetchInterval: 60000,
+    // Trocar de filtro não pode esvaziar a lista: sem isto a queryKey nova zera os
+    // dados, a altura do bloco colapsa e o navegador joga o scroll para o topo.
+    placeholderData: keepPreviousData,
   })
 }
 
-export const useFollowupMetricas = () => {
+export const useFollowupMetricas = (funilId?: number, filters?: DashboardDateFilters) => {
   return useQuery({
-    queryKey: ['crm', 'followups-metricas'],
-    queryFn: () => followupsApi.metricas(),
+    // Os filtros entram na chave: sem isso, trocar de funil devolveria o cache
+    // do funil anterior e os cinco números continuariam os mesmos.
+    queryKey: ['crm', 'followups-metricas', funilId, filters?.data_inicio, filters?.data_fim, filters?.responsavel_id],
+    queryFn: () => followupsApi.metricas(funilId, filters),
     refetchInterval: 60000,
+    placeholderData: keepPreviousData,
   })
 }

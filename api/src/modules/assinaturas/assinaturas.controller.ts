@@ -1,13 +1,17 @@
 import { Request, Response } from 'express';
+import { capacidadesDaEmpresa } from '../../shared/capacidades';
 import { AuthRequest } from '../../middlewares/auth.middleware';
-import { assinaturasService } from './assinaturas.service';
+import { assinaturasService, bloqueioDaEmpresa, PARCELAMENTO } from './assinaturas.service';
+import { isAdminEmpresa } from '../../shared/roles';
+import { duoRecarga } from '../chat-financeiro/creditos';
 
 export const assinaturasController = {
   /** GET /planos — público */
   async listPlanos(req: Request, res: Response) {
     try {
       const planos = await assinaturasService.getPlanos();
-      res.json({ planos });
+      // A taxa do parcelamento vai junto: a tela calcula as parcelas com a mesma regra.
+      res.json({ planos, parcelamento: { juros_ao_mes: PARCELAMENTO.jurosAoMes } });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -26,7 +30,24 @@ export const assinaturasController = {
         assinatura = await assinaturasService.getAssinaturaByEmpresa(empresaId);
       }
 
-      res.json({ assinatura });
+      // As capacidades viajam JUNTO da assinatura, e não num endpoint próprio: a
+      // tela já busca isto para saber o plano, e um segundo GET só para perguntar
+      // "o que eu posso" viraria duas fontes que podem discordar entre si por um
+      // instante — o tempo de um upgrade acontecer entre as duas chamadas.
+      // super_admin não tem empresa própria neste sentido; ele nunca chega aqui
+      // (o `empresa_id` dele é da empresa 1 e o guard de rota já o libera antes).
+      const capacidades = [...(await capacidadesDaEmpresa(empresaId))];
+
+      // A tela decide o bloqueio por este campo, e não recalculando a data: a regra
+      // (e o fuso do `trial_expira_em`) mora num lugar só, o mesmo do guard da API.
+      const bloqueio = assinatura ? await bloqueioDaEmpresa(empresaId, { fresco: true }) : null;
+
+      res.json({
+        assinatura: assinatura
+          ? { ...assinatura, bloqueio, trial_encerrado: bloqueio === 'trial_encerrado' }
+          : assinatura,
+        capacidades,
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -51,7 +72,7 @@ export const assinaturasController = {
       const empresaId = req.user?.empresa_id;
       if (!empresaId) return res.status(400).json({ message: 'Usuário sem empresa' });
 
-      const { plano_id, billing_type, cpf_cnpj, credit_card, credit_card_holder_info } = req.body;
+      const { plano_id, billing_type, cpf_cnpj, credit_card, credit_card_holder_info, usuarios, ciclo, parcelas } = req.body;
 
       if (!plano_id || !billing_type) {
         return res.status(400).json({ message: 'plano_id e billing_type são obrigatórios' });
@@ -79,6 +100,9 @@ export const assinaturasController = {
         creditCard: credit_card,
         creditCardHolderInfo: credit_card_holder_info,
         remoteIp,
+        usuarios: usuarios != null ? Number(usuarios) : undefined,
+        ciclo: typeof ciclo === 'string' ? ciclo : undefined,
+        parcelas: parcelas != null ? Number(parcelas) : undefined,
       });
 
       res.json(resultado);
@@ -89,6 +113,30 @@ export const assinaturasController = {
         return res.status(400).json({ message: asaasErrors[0].description });
       }
       res.status(500).json({ message: error.message });
+    }
+  },
+
+  /** PUT /assinaturas/usuarios — altera a quantidade de usuários contratados */
+  async alterarUsuarios(req: AuthRequest, res: Response) {
+    try {
+      const empresaId = req.user?.empresa_id;
+      if (!empresaId) return res.status(400).json({ message: 'Usuário sem empresa' });
+      if (!isAdminEmpresa(req.user)) {
+        return res.status(403).json({ message: 'Apenas o responsável pela conta pode alterar o plano' });
+      }
+
+      const { usuarios } = req.body;
+      if (usuarios == null) return res.status(400).json({ message: 'usuarios é obrigatório' });
+
+      const assinatura = await assinaturasService.alterarQuantidadeUsuarios(empresaId, Number(usuarios));
+      res.json(assinatura);
+    } catch (error: any) {
+      const asaasErrors = error.response?.data?.errors;
+      if (asaasErrors?.length) {
+        return res.status(400).json({ message: asaasErrors[0].description });
+      }
+      // Limite/validação de negócio é erro do usuário, não falha do servidor.
+      res.status(400).json({ message: error.message });
     }
   },
 
@@ -155,7 +203,10 @@ export const assinaturasController = {
     try {
       const { event, payment, subscription } = req.body;
 
-      if (event && payment) {
+      // Recarga de crédito do Duo (111): cobrança avulsa, não é assinatura.
+      if (event && payment && duoRecarga.ehReferencia(payment.externalReference)) {
+        await duoRecarga.aoEventoAsaas(event, payment);
+      } else if (event && payment) {
         // Eventos de pagamento: PAYMENT_CONFIRMED, PAYMENT_OVERDUE, PAYMENT_RECEIVED, PAYMENT_DELETED
         await assinaturasService.processarWebhook(event, payment);
       } else if (event && subscription) {

@@ -1,0 +1,7 @@
+file '/var/www/apps/gestao_financeira/api/scripts/videos/verificacao-google/silencio.wav'
+file '/var/www/apps/gestao_financeira/api/scripts/videos/.cache-voz/dd89187f00ba38f2.wav'
+file '/var/www/apps/gestao_financeira/api/scripts/videos/verificacao-google/silencio.wav'
+file '/var/www/apps/gestao_financeira/api/scripts/videos/.cache-voz/41bdc85eea865e50.wav'
+file '/var/www/apps/gestao_financeira/api/scripts/videos/verificacao-google/silencio.wav'
+file '/var/www/apps/gestao_financeira/api/scripts/videos/.cache-voz/07a0bb938a8b3f31.wav'
+file '/var/www/apps/gestao_financeira/api/scripts/videos/verificacao-google/silencio.wav'

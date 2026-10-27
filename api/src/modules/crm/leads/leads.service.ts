@@ -2,32 +2,46 @@ import { query } from '../../../config/database';
 import { estagiosService } from '../estagios/estagios.service';
 import { tarefasService } from '../tarefas/tarefas.service';
 import { followupsService } from '../followups/followups.service';
+import { aplicarTarefasDoEstagio } from './tarefas-estagio';
 import { funisService } from '../funis/funis.service';
 import { receitasService } from '../../receitas/receitas.service';
+import { extrairPassosFollowup, calcularAgendadoPara, passoValeParaOrigem } from '../_shared/agendamento';
+import { digitosParaGravar, variantesTelefone, vinculoDivergente } from '../_shared/telefone';
 
-function normalizePhone(tel: string | undefined | null): string | null {
-  if (!tel) return null;
-  const digits = tel.replace(/[^0-9]/g, '');
-  if (!digits) return null;
-  return normalizarTelefoneBR(digits) || digits;
+const FUNIS_DONO_FIXO = (process.env.FUNIS_DONO_FIXO || '').split(',').map(Number).filter((n) => n > 0);
+
+/**
+ * Offset (em dias) de um passo de cadência relativo à ENTRADA no estágio — só definido
+ * para passos base 'entrada', modo 'dias' e unidade 'dia'. Usado para re-encadear a
+ * cadência preservando o intervalo original quando um passo rola do fim de semana.
+ * Retorna null para passos que não se encaixam (base 'anterior', data fixa, minuto/hora).
+ */
+function offsetEntradaDias(p: any): number | null {
+  if ((p.base ?? 'entrada') !== 'entrada') return null;
+  if ((p.modo ?? 'dias') !== 'dias') return null;
+  if ((p.atraso_unidade ?? 'dia') !== 'dia') return null;
+  const n = Number(p.atraso_dias);
+  return Number.isFinite(n) ? Math.max(0, n) : null;
 }
 
-// Normaliza números brasileiros para o formato padrão do WhatsApp (13 dígitos: 55+DDD+9 dígitos).
-// Números com 12 dígitos (55+DDD+8 dígitos — formato antigo) recebem o 9º dígito após o DDD.
-// Números com 10 dígitos (DDD+8 dígitos) também são corrigidos e recebem o prefixo 55.
-function normalizarTelefoneBR(digits: string): string {
-  if (digits.startsWith('55')) {
-    const semPais = digits.slice(2);
-    if (semPais.length === 10) return `55${semPais.slice(0, 2)}9${semPais.slice(2)}`;
-    if (semPais.length === 11) return digits;
-    return digits;
-  }
-  if (digits.length === 10) return `55${digits.slice(0, 2)}9${digits.slice(2)}`;
-  if (digits.length === 11) return `55${digits}`;
-  return digits;
+/**
+ * Origens de lead que pertencem à campanha de indicações (app embaixadores_escola).
+ * "Campanha Agosto" é a edição vigente — vale para os dois destinos, Escola e Club.
+ * "Embaixadores 5 Milhões" é a origem das edições anteriores e segue aceita para que
+ * vendas de leads já cadastrados continuem pontuando.
+ */
+const ORIGENS_EMBAIXADORES = ['Campanha Agosto', 'Embaixadores 5 Milhões'];
+
+function isOrigemEmbaixadores(origem: unknown): boolean {
+  return typeof origem === 'string' && ORIGENS_EMBAIXADORES.includes(origem);
 }
+
 
 export interface Lead {
+  negocio?: string | null;
+  objetivo?: string | null;
+  desafio?: string | null;
+  duvida?: string | null;
   id: number;
   usuario_id: number;
   empresa_id: number;
@@ -108,6 +122,24 @@ export interface UpdateLeadDto {
   notas?: string;
   arquivado?: boolean;
   origem?: string;
+  // Campos do playbook (migration 100): entram nas variáveis dos modelos do oficial.
+  negocio?: string | null;
+  objetivo?: string | null;
+  desafio?: string | null;
+  duvida?: string | null;
+}
+
+/** Limites das colunas da migration 100. */
+const CAMPOS_PLAYBOOK: Record<string, number> = { negocio: 120, objetivo: 160, desafio: 160, duvida: 120 };
+
+/**
+ * O valor entra no meio de uma frase do modelo ("seu objetivo de faturar 15 mil por
+ * mês."): espaços repetidos e ponto final viram ruído na mensagem. Vazio vira null,
+ * que é o que barra o modelo no despacho.
+ */
+export function limparCampoPlaybook(valor: unknown, limite: number): string | null {
+  const t = String(valor ?? '').replace(/\s+/g, ' ').trim().replace(/[.;,]+$/, '').trim();
+  return t ? t.slice(0, limite) : null;
 }
 
 export interface MoveLeadDto {
@@ -129,6 +161,8 @@ export interface FiltrosLead {
   responsavel_id?: number;
   temperatura?: string;
   origem?: string;
+  /** Ids de tag — o lead entra se tiver QUALQUER uma delas. */
+  tag_ids?: number[];
   arquivado?: boolean;
   com_tarefa_atrasada?: boolean;
   com_tarefa_hoje?: boolean;
@@ -137,6 +171,84 @@ export interface FiltrosLead {
   com_mensagens_nao_lidas?: boolean;
   com_telefone?: boolean;
   sem_nome_real?: boolean;
+  ordenar?: OrdemCards;
+}
+
+/**
+ * Ordem dos cards dentro da coluna (#59, 15/09/2026). 'manual' é a de sempre (arrastar);
+ * as outras ignoram `ordem_estagio`. O valor vira ORDER BY, então só entra por aqui —
+ * `normalizarOrdem` reduz qualquer entrada a um destes nomes.
+ */
+export type OrdemCards =
+  | 'manual' | 'recentes' | 'antigos' | 'mensagem' | 'mais_recebidas'
+  | 'nome_az' | 'nome_za' | 'valor' | 'temperatura' | 'janela_24h';
+
+// O banco é C.UTF-8: sem a collation ICU, "Álvaro" e "Érica" iam para depois do "z" e
+// maiúscula vinha antes de minúscula.
+const NOME_PT = `l.nome COLLATE "pt-BR-x-icu"`;
+
+const ORDEM_SQL: Record<OrdemCards, string> = {
+  // `id` desempata: lead de webhook nasce com ordem_estagio = 0 e, sem desempate, a
+  // coluna saía numa ordem diferente a cada carga.
+  manual: 'l.ordem_estagio ASC, l.id ASC',
+  recentes: 'l.created_at DESC, l.id DESC',
+  antigos: 'l.created_at ASC, l.id ASC',
+  mensagem: 'cw.ultima_mensagem_at DESC NULLS LAST, l.created_at DESC, l.id DESC',
+  // `rec` só existe quando esta ordem é pedida — ver `juncaoDaOrdem`.
+  mais_recebidas: 'rec.total_recebidas DESC, cw.ultima_mensagem_at DESC NULLS LAST, l.id DESC',
+  nome_az: `${NOME_PT} ASC, l.id ASC`,
+  nome_za: `${NOME_PT} DESC, l.id DESC`,
+  valor: 'l.valor_potencial DESC NULLS LAST, l.created_at DESC, l.id DESC',
+  temperatura: `CASE l.temperatura WHEN 'quente' THEN 0 WHEN 'morno' THEN 1 WHEN 'frio' THEN 2 ELSE 3 END,
+    cw.ultima_mensagem_at DESC NULLS LAST, l.id DESC`,
+  // Número oficial: primeiro quem está com a janela de 24h ABERTA, e entre eles quem fecha
+  // antes (o mais urgente); depois os de janela fechada, do que escreveu por último.
+  // `jan` só existe nesta ordem — ver `juncaoDaOrdem`.
+  janela_24h: `(jan.janela_resta_seg > 0) DESC, CASE WHEN jan.janela_resta_seg > 0 THEN jan.janela_resta_seg END ASC,
+    jan.ultima_entrada_at DESC NULLS LAST, l.id DESC`,
+};
+
+export function normalizarOrdem(valor: unknown): OrdemCards {
+  // hasOwn, não `in`: "constructor" também está `in` qualquer objeto, e o valor vira SQL.
+  return typeof valor === 'string' && Object.hasOwn(ORDEM_SQL, valor) ? (valor as OrdemCards) : 'manual';
+}
+
+/**
+ * Contagem de mensagens RECEBIDAS da conversa do lead (1:1, sem as cópias do vazamento).
+ * Só entra na consulta quando a ordem é `mais_recebidas`: são ~0,3 s no maior funil
+ * (5,7 mil leads), e as outras ordens não precisam pagar isso. A coluna volta no lead
+ * para o card mostrar o número que decidiu a posição.
+ */
+function juncaoDaOrdem(ordem: OrdemCards): { join: string; coluna: string } {
+  if (ordem === 'janela_24h') return juncaoJanela();
+  if (ordem !== 'mais_recebidas') return { join: '', coluna: '' };
+  return {
+    join: `LEFT JOIN LATERAL (
+          SELECT COUNT(*)::int AS total_recebidas FROM historico_mensagens h
+          WHERE h.contato_whatsapp_id = l.contato_whatsapp_id AND h.direcao = 'entrada'
+            AND h.grupo_whatsapp_id IS NULL AND NOT h.copia_indevida
+        ) rec ON true`,
+    coluna: ', rec.total_recebidas',
+  };
+}
+
+/**
+ * Janela de 24h do número oficial por card: a mesma conta de `whatsapp/canal/janela.ts`
+ * (última ENTRADA 1:1 do contato + 24h, contra LOCALTIMESTAMP, com 2 min de margem), só
+ * que pelo contato do card em vez das variantes do telefone — basta para ordenar. Volta
+ * `janela_resta_seg` (> 0 = aberta) para o card mostrar quanto falta.
+ */
+function juncaoJanela(): { join: string; coluna: string } {
+  return {
+    join: `LEFT JOIN LATERAL (
+          SELECT MAX(h.enviado_at) AS ultima_entrada_at,
+                 GREATEST(EXTRACT(EPOCH FROM (MAX(h.enviado_at) + interval '24 hours' - LOCALTIMESTAMP))::int - 120, 0) AS janela_resta_seg
+            FROM historico_mensagens h
+           WHERE h.contato_whatsapp_id = l.contato_whatsapp_id AND h.direcao = 'entrada'
+             AND h.grupo_whatsapp_id IS NULL AND NOT h.copia_indevida
+        ) jan ON true`,
+    coluna: ', jan.janela_resta_seg, jan.ultima_entrada_at',
+  };
 }
 
 export const leadsService = {
@@ -146,16 +258,10 @@ export const leadsService = {
   async telefoneExiste(telefone: string, empresaId: number, excludeLeadId?: number, funilId?: number): Promise<{ existe: boolean; lead_id?: number; lead_nome?: string }> {
     if (!telefone) return { existe: false };
 
-    const digits = telefone.replace(/\D/g, '');
-    if (!digits) return { existe: false };
-
-    // Build variants: with and without Brazilian DDI prefix (55)
-    const variants: string[] = [digits];
-    if (digits.startsWith('55') && digits.length >= 12) {
-      variants.push(digits.slice(2));
-    } else if (digits.length >= 8) {
-      variants.push('55' + digits);
-    }
+    // Todas as formas em que o mesmo número pode estar gravado: com/sem DDI 55 e
+    // com/sem o 9º dígito. Só ±55 deixava passar duplicata de lead antigo (12 dígitos).
+    const variants = variantesTelefone(telefone);
+    if (!variants.length) return { existe: false };
 
     let sql = `
       SELECT id, nome FROM leads
@@ -241,6 +347,15 @@ export const leadsService = {
       params.push(filtros.origem);
     }
 
+    // Tag de outra empresa não casa nada: o `t.empresa_id = l.empresa_id` prende o
+    // filtro à empresa do lead, que já é a do token pela condição base.
+    if (filtros?.tag_ids?.length) {
+      whereClause += ` AND EXISTS (SELECT 1 FROM lead_tags lt JOIN tags t ON t.id = lt.tag_id
+                        WHERE lt.lead_id = l.id AND t.empresa_id = l.empresa_id
+                          AND lt.tag_id = ANY($${paramCount++}::int[]))`;
+      params.push(filtros.tag_ids);
+    }
+
     if (filtros?.search) {
       const raw = filtros.search.trim();
       const searchTerm = `%${raw.toLowerCase()}%`;
@@ -250,19 +365,14 @@ export const leadsService = {
       params.push(searchTerm);
       paramCount++;
 
-      // Busca por telefone: compara apenas dígitos e considera a normalização BR.
-      // Ex.: "55 62 9221-4444" (12 dígitos) deve encontrar o lead salvo como "5562992214444"
-      // (13 dígitos, com o 9º dígito inserido na normalização).
+      // Busca por telefone: compara só dígitos e cobre todas as formas em que o
+      // mesmo número pode estar gravado (com/sem DDI 55, com/sem 9º dígito).
+      // Ex.: procurar "55 62 9221-4444" acha o lead salvo como "5562992214444".
       if (searchDigits.length >= 4) {
         const telDigits = `REGEXP_REPLACE(COALESCE(l.telefone, ''), '[^0-9]', '', 'g')`;
-        cond += ` OR ${telDigits} LIKE '%' || $${paramCount} || '%'`;
-        params.push(searchDigits);
-        paramCount++;
-
-        const searchNorm = normalizePhone(searchDigits);
-        if (searchNorm && searchNorm !== searchDigits) {
+        for (const variante of new Set([searchDigits, ...variantesTelefone(searchDigits)])) {
           cond += ` OR ${telDigits} LIKE '%' || $${paramCount} || '%'`;
-          params.push(searchNorm);
+          params.push(variante);
           paramCount++;
         }
       }
@@ -353,16 +463,19 @@ export const leadsService = {
       filtros
     );
 
+    const ordem = normalizarOrdem(filtros?.ordenar);
+    const recebidas = juncaoDaOrdem(ordem);
     const result = await query(
       `WITH base AS (
         SELECT
-          ${this._selectColumns()},
+          ${this._selectColumns()}${recebidas.coluna},
           COUNT(*) OVER (PARTITION BY l.estagio_id) AS total_no_estagio,
-          ROW_NUMBER() OVER (PARTITION BY l.estagio_id ORDER BY l.ordem_estagio ASC) AS rn
+          ROW_NUMBER() OVER (PARTITION BY l.estagio_id ORDER BY ${ORDEM_SQL[ordem]}) AS rn
         FROM leads l
         JOIN estagios_funil e ON l.estagio_id = e.id
         LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
         LEFT JOIN usuarios ur ON l.responsavel_id = ur.id
+        ${recebidas.join}
         ${whereClause}
       )
       SELECT * FROM base WHERE rn <= 100
@@ -391,15 +504,18 @@ export const leadsService = {
     const limitParam = paramCount;
     const offsetParam = paramCount + 1;
 
+    const ordem = normalizarOrdem(filtros?.ordenar);
+    const recebidas = juncaoDaOrdem(ordem);
     const result = await query(
       `SELECT
-        ${this._selectColumns()}
+        ${this._selectColumns()}${recebidas.coluna}
       FROM leads l
       JOIN estagios_funil e ON l.estagio_id = e.id
       LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
       LEFT JOIN usuarios ur ON l.responsavel_id = ur.id
+      ${recebidas.join}
       ${whereClause}
-      ORDER BY l.ordem_estagio ASC
+      ORDER BY ${ORDEM_SQL[ordem]}
       LIMIT $${limitParam} OFFSET $${offsetParam}`,
       params
     );
@@ -460,7 +576,7 @@ export const leadsService = {
 
   async create(empresaId: number, usuarioId: number, data: CreateLeadDto, requireTarefa = true): Promise<Lead> {
     // Normalize phone number to 55XXXXXXXXXXX format
-    if (data.telefone) data.telefone = normalizePhone(data.telefone) ?? undefined;
+    if (data.telefone) data.telefone = digitosParaGravar(data.telefone) ?? undefined;
 
     // Verificar duplicata de telefone — apenas dentro do mesmo funil
     if (data.telefone && !data.bypass_duplicata) {
@@ -556,8 +672,33 @@ export const leadsService = {
 
     // Criar follow-up automático se o estágio tiver config ativa
     await this._criarFollowupEstagio(estagioId, lead.id, usuarioId, empresaId);
+    await aplicarTarefasDoEstagio(lead.id, estagioId, empresaId, usuarioId);
 
     return this.getById(lead.id, empresaId) as Promise<Lead>;
+  },
+
+  /**
+   * Cadência que conta do SILÊNCIO do lead (13/10/2026, `followup_config.reiniciar_ao_responder`):
+   * na Conexão e na Qualificação do funil 74 o FUP só entra depois de 3 dias sem resposta, então
+   * cada mensagem do lead recomeça os toques a partir de agora. Rajada de mensagens não recria a
+   * cadência a cada uma: só se a pendente tiver mais de 10 minutos.
+   */
+  async reiniciarCadenciaAoResponder(leadId: number, empresaId: number): Promise<boolean> {
+    const r = await query(
+      `SELECT l.estagio_id, l.usuario_id, ef.followup_config,
+              (SELECT MAX(fa.created_at) FROM followups_agendados fa
+                WHERE fa.lead_id = l.id AND fa.origem = 'estagio' AND fa.status = 'pendente') AS pendente_desde
+         FROM leads l JOIN estagios_funil ef ON ef.id = l.estagio_id
+        WHERE l.id = $1 AND l.empresa_id = $2 AND l.arquivado = false`,
+      [leadId, empresaId]
+    );
+    const row = r.rows[0];
+    const cfg = row?.followup_config;
+    if (!cfg?.ativo || cfg.reiniciar_ao_responder !== true) return false;
+    if (row.pendente_desde && Date.now() - new Date(row.pendente_desde).getTime() < 10 * 60_000) return false;
+    await followupsService.cancelarEstagiosPorLead(leadId);
+    await this._criarFollowupEstagio(row.estagio_id, leadId, row.usuario_id, empresaId);
+    return true;
   },
 
   async _criarFollowupEstagio(estagioId: number, leadId: number, usuarioId: number, empresaId: number) {
@@ -569,25 +710,153 @@ export const leadsService = {
       const cfg = estagioResult.rows[0]?.followup_config;
       if (!cfg || !cfg.ativo) return;
 
-      let agendadoPara: string;
-      if (cfg.data && cfg.hora_inicio) {
-        // Data específica configurada no estágio
-        agendadoPara = new Date(`${cfg.data}T${cfg.hora_inicio}:00`).toISOString();
-      } else if (cfg.data) {
-        agendadoPara = new Date(`${cfg.data}T09:00:00`).toISOString();
-      } else {
-        // Agente ativa imediatamente ao lead entrar no estágio (janela hora_inicio/hora_fim controla quando dispara)
-        agendadoPara = new Date().toISOString();
-      }
+      // Cadência: cria N passos. O 1º conta da entrada (agora); passos com base
+      // 'anterior' encadeiam sobre o instante agendado do passo anterior.
+      const passos = extrairPassosFollowup(cfg);
+      if (passos.length === 0) return;
+      // Passo com filtro de origem só vale para quem casa. O índice do passo continua o da
+      // cadência inteira (o reancorar lê por ele); o "último" que move o card é o último que vale.
+      const origem = (await query(`SELECT origem FROM leads WHERE id = $1`, [leadId])).rows[0]?.origem ?? null;
+      const valem = passos.map((p: any) => passoValeParaOrigem(p, origem));
+      const ultimo = valem.lastIndexOf(true);
+      if (ultimo < 0) return;
 
-      await followupsService.criar(
-        leadId, usuarioId, empresaId, agendadoPara,
-        cfg.tipo || 'agente_ia', cfg.mensagem, cfg.instrucao_ia, 'estagio',
-        cfg.hora_inicio, cfg.hora_fim, cfg.dias_semana
-      );
+      const entrada = new Date();
+      let anterior: Date | null = null;        // agendado do passo anterior (base 'anterior')
+      let prevScheduled: Date | null = null;   // agendado EFETIVO do passo anterior (min-gap)
+      let prevOffsetDias: number | null = null;
+      for (let i = 0; i < passos.length; i++) {
+        if (!valem[i]) continue;
+        const p = passos[i];
+        const base = p.base === 'anterior' && anterior ? anterior : entrada;
+        let quando = new Date(calcularAgendadoPara({
+          modo: p.modo || 'dias',
+          atrasoDias: p.atraso_dias,
+          atrasoUnidade: p.atraso_unidade,
+          dataFixa: p.data_fixa,
+          horaEnvio: p.hora_envio,
+          diasSemana: p.dias_semana,
+        }, base));
+
+        // Re-encadeamento: passos consecutivos em dias não podem colidir quando um rola do
+        // fim de semana (ex.: passo D+2 no domingo → segunda, colidindo com o passo D+3 que
+        // já caía na segunda). Empurra o passo para no mínimo (offset_atual - offset_anterior)
+        // dias após o passo anterior, PRESERVANDO o intervalo original desenhado na cadência.
+        const offDias = offsetEntradaDias(p);
+        if (i > 0 && prevScheduled && offDias != null && prevOffsetDias != null) {
+          const gapDias = Math.max(1, offDias - prevOffsetDias);
+          const minInstante = new Date(calcularAgendadoPara(
+            { modo: 'dias', atrasoDias: gapDias, atrasoUnidade: 'dia',
+              horaEnvio: p.hora_envio, diasSemana: p.dias_semana },
+            prevScheduled
+          ));
+          if (quando < minInstante) quando = minInstante;
+        }
+
+        const row = await followupsService.criar({
+          leadId, usuarioId, empresaId,
+          tipo: p.tipo || 'agente_ia',
+          mensagem: p.mensagem,
+          instrucaoIa: p.instrucao_ia,
+          mediaUrl: p.media_url,
+          mediaMimetype: p.media_mimetype,
+          mediaFilename: p.media_filename,
+          origem: 'estagio',
+          modo: p.modo || 'dias',
+          atrasoDias: p.atraso_dias,
+          atrasoUnidade: p.atraso_unidade,
+          dataFixa: p.data_fixa,
+          horaEnvio: p.hora_envio,
+          diasSemana: p.dias_semana,
+          agendadoPara: quando.toISOString(),
+          passoOrdem: i,
+          moverAposEnvio: i === ultimo,
+        });
+        anterior = new Date(row.agendado_para);
+        prevScheduled = quando;
+        prevOffsetDias = offDias;
+      }
     } catch (err: any) {
       console.error(`[Leads] Erro ao criar follow-up de estágio para lead #${leadId}:`, err.message);
     }
+  },
+
+  /**
+   * Mudança de estágio disparada por AUTOMAÇÃO (resposta do lead, "mover após envio").
+   * Além de atualizar o lead, encerra a cadência pendente do estágio anterior e inicia
+   * a do novo — mesmos efeitos colaterais do mover() manual, exceto a conversão de
+   * ganho (cliente/receita), que exige dados humanos e fica só no fluxo manual.
+   * Retorna true se o lead foi de fato movido.
+   */
+  /**
+   * De qual etapa o lead veio para a etapa `estagioAtual` (a última mudança registrada).
+   * Movimento manual grava `estagio_novo_id`, o automático `novo_estagio_id` — lê os dois.
+   * Só vale etapa do mesmo funil e diferente da atual; senão, null.
+   */
+  async etapaAnterior(leadId: number, estagioAtual: number): Promise<{ id: number; nome: string } | null> {
+    const r = await query(
+      `SELECT e.id, e.nome
+         FROM atividades_lead a
+         JOIN leads l ON l.id = a.lead_id
+         JOIN estagios_funil e ON e.id = (a.dados->>'estagio_anterior_id')::int AND e.funil_id = l.funil_id
+        WHERE a.lead_id = $1 AND a.tipo = 'mudanca_estagio'
+          AND COALESCE(a.dados->>'novo_estagio_id', a.dados->>'estagio_novo_id') = $2::text
+          AND e.id <> $2::int
+        ORDER BY a.id DESC LIMIT 1`,
+      [leadId, estagioAtual]
+    );
+    return r.rows[0] ?? null;
+  },
+
+  async moverPorAutomacao(
+    id: number,
+    empresaId: number,
+    usuarioId: number,
+    novoEstagioId: number,
+    descricao: string,
+    dados: Record<string, any> = {}
+  ): Promise<boolean> {
+    const leadRes = await query(
+      `SELECT estagio_id FROM leads WHERE id = $1 AND empresa_id = $2`,
+      [id, empresaId]
+    );
+    const atual = leadRes.rows[0];
+    if (!atual || atual.estagio_id === novoEstagioId) return false;
+
+    const destinoRes = await query(
+      `SELECT id, is_ganho, is_perdido FROM estagios_funil WHERE id = $1`,
+      [novoEstagioId]
+    );
+    const destino = destinoRes.rows[0];
+    if (!destino) return false;
+
+    const ordemRes = await query(
+      `SELECT COALESCE(MAX(ordem_estagio), 0) + 1 AS nova_ordem
+       FROM leads WHERE estagio_id = $1 AND arquivado = false`,
+      [novoEstagioId]
+    );
+    await query(
+      `UPDATE leads SET estagio_id = $1, ordem_estagio = $2, data_ultimo_contato = CURRENT_TIMESTAMP
+       WHERE id = $3 AND empresa_id = $4`,
+      [novoEstagioId, ordemRes.rows[0].nova_ordem, id, empresaId]
+    );
+    if (destino.is_ganho || destino.is_perdido) {
+      await query(`UPDATE leads SET data_ganho_perdido = CURRENT_TIMESTAMP WHERE id = $1`, [id]);
+    }
+
+    // Encerra a cadência do estágio anterior e inicia a do novo (a ordem importa:
+    // cancelar antes de criar, senão a cadência nova seria cancelada junto).
+    await followupsService.cancelarEstagiosPorLead(id);
+    await this._criarFollowupEstagio(novoEstagioId, id, usuarioId, empresaId);
+    await aplicarTarefasDoEstagio(id, novoEstagioId, empresaId, usuarioId);
+
+    await this.registrarAtividade(id, usuarioId, empresaId, 'mudanca_estagio', descricao, {
+      automatico: true,
+      estagio_anterior_id: atual.estagio_id,
+      novo_estagio_id: novoEstagioId,
+      ...dados,
+    });
+    return true;
   },
 
   async createFromWhatsApp(empresaId: number, usuarioId: number, contatoId: number, funilId: number): Promise<Lead> {
@@ -641,12 +910,62 @@ export const leadsService = {
     }, false); // requireTarefa = false para leads de WhatsApp
   },
 
+  /**
+   * Criação AUTOMÁTICA de lead a partir de um contato do WhatsApp (gatilho: mensagem
+   * recebida). Diferente de createFromWhatsApp: aceita um estágio-alvo e é silenciosa —
+   * se já existe lead do contato naquele funil (regra de duplicidade por funil),
+   * retorna null em vez de lançar erro.
+   */
+  async autoCriarLeadDoWhatsApp(
+    empresaId: number, usuarioId: number, contatoId: number, funilId: number, estagioId?: number
+  ): Promise<Lead | null> {
+    const contatoResult = await query(
+      `SELECT * FROM contatos_whatsapp WHERE id = $1 AND empresa_id = $2`,
+      [contatoId, empresaId]
+    );
+    const contato = contatoResult.rows[0];
+    if (!contato) return null;
+
+    // Duplicidade é POR FUNIL — o mesmo contato pode existir em funis diferentes.
+    const numerosVariantes = [contato.numero];
+    if (contato.numero.startsWith('55') && contato.numero.length >= 12) {
+      numerosVariantes.push(contato.numero.slice(2));
+    } else if (contato.numero.length >= 8) {
+      numerosVariantes.push('55' + contato.numero);
+    }
+
+    const leadExistente = await query(
+      `SELECT l.id FROM leads l
+       LEFT JOIN contatos_whatsapp cw ON l.contato_whatsapp_id = cw.id
+       WHERE l.empresa_id = $1
+         AND l.funil_id = $4
+         AND l.arquivado = false
+         AND (
+           l.contato_whatsapp_id = $2
+           OR cw.numero = ANY($3::text[])
+           OR REGEXP_REPLACE(COALESCE(l.telefone, ''), '[^0-9]', '', 'g') = ANY($3::text[])
+         )
+       LIMIT 1`,
+      [empresaId, contatoId, numerosVariantes, funilId]
+    );
+    if (leadExistente.rows[0]) return null; // já existe neste funil → não recria
+
+    return this.create(empresaId, usuarioId, {
+      funil_id: funilId,
+      estagio_id: estagioId,
+      contato_whatsapp_id: contatoId,
+      nome: contato.nome || contato.nome_push || contato.numero,
+      telefone: contato.numero,
+      origem: 'whatsapp',
+    }, false); // requireTarefa = false
+  },
+
   async update(id: number, empresaId: number, usuarioId: number, data: UpdateLeadDto): Promise<Lead | null> {
     const lead = await this.getById(id, empresaId);
     if (!lead) return null;
 
     // Normalize phone number to 55XXXXXXXXXXX format
-    if (data.telefone) data.telefone = normalizePhone(data.telefone) ?? undefined;
+    if (data.telefone) data.telefone = digitosParaGravar(data.telefone) ?? undefined;
 
     // Verificar duplicata de telefone se estiver alterando — apenas dentro do mesmo funil
     if (data.telefone && data.telefone !== lead.telefone) {
@@ -675,8 +994,15 @@ export const leadsService = {
       data_previsao_fechamento: 'data_previsao_fechamento',
       notas: 'notas',
       arquivado: 'arquivado',
-      origem: 'origem'
+      origem: 'origem',
+      negocio: 'negocio',
+      objetivo: 'objetivo',
+      desafio: 'desafio',
+      duvida: 'duvida',
     };
+    for (const [campo, limite] of Object.entries(CAMPOS_PLAYBOOK)) {
+      if ((data as any)[campo] !== undefined) (data as any)[campo] = limparCampoPlaybook((data as any)[campo], limite);
+    }
 
     for (const [key, column] of Object.entries(fieldMap)) {
       if ((data as any)[key] !== undefined) {
@@ -695,12 +1021,61 @@ export const leadsService = {
       values
     );
 
+    // Corrigir o telefone tem que valer para o ENVIO, e o envio sai pelo
+    // `whatsapp_id` do contato vinculado — não por `leads.telefone`. Enquanto o
+    // vínculo velho ficava, o operador corrigia o número na tela e a mensagem
+    // continuava indo para o destino errado, sem nada na interface explicando por
+    // quê (tickets #44 e #45). Desvincular devolve o card ao caminho normal: o
+    // próximo envio resolve o contato pelo telefone novo (`findOrCreateByNumero`
+    // no controller, `resolverContatoParaLead` no disparo e no follow-up).
+    //
+    // Só quando o contato realmente aponta para outro destino: telefone reescrito
+    // na mesma forma (com/sem o 9º dígito, com/sem o DDI 55) não desfaz nada.
+    if (data.telefone && data.telefone !== lead.telefone && lead.contato_whatsapp_id) {
+      await this.desvincularContatoObsoleto(id, empresaId, usuarioId, data.telefone, lead.contato_whatsapp_id);
+    }
+
     // Registrar atividade
     await this.registrarAtividade(id, usuarioId, empresaId, 'atualizacao', 'Lead atualizado', {
       campos: Object.keys(data)
     });
 
     return this.getById(id, empresaId);
+  },
+
+  /**
+   * Desfaz o vínculo com a conversa quando ela não é mais o telefone do card.
+   *
+   * O histórico não é apagado: as mensagens ficam no contato antigo, que segue
+   * existindo. O que sai é o ponteiro do card — e a atividade registra a troca,
+   * para a conversa não sumir da tela sem explicação.
+   */
+  async desvincularContatoObsoleto(
+    leadId: number,
+    empresaId: number,
+    usuarioId: number,
+    telefoneNovo: string,
+    contatoId: number
+  ): Promise<void> {
+    const r = await query(
+      `SELECT numero, whatsapp_id FROM contatos_whatsapp WHERE id = $1`,
+      [contatoId]
+    );
+    const contato = r.rows[0];
+    if (!contato) return;
+
+    if (!vinculoDivergente(telefoneNovo, contato.numero, contato.whatsapp_id)) return;
+
+    await query(
+      `UPDATE leads SET contato_whatsapp_id = NULL WHERE id = $1 AND empresa_id = $2`,
+      [leadId, empresaId]
+    );
+
+    await this.registrarAtividade(
+      leadId, usuarioId, empresaId, 'atualizacao',
+      `Conversa do WhatsApp desvinculada: o telefone passou a ser ${telefoneNovo} e a conversa era do número ${contato.numero}`,
+      { contato_whatsapp_id_anterior: contatoId, telefone_novo: telefoneNovo, numero_anterior: contato.numero }
+    );
   },
 
   async mover(id: number, empresaId: number, usuarioId: number, data: MoveLeadDto): Promise<{ lead: Lead | null; clienteCriado: boolean }> {
@@ -737,8 +1112,9 @@ export const leadsService = {
       );
     }
 
-    // Disparo de webhook para a app de Embaixadores quando o lead vira venda (is_ganho)
-    if (novoEstagio.is_ganho && lead.origem === 'Embaixadores 5 Milhões') {
+    // Disparo de webhook para a app de Embaixadores quando o lead vira venda (is_ganho).
+    // Vale para os dois funis da campanha: Escola Empreendedorismo e Leadership Club.
+    if (novoEstagio.is_ganho && isOrigemEmbaixadores(lead.origem)) {
       this.dispararWebhookEmbaixadores(id).catch((err) => {
         console.error('[Embaixadores] Erro ao disparar webhook de conversão:', err);
       });
@@ -774,6 +1150,7 @@ export const leadsService = {
     if (estagioAnteriorId !== data.novo_estagio_id) {
       await followupsService.cancelarEstagiosPorLead(id);
       await this._criarFollowupEstagio(data.novo_estagio_id, id, usuarioId, empresaId);
+      await aplicarTarefasDoEstagio(id, data.novo_estagio_id, empresaId, usuarioId);
     }
 
     // Registrar atividade
@@ -810,6 +1187,17 @@ export const leadsService = {
     if (!funilResult.rows[0]) throw new Error('Funil não encontrado');
     const novoFunil = funilResult.rows[0];
 
+    // Regra de duplicidade POR FUNIL também vale na transferência: se o mesmo
+    // telefone já tem lead ativo no funil de destino (ex.: criado pela auto-criação
+    // do WhatsApp segundos antes), bloqueia para não duplicar. Caso real: Jaqueline
+    // Oliveira, 16/07/2026 — auto-lead às 17:47:08 + transferência manual às 17:47:57.
+    if (lead.telefone) {
+      const duplicata = await this.telefoneExiste(lead.telefone, empresaId, id, novoFunilId);
+      if (duplicata.existe) {
+        throw new Error(`Já existe um lead com este telefone no funil de destino: "${duplicata.lead_nome}" (#${duplicata.lead_id})`);
+      }
+    }
+
     // Buscar estágio de entrada do novo funil (is_entrada = true), ou o primeiro
     let estagioResult = await query(
       `SELECT id, nome FROM estagios_funil WHERE funil_id = $1 AND is_entrada = true ORDER BY ordem ASC LIMIT 1`,
@@ -837,6 +1225,11 @@ export const leadsService = {
       [novoFunilId, novoEstagio.id, novaOrdem, id, empresaId]
     );
 
+    // Encerra a cadência pendente do funil/estágio anterior e inicia a do estágio de entrada do novo funil
+    await followupsService.cancelarEstagiosPorLead(id);
+    await this._criarFollowupEstagio(novoEstagio.id, id, usuarioId, empresaId);
+    await aplicarTarefasDoEstagio(id, novoEstagio.id, empresaId, usuarioId);
+
     // Registrar atividade
     const funilAnteriorResult = await query(`SELECT nome FROM funis WHERE id = $1`, [lead.funil_id]);
     const estagioAnteriorResult = await query(`SELECT nome FROM estagios_funil WHERE id = $1`, [lead.estagio_id]);
@@ -850,7 +1243,10 @@ export const leadsService = {
         funil_novo_id: novoFunilId,
         funil_novo_nome: novoFunil.nome,
         estagio_novo_id: novoEstagio.id,
-        estagio_novo_nome: novoEstagio.nome
+        estagio_novo_nome: novoEstagio.nome,
+        // A Produtividade só conta o lead como contato novo no funil de destino se o
+        // responsável mudar depois disto (ver produtividade.ts).
+        responsavel_anterior_id: lead.responsavel_id ?? lead.usuario_id
       }
     );
 
@@ -1124,6 +1520,49 @@ export const leadsService = {
     return true;
   },
 
+  /**
+   * Exclusão em massa: todos os leads ativos de um estágio ou de um funil inteiro.
+   * Arquivados ficam — não aparecem no quadro, então quem confirma não os viu.
+   * O resto (tarefas, anotações, tags, follow-ups) vai junto por ON DELETE CASCADE,
+   * igual ao `delete` de um lead; o histórico de mensagens fica, com lead_id nulo.
+   */
+  async alvoExclusaoEmMassa(empresaId: number, funilId: number, estagioId?: number): Promise<{ total: number } | null> {
+    const params: any[] = [empresaId, funilId];
+    let filtroEstagio = '';
+    if (estagioId) {
+      params.push(estagioId);
+      filtroEstagio = `AND estagio_id = $${params.length}`;
+    }
+    const funil = await query(`SELECT 1 FROM funis WHERE id = $2 AND empresa_id = $1`, [empresaId, funilId]);
+    if (!funil.rows[0]) return null;
+    if (estagioId) {
+      const est = await query(`SELECT 1 FROM estagios_funil WHERE id = $1 AND funil_id = $2`, [estagioId, funilId]);
+      if (!est.rows[0]) return null;
+    }
+    const r = await query(
+      `SELECT COUNT(*)::int AS total FROM leads
+        WHERE empresa_id = $1 AND funil_id = $2 AND arquivado = false ${filtroEstagio}`,
+      params
+    );
+    return { total: Number(r.rows[0]?.total) || 0 };
+  },
+
+  async excluirEmMassa(empresaId: number, funilId: number, estagioId?: number): Promise<{ excluidos: number } | null> {
+    const alvo = await this.alvoExclusaoEmMassa(empresaId, funilId, estagioId);
+    if (!alvo) return null;
+    const params: any[] = [empresaId, funilId];
+    let filtroEstagio = '';
+    if (estagioId) {
+      params.push(estagioId);
+      filtroEstagio = `AND estagio_id = $${params.length}`;
+    }
+    const del = await query(
+      `DELETE FROM leads WHERE empresa_id = $1 AND funil_id = $2 AND arquivado = false ${filtroEstagio}`,
+      params
+    );
+    return { excluidos: del.rowCount ?? 0 };
+  },
+
   async arquivar(id: number, empresaId: number, usuarioId: number): Promise<Lead | null> {
     const lead = await this.getById(id, empresaId);
     if (!lead) return null;
@@ -1132,6 +1571,9 @@ export const leadsService = {
       `UPDATE leads SET arquivado = true WHERE id = $1 AND empresa_id = $2`,
       [id, empresaId]
     );
+
+    // Lead arquivado não deve continuar recebendo a cadência do estágio
+    await followupsService.cancelarEstagiosPorLead(id);
 
     await this.registrarAtividade(id, usuarioId, empresaId, 'arquivado', 'Lead arquivado', {});
 
@@ -1186,14 +1628,17 @@ export const leadsService = {
     leadId: number,
     executorId: number,
     empresaId: number,
-    origem: 'disparo_whatsapp' | 'disparo_email' | 'mensagem_individual' | 'email_individual'
+    origem: 'disparo_whatsapp' | 'disparo_email' | 'mensagem_individual' | 'email_individual' | 'mensagem_sendflow' | 'boas_vindas_grupo'
   ): Promise<boolean> {
     const atual = await query(
-      `SELECT usuario_id, responsavel_id FROM leads WHERE id = $1 AND empresa_id = $2`,
+      `SELECT usuario_id, responsavel_id, funil_id FROM leads WHERE id = $1 AND empresa_id = $2`,
       [leadId, empresaId]
     );
     const lead = atual.rows[0];
     if (!lead) return false;
+    // Funil com dono fixo (13/10/2026, `FUNIS_DONO_FIXO` no .env): o 74 da Escola roda o teste
+    // pelo número oficial da Débora, e a 1ª mensagem de outro chip passava o card para quem mandou.
+    if (FUNIS_DONO_FIXO.includes(Number(lead.funil_id))) return false;
 
     const mesmoDono = lead.usuario_id === executorId && lead.responsavel_id === executorId;
     if (mesmoDono) return false;
@@ -1246,12 +1691,16 @@ export const leadsService = {
     const lead = await this.getById(leadId, empresaId);
     if (!lead) throw new Error('Lead não encontrado');
 
+    // A tag tem que ser da mesma empresa — sem isso, um id qualquer no corpo
+    // penduraria a tag de outra conta no card (e o nome dela apareceria aqui).
+    const tagResult = await query(`SELECT nome FROM tags WHERE id = $1 AND empresa_id = $2`, [tagId, empresaId]);
+    if (!tagResult.rows[0]) throw new Error('Tag não encontrada');
+
     await query(
       `INSERT INTO lead_tags (lead_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [leadId, tagId]
     );
 
-    const tagResult = await query(`SELECT nome FROM tags WHERE id = $1`, [tagId]);
     await this.registrarAtividade(leadId, usuarioId, empresaId, 'tag_adicionada',
       `Tag "${tagResult.rows[0]?.nome}" adicionada`, { tag_id: tagId });
   },

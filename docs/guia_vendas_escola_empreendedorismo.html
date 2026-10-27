@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guia Comercial — Escola Empreendedorismo &amp; Club</title>
+<style>
+  :root {
+    --navy:   #13264C;
+    --navy-2: #1d3766;
+    --gold:   #D2B773;
+    --gold-2: #b89a4e;
+    --green:  #10b981;
+    --green-d:#047857;
+    --red:    #ef4444;
+    --orange: #f59e0b;
+    --blue:   #3b82f6;
+    --gray:   #64748b;
+    --bg:     #f6f7fb;
+    --card:   #ffffff;
+    --border: #e3e7f0;
+    --text:   #1e293b;
+    --muted:  #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5;
+    padding-bottom: 60px;
+  }
+
+  header {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+    color: #fff; padding: 36px 20px 30px; text-align: center;
+    border-bottom: 4px solid var(--gold);
+  }
+  header h1 { font-size: 1.5rem; letter-spacing: .3px; }
+  header h1 span { color: var(--gold); }
+  header p  { color: #c7d2e6; font-size: .9rem; margin-top: 6px; max-width: 730px; margin-left: auto; margin-right: auto; }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 16px; }
+
+  h2.secao {
+    color: var(--navy); font-size: 1.05rem; margin: 32px 0 4px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h2.secao::after { content: ''; flex: 1; height: 2px; background: linear-gradient(90deg, var(--gold), transparent); border-radius: 2px; }
+  p.secao-sub { font-size: .82rem; color: var(--muted); margin-bottom: 16px; }
+
+  /* ── CARDS DE APOIO (voz, objeções, etc.) ── */
+  .painel {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(19,38,76,.07); padding: 16px 18px; margin-bottom: 12px;
+  }
+  .painel h3 { font-size: .92rem; color: var(--navy); margin-bottom: 8px; display: flex; align-items: center; gap: 7px; }
+  .painel h4 { font-size: .8rem; color: var(--navy); margin: 12px 0 5px; }
+  .painel p, .painel li { font-size: .82rem; color: var(--text); }
+  .painel ul { list-style: none; display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+  .painel ul li { padding-left: 16px; position: relative; }
+  .painel ul li::before { content: '•'; color: var(--gold-2); position: absolute; left: 4px; font-weight: 700; }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; }
+  .chip { font-size: .74rem; background: #eef2fb; color: var(--navy); border-radius: 999px; padding: 3px 10px; }
+  .chip.g { background: #d1fae5; color: var(--green-d); }
+  .chip.r { background: #fee2e2; color: #b91c1c; }
+
+  /* ── FLUXO / ESTÁGIOS ── */
+  .fluxo { display: flex; flex-direction: column; }
+  .estagio {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(19,38,76,.07); overflow: hidden;
+  }
+  .estagio-head {
+    display: flex; align-items: center; gap: 10px; padding: 13px 16px;
+    border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  .estagio-head .num {
+    width: 30px; height: 30px; border-radius: 50%; background: var(--navy); color: var(--gold);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .85rem; flex-shrink: 0;
+  }
+  .estagio-head .nome { font-weight: 700; color: var(--navy); font-size: 1rem; }
+  .estagio-head .objetivo { width: 100%; font-size: .78rem; color: var(--muted); margin-top: 2px; }
+  .badges { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+  .badge {
+    font-size: .68rem; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+    background: #fef3c7; color: #b45309;
+  }
+  .badge.qt { background: #dbeafe; color: #1d4ed8; }
+  .estagio-body { padding: 14px 16px 16px; }
+
+  .quando-tag {
+    display: inline-block; font-size: .7rem; font-weight: 700; color: var(--navy);
+    background: #f1f5f9; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; margin: 12px 0 6px;
+  }
+  .microcopy { font-size: .78rem; color: var(--muted); margin: 2px 0 4px; }
+
+  /* ── BALÃO DE MENSAGEM DE EXEMPLO ── */
+  .msg-ex {
+    position: relative; background: #dcf8c6; color: #14310f;
+    border-radius: 10px; border-top-left-radius: 3px; padding: 9px 12px 9px 12px;
+    font-size: .84rem; line-height: 1.5; margin: 6px 0; max-width: 560px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.08);
+  }
+  .msg-ex .tag {
+    display: inline-block; font-size: .62rem; font-weight: 700; letter-spacing: .4px;
+    color: var(--green-d); text-transform: uppercase; margin-bottom: 3px;
+  }
+  .msg-ex .tag::before { content: '💬 '; }
+  .var { background: #fff3cd; color: #7a5b00; border-radius: 4px; padding: 0 3px; font-weight: 600; font-size: .95em; }
+  .alt { font-size: .74rem; color: var(--muted); margin: 4px 0 0 2px; font-style: italic; }
+
+  /* ── DICAS / EVITE ── */
+  .dica, .evite {
+    font-size: .8rem; border-radius: 9px; padding: 8px 12px; margin-top: 8px; line-height: 1.45;
+    display: flex; gap: 8px; align-items: flex-start;
+  }
+  .dica  { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
+  .evite { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+  .dica b, .evite b { font-weight: 700; }
+
+  /* ── CONECTORES ── */
+  .conector { display: flex; flex-direction: column; align-items: center; padding: 4px 0; }
+  .conector .linha { width: 2px; height: 14px; background: var(--navy); opacity: .35; }
+  .conector .seta  { color: var(--navy); opacity: .55; font-size: .9rem; line-height: .6; }
+  .rotulos { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; padding: 5px 0 6px; }
+  .rotulo { font-size: .72rem; font-weight: 600; padding: 4px 12px; border-radius: 999px; border: 1.5px solid; background: var(--card); }
+  .r-verde    { color: #047857; border-color: #34d399; }
+  .r-vermelho { color: #b91c1c; border-color: #f87171; }
+  .r-azul     { color: #1d4ed8; border-color: #93c5fd; }
+  .r-cinza    { color: #475569; border-color: #cbd5e1; }
+
+  /* ── OFERTA / PAGAMENTO ── */
+  .oferta { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+  .passo-oferta {
+    display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: #fafbfe;
+  }
+  .passo-oferta .ord { width: 24px; height: 24px; flex-shrink: 0; border-radius: 50%; background: var(--gold); color: #3a2e0a; font-weight: 800; font-size: .78rem; display: flex; align-items: center; justify-content: center; }
+  .passo-oferta .txt { font-size: .82rem; }
+  .passo-oferta .txt b { color: var(--navy); }
+  .passo-oferta .val { margin-left: auto; font-weight: 700; color: var(--green-d); font-size: .82rem; white-space: nowrap; }
+  .links { font-size: .74rem; color: var(--muted); word-break: break-all; margin-top: 6px; }
+  .links code { background: #f1f5f9; padding: 1px 4px; border-radius: 4px; }
+
+  /* ── REGRAS ── */
+  .regras { background: var(--navy); border-radius: 14px; padding: 18px 20px; margin-top: 34px; color: #dbe4f5; }
+  .regras h2 { color: var(--gold); font-size: 1rem; margin-bottom: 10px; }
+  .regras ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .regras li { font-size: .82rem; display: flex; gap: 8px; }
+  .regras li::before { content: '✅'; }
+  .regras b { color: #fff; }
+
+  footer { text-align: center; font-size: .72rem; color: var(--muted); margin-top: 28px; }
+
+  @media print { body { background: #fff; } .estagio, .painel { box-shadow: none; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Guia Comercial — <span>Escola Empreendedorismo &amp; Club</span></h1>
+  <p>Playbook prático de WhatsApp para o time de vendas. Em cada etapa do funil, exemplos de mensagem prontos pra <b>copiar, adaptar e enviar</b> — na voz do Instituto Sabrina Bogiani. Os textos entre [ ] são preenchidos com os dados do lead.</p>
+</header>
+
+<div class="wrap">
+
+  <!-- ══════════ COMO ESCREVER ══════════ -->
+  <h2 class="secao">Antes de tudo: como a gente escreve</h2>
+  <p class="secao-sub">A conversa parece de gente, não de empresa. Mensagens curtas, uma ideia por vez, calor humano de verdade.</p>
+
+  <div class="painel">
+    <h3>🗣️ A voz da marca</h3>
+    <ul>
+      <li><b>Uma ideia por mensagem.</b> Duas coisas pra dizer? Manda em dois momentos. Nunca empacote tudo num bloco.</li>
+      <li><b>Mensagens curtas</b> — no máximo 3 linhas. Sem asterisco, sem negrito, sem lista, sem textão.</li>
+      <li><b>Uma pergunta por vez</b>, e sempre <b>aberta</b> (que não se responde com sim/não).</li>
+      <li><b>Abreviações naturais:</b> td, vc, vcs, pq, qdo, tb, hj, tá, né, tô, ai. Ex.: <i>"td bem?", "hj não consigo", "né?"</i></li>
+      <li><b>Trate pelo primeiro nome</b> na retomada: use o <b>primeiro nome</b> da pessoa (<span class="var">[PrimeiroNome]</span>) para criar proximidade — com cuidado, <b>sem exagero</b> e só quando houver motivo real.</li>
+      <li><b>Expressões que soam humanas, mas no tom profissional:</b> "faz sentido?", "entendo...", "imagino...", "que bom!", "bacana", "combinado".</li>
+    </ul>
+    <div class="evite" style="margin-top:12px;">⛔ <div><b>Nunca diga (soa robô/vendedor chato):</b> "Estou aqui para te ajudar", "Meu objetivo é", "Fico à disposição", "Qualquer dúvida é só chamar", "Com certeza!", "Perfeito!", "Entendo perfeitamente". E nunca diga que é um atendimento automático.</div></div>
+    <div class="evite">⛔ <div><b>Não seja carente nem repetitivo:</b> evite "eu de novo", "passou um tempinho desde sua última mensagem", esticar o nome toda hora, ou repetir uma pergunta que a pessoa já respondeu. Leia a conversa antes de escrever.</div></div>
+    <div class="dica">🕐 <div><b>Respeite o horário e o combinado:</b> cumprimente conforme a hora (bom dia/boa tarde/boa noite de verdade) e, se o lead pediu pra falar em outro momento ("me chama à noite", "quarta"), <b>espere</b> — não atropele.</div></div>
+  </div>
+
+  <!-- ══════════ FUNIL ══════════ -->
+  <h2 class="secao">O funil, etapa por etapa</h2>
+  <p class="secao-sub">Legenda: <span class="badge">📨 Cadência</span> toques de acompanhamento quando o lead some &nbsp;·&nbsp; <span class="badge qt">💬 Exemplos</span> mensagens prontas pra enviar. "D+2" = dias depois de entrar na etapa.</p>
+
+  <div class="fluxo">
+
+    <!-- 1. ENTRADA -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">1</div>
+        <div class="nome">📥 Entrada de Leads</div>
+        <div class="objetivo">Lead chegou (site, indicação, tráfego, Hotmart…). O primeiro toque é <b>humano e personalizado</b> — nada de automação aqui.</div>
+      </div>
+      <div class="estagio-body">
+        <p class="microcopy"><b>De onde o lead pode vir:</b></p>
+        <div class="chips" style="margin-bottom:10px;">
+          <span class="chip">🤝 Indicação</span>
+          <span class="chip">🔗 Parcerias</span>
+          <span class="chip">🌐 Networking</span>
+          <span class="chip">👥 Grupos</span>
+          <span class="chip">📱 Redes sociais</span>
+          <span class="chip">📈 Tráfego</span>
+          <span class="chip">🎯 Campanhas específicas</span>
+        </div>
+        <div class="quando-tag">Primeiro contato · estrutura</div>
+        <p class="microcopy"><b>Siga esta estrutura:</b> <span class="var">Apresentação</span> ("aqui é [você] do time da Sabrina Bogiani") + <span class="var">contexto</span> + <span class="var">ganho/elogio</span> + <span class="var">pergunta aberta</span>.</p>
+        <div class="msg-ex"><span class="tag">Você</span>Olá [<span class="var">PrimeiroNome</span>], aqui é a [Seu Nome] do time da Sabrina Bogiani 🙂 vi que você chegou até a gente pelo [origem/conteúdo] — que bacana!<br><br>me conta, o que te motivou a buscar isso agora?</div>
+        <p class="alt">↳ Apresentação + contexto + elogio numa mensagem, e a pergunta aberta logo em seguida. Abra espaço pra conversa antes de qualquer oferta.</p>
+        <div class="dica">✅ <div>Depois do primeiro contato, mova o lead para <b>Tentativa de Contato</b> — é lá que começa a cadência de acompanhamento.</div></div>
+      </div>
+    </div>
+
+    <div class="conector"><div class="linha"></div><div class="rotulos"><span class="rotulo r-cinza">👤 você move manualmente</span></div><div class="seta">▼</div></div>
+
+    <!-- 2. TENTATIVA DE CONTATO -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">2</div>
+        <div class="nome">📲 Tentativa de Contato</div>
+        <div class="badges"><span class="badge">📨 Cadência</span></div>
+        <div class="objetivo">Objetivo único: fazer o lead <b>responder</b> e abrir conversa. Ainda <b>não</b> é hora de vender.</div>
+      </div>
+      <div class="estagio-body">
+        <div class="quando-tag">D+1 · lembrete leve</div>
+        <div class="msg-ex"><span class="tag">Você</span>Oi [<span class="var">PrimeiroNome</span>]! Como está?<br><br>Só passando pra ver se vc viu minha mensagem de ontem, às vezes some no meio de tantas notificações 😊</div>
+
+        <div class="quando-tag">D+4 · convite pra um conteúdo</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], a gente preparou um conteúdo que tá ajudando bastante quem tá estruturando o negócio agora. Quer que eu te mande?</div>
+        <p class="alt">↳ Não invente nome de evento nem data. Se não tiver certeza, fale genérico ("um conteúdo que preparamos").</p>
+
+        <div class="quando-tag">D+16 · encerra o contato ativo (sem "tchau")</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], não quero ocupar seu espaço à toa 🙂 vou seguir te mandando coisas úteis de vez em quando. Quando fizer sentido conversar, é só me chamar!</div>
+
+        <div class="dica">✅ <div><b>Qualquer resposta conta</b> — até um emoji ou áudio. Respondeu? Puxe a conversa e siga pra Qualificação.</div></div>
+        <div class="evite">⛔ <div>Nada de cobrar ("por que não respondeu?") nem mandar oferta/preço aqui.</div></div>
+      </div>
+    </div>
+
+    <div class="conector"><div class="linha"></div><div class="rotulos"><span class="rotulo r-verde">✅ respondeu → Qualificação</span><span class="rotulo r-vermelho">🔕 sumiu → Nutrição</span></div><div class="seta">▼</div></div>
+
+    <!-- 3. QUALIFICAÇÃO -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">3</div>
+        <div class="nome">📞 Qualificação</div>
+        <div class="badges"><span class="badge">📨 Cadência</span></div>
+        <div class="objetivo">Entender quem é o lead (dores, objetivos, urgência) e levar à <b>reunião</b> (perfil Club) ou à <b>apresentação</b> (perfil Escola). Roteiro SPIN.</div>
+      </div>
+      <div class="estagio-body">
+        <h4 style="font-size:.8rem;color:var(--navy);margin-bottom:2px;">Enquanto a pessoa responde — o roteiro (uma pergunta por vez):</h4>
+        <div class="microcopy"><b>Situação</b> — entenda o momento</div>
+        <div class="msg-ex"><span class="tag">Você</span>me conta, [<span class="var">PrimeiroNome</span>], vc trabalha com o quê hoje?</div>
+        <div class="microcopy"><b>Objetivo</b> — o que ela quer</div>
+        <div class="msg-ex"><span class="tag">Você</span>e o que vc quer alcançar esse ano no seu negócio?</div>
+        <div class="microcopy"><b>Problema</b> — o maior bloqueio</div>
+        <div class="msg-ex"><span class="tag">Você</span>qual tem sido o maior desafio pra chegar lá?</div>
+        <div class="microcopy"><b>Implicação</b> — o custo de não resolver</div>
+        <div class="msg-ex"><span class="tag">Você</span>e isso tem impactado seus resultados como hoje?</div>
+        <div class="msg-ex"><span class="tag">Você</span>se seguir assim, como vc imagina que vai estar daqui uns 6 meses?</div>
+        <div class="microcopy"><b>Caminho</b> — leve pra reunião (Club) ou apresentação (Escola)</div>
+        <div class="msg-ex"><span class="tag">Você</span>pelo que vc trouxe, dá pra estruturar algo bem estratégico pra destravar isso.</div>
+        <div class="msg-ex"><span class="tag">Você</span>faz sentido a gente conversar com mais profundidade numa reunião rápida?</div>
+
+        <div class="quando-tag">D+2 · retomada, se sumir</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], voltando aqui 🙂 vc tinha comentado sobre [o tema que ele trouxe] — como tá isso agora?</div>
+
+        <div class="quando-tag">+3 dias · entrega de valor</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], lembrei de vc — [uma dica/insight curto ligado ao que ele falou]. Ainda faz sentido a gente continuar aquela conversa?</div>
+
+        <div class="quando-tag">+6 dias · encerramento leve</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], não vou mais insistir por aqui 🙂 sigo te mandando conteúdos úteis e, quando quiser retomar, é só chamar!</div>
+
+        <div class="dica">✅ <div>Marcou a reunião? Mova o lead para <b>Reunião Agendada</b> — os lembretes automáticos começam.</div></div>
+        <div class="evite">⛔ <div>Nada de questionário engessado nem duas perguntas na mesma mensagem. Não repita o que ele já respondeu.</div></div>
+      </div>
+    </div>
+
+    <div class="conector"><div class="linha"></div><div class="rotulos"><span class="rotulo r-verde">📅 reunião marcada → Reunião Agendada</span><span class="rotulo r-vermelho">🔕 sem resposta → Nutrição</span></div><div class="seta">▼</div></div>
+
+    <!-- 4. REUNIÃO AGENDADA -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">4</div>
+        <div class="nome">📅 Reunião Agendada</div>
+        <div class="badges"><span class="badge qt">⏰ Lembretes automáticos</span></div>
+        <div class="objetivo">Garantir o comparecimento. Os lembretes abaixo <b>saem sozinhos</b> pelo sistema — use como referência de tom se precisar falar à mão.</div>
+      </div>
+      <div class="estagio-body">
+        <div class="quando-tag">−24h · véspera</div>
+        <div class="msg-ex"><span class="tag">Automático</span>Oi [<span class="var">PrimeiroNome</span>]! Passando para lembrar que a nossa conversa é amanhã às [<span class="var">Horario</span>] 😊 Confirma que está tudo certo? Se precisar ajustar algo, é só me falar!</div>
+        <div class="quando-tag">−1h</div>
+        <div class="msg-ex"><span class="tag">Automático</span>Oi [<span class="var">PrimeiroNome</span>]! Faltando 1 hora para a nossa conversa 🙌 Estou por aqui, até já!</div>
+        <div class="quando-tag">Não apareceu → resgate (+2h, +1 dia, +3 dias)</div>
+        <div class="msg-ex"><span class="tag">Automático</span>Oi [<span class="var">PrimeiroNome</span>]! Tudo bem? Aguardei você hoje, mas sei que imprevistos acontecem 😊 Podemos remarcar? Me fala um horário que funcione melhor pra você.</div>
+
+        <div class="dica">✅ <div><b>Sempre marque a reunião com data E horário reais</b> (nunca deixe sem hora). Assim que a reunião acontecer, mova o lead para <b>Reunião Realizada</b> — é o que desliga os lembretes de "não apareceu".</div></div>
+        <div class="dica">🛡️ <div>Proteja a reunião: ofereça <b>dois horários prontos</b> ("pode ser terça 16h ou quarta 15h?") em vez de "quando vc tem tempo?". Isso cria compromisso.</div></div>
+      </div>
+    </div>
+
+    <div class="conector"><div class="linha"></div><div class="rotulos"><span class="rotulo r-cinza">🤝 reunião feita → você move</span></div><div class="seta">▼</div></div>
+
+    <!-- 5. REUNIÃO REALIZADA -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">5</div>
+        <div class="nome">🤝 Reunião Realizada</div>
+        <div class="badges"><span class="badge">📨 Cadência</span></div>
+        <div class="objetivo">Aproveitar o calor da reunião pra encaminhar a decisão.</div>
+      </div>
+      <div class="estagio-body">
+        <div class="quando-tag">+1h · pós-reunião</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], que bom nossa conversa hoje! 🙌</div>
+        <div class="msg-ex"><span class="tag">Você</span>recapitulando: [ponto que ficou claro] e o próximo passo é [o que foi combinado]. Qualquer coisa, tô por aqui!</div>
+        <div class="dica">✅ <div>Daqui o lead segue pra <b>Fechamento</b> (quer avançar) ou <b>Objeção</b> (travou em preço, tempo, prioridade…).</div></div>
+      </div>
+    </div>
+
+    <div class="conector"><div class="linha"></div><div class="rotulos"><span class="rotulo r-verde">👍 pronto → Fechamento</span><span class="rotulo r-azul">🤔 travou → Objeção</span></div><div class="seta">▼</div></div>
+
+    <!-- 6. OBJEÇÃO -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">6</div>
+        <div class="nome">🛡️ Objeção</div>
+        <div class="badges"><span class="badge">📨 Cadência</span></div>
+        <div class="objetivo">Acolher a objeção com empatia e reconectar o lead à dor e ao objetivo dele. (Kit de respostas completo mais abaixo.)</div>
+      </div>
+      <div class="estagio-body">
+        <div class="quando-tag">Na hora · responda a objeção certa</div>
+        <div class="msg-ex"><span class="tag">Você</span>entendo, [<span class="var">PrimeiroNome</span>]. Deixa eu te mostrar de outro jeito...</div>
+        <p class="alt">↳ Veja o <b>Kit de Objeções</b> abaixo pra a resposta específica (dinheiro, tempo, autoridade…).</p>
+
+        <div class="quando-tag">D+1 · novo ângulo de valor</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], lembrei de vc e quis compartilhar isso: [prova social ou um ganho que conecta com a objeção]. Sem compromisso 🙂</div>
+
+        <div class="quando-tag">D+3 · como está o momento</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], como tá esse ponto que vc me falou? Mudou alguma coisa desde a nossa conversa?</div>
+
+        <div class="quando-tag">D+5 · reconecta à dor/objetivo</div>
+        <div class="msg-ex"><span class="tag">Você</span>vc me disse que queria [objetivo] e que o maior desafio era [dor]. Isso ainda é importante pra vc?</div>
+
+        <div class="quando-tag">D+7 · encerramento respeitoso (mensagem fixa)</div>
+        <div class="msg-ex"><span class="tag">Você</span>Oi [<span class="var">PrimeiroNome</span>], última mensagem por aqui 🙂<br>Não quero ocupar o seu espaço sem que faça sentido. Se o momento mudar, é só me chamar — a porta fica aberta.<br>Foi um prazer conversar com você!</div>
+      </div>
+    </div>
+
+    <div class="conector"><div class="linha"></div><div class="rotulos"><span class="rotulo r-verde">✅ destravou → Fechamento</span><span class="rotulo r-vermelho">🔕 sem resposta → Perda</span></div><div class="seta">▼</div></div>
+
+    <!-- 7. FECHAMENTO -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">7</div>
+        <div class="nome">💰 Fechamento</div>
+        <div class="badges"><span class="badge">📨 Cadência</span></div>
+        <div class="objetivo">Conduzir à decisão: recapitular o combinado, encaminhar o pagamento e amarrar o "sim". (Ordem de oferta completa mais abaixo.)</div>
+      </div>
+      <div class="estagio-body">
+        <div class="quando-tag">Na hora · encaminha o fechamento</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], nossa conversa foi ótima! Recapitulando: vc vai resolver [dor] e chegar em [resultado].</div>
+        <div class="msg-ex"><span class="tag">Você</span>vou te mandar aqui o passo pra garantir sua vaga 🙌</div>
+        <p class="alt">↳ Só mande o link de pagamento <b>depois</b> do sinal de compra. Veja a ordem de oferta na próxima seção.</p>
+
+        <div class="quando-tag">D+1 · ajuda a amarrar hoje</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], conseguiu ver o que te mandei? Imagina vc com [resultado que ele quer] já rodando — bora dar esse passo hoje?</div>
+
+        <div class="quando-tag">D+3 · algo ficou em aberto?</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], ficou alguma dúvida ou insegurança pra decidir? Me fala com sinceridade que a gente resolve juntos 🙂</div>
+
+        <div class="quando-tag">D+5 · reconecta ao objetivo</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], aquele objetivo de [meta dele] ainda tá no radar? Tô aqui se quiser retomar.</div>
+
+        <div class="quando-tag">D+7 · última mensagem do ciclo</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], por aqui encerro por enquanto 🙂 sigo à disposição e te mandando conteúdos úteis. Quando fizer sentido, é só chamar!</div>
+      </div>
+    </div>
+
+    <div class="conector"><div class="linha"></div><div class="rotulos"><span class="rotulo r-verde">🏆 fechou → Ganho</span><span class="rotulo r-vermelho">🔕 sem resposta → Perda</span></div><div class="seta">▼</div></div>
+
+    <!-- GANHO / NUTRIÇÃO -->
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">🏆</div>
+        <div class="nome">Ganho — virou aluno!</div>
+        <div class="objetivo">Celebre e oriente os primeiros passos. O registro de ganho gera a receita no financeiro.</div>
+      </div>
+      <div class="estagio-body">
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], que decisão massa! 🎉🐆 seja muito bem-vinda!</div>
+        <div class="msg-ex"><span class="tag">Você</span>já já te mando o acesso à plataforma e o grupo de alunas. Bora com tudo!</div>
+      </div>
+    </div>
+
+    <div style="height:12px;"></div>
+
+    <div class="estagio">
+      <div class="estagio-head">
+        <div class="num">🌱</div>
+        <div class="nome">Nutrição — estacionamento inteligente</div>
+        <div class="badges"><span class="badge">📨 Cadência</span></div>
+        <div class="objetivo">Pra onde vão os leads que silenciaram. Mantém o relacionamento vivo, sem pressão — um toque a cada ~20 dias.</div>
+      </div>
+      <div class="estagio-body">
+        <div class="quando-tag">A cada ~20 dias · conteúdo de valor</div>
+        <div class="msg-ex"><span class="tag">Você</span>[<span class="var">PrimeiroNome</span>], lembrei de vc — [dica ou reflexão útil sobre negócio/empreendedorismo]. Faz sentido pro seu momento?</div>
+        <div class="dica">✅ <div>Se o lead responder aqui, ele <b>volta pra Qualificação</b> e a conversa recomeça de onde parou.</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════ KIT DE OBJEÇÕES ══════════ -->
+  <h2 class="secao">Kit de objeções — respostas prontas</h2>
+  <p class="secao-sub">Primeiro entenda o bloqueio real, depois responda. Termine sempre com uma pergunta.</p>
+
+  <div class="painel">
+    <h3>🎓 Escola de Empreendedorismo</h3>
+
+    <h4>💸 "Está caro / não tenho o valor agora"</h4>
+    <div class="msg-ex"><span class="tag">Você</span>entendo, [<span class="var">PrimeiroNome</span>]. Só que o sistema cobra a <b>parcela</b>, não o total — são R$ 218, não R$ 2.616.</div>
+    <div class="msg-ex"><span class="tag">Você</span>e dá pra dividir em mais de um cartão se precisar. O que te trava mais hoje: o valor da parcela ou o momento?</div>
+    <p class="alt">↳ Foque sempre na parcela, nunca no total. Entenda o bloqueio real antes de oferecer outra forma.</p>
+
+    <h4>⏳ "Agora não é o momento / preciso de tempo"</h4>
+    <div class="msg-ex"><span class="tag">Você</span>faz sentido. Mas a agenda costuma mostrar o momento do negócio, né?</div>
+    <div class="msg-ex"><span class="tag">Você</span>quando vc pretende começar a resolver isso de forma estruturada?</div>
+
+    <h4>👥 "Preciso falar com meu sócio/esposo(a)"</h4>
+    <div class="msg-ex"><span class="tag">Você</span>perfeito — quem mais participa dessa decisão com vc? Posso trazer essa pessoa pra conversa?</div>
+
+    <h4>🤨 "Não sei se é pra mim"</h4>
+    <div class="msg-ex"><span class="tag">Você</span>imagino a dúvida. Vc me contou que queria [objetivo] e travava em [dor] — é exatamente aí que a Escola atua. Faz sentido?</div>
+  </div>
+
+  <div class="painel">
+    <h3>🏢 Club de Empresários — foco: levar pra reunião</h3>
+    <h4>"Prefiro ver por aqui mesmo"</h4>
+    <div class="msg-ex"><span class="tag">Você</span>consigo te dar uma visão geral por aqui, mas pra algo realmente estratégico a conversa faz diferença.</div>
+    <div class="msg-ex"><span class="tag">Você</span>o que te impede hoje de reservar 30 min pra olhar isso com profundidade?</div>
+    <h4>"Depois eu vejo"</h4>
+    <div class="msg-ex"><span class="tag">Você</span>claro. Me diz uma coisa: se nada mudar, onde vc acredita que vai estar daqui a alguns meses?</div>
+    <div class="evite">⛔ <div>No Club, <b>nunca</b> oferte direto nem detalhe preço antes da reunião. Traga a visão e o ganho, e leve pra conversa.</div></div>
+  </div>
+
+  <!-- ══════════ OFERTA E PAGAMENTO ══════════ -->
+  <h2 class="secao">Ordem de oferta e pagamento (Escola)</h2>
+  <p class="secao-sub">Sempre nessa ordem. Só envie o link <b>depois</b> do sinal de compra (diagnóstico feito + produto certo definido).</p>
+  <div class="painel">
+    <div class="oferta">
+      <div class="passo-oferta"><div class="ord">1</div><div class="txt"><b>Cartão</b> — a oferta principal, comece sempre por aqui</div><div class="val">12x R$ 218,00</div></div>
+      <div class="passo-oferta"><div class="ord">2</div><div class="txt"><b>Pix ou boleto</b> — só se houver objeção ao cartão</div><div class="val">até 6x R$ 387,05</div></div>
+      <div class="passo-oferta"><div class="ord">3</div><div class="txt"><b>Recorrência</b> — última opção, quando não há limite disponível</div><div class="val">até 12x s/ limite</div></div>
+    </div>
+    <div class="dica" style="margin-top:12px;">✅ <div><b>Regras de ouro:</b> foco sempre na parcela (nunca no total) · não ancore no mais barato · conduza pela decisão, não pelo preço · se faltar limite, sugira dividir em 2 cartões.</div></div>
+    <p class="links">
+      Página da Escola: <code>escolapanthers.com.br/escola-de-empreendedorismo</code><br>
+      Os links de pagamento (cartão · pix/boleto · recorrência) estão no material oficial / CRM — envie o correto conforme a forma escolhida.
+    </p>
+  </div>
+
+  <!-- ══════════ TÉCNICAS ══════════ -->
+  <h2 class="secao">Técnicas que fecham mais</h2>
+
+  <div class="painel">
+    <h3>📅 Agendando a reunião (perfil Club)</h3>
+    <p>Quando o lead aceitar conversar, <b>não deixe em aberto</b>. Ofereça dois horários prontos:</p>
+    <div class="msg-ex"><span class="tag">Você</span>pode ser terça 16h ou quarta 15h?</div>
+    <p class="alt">↳ Facilita a decisão e cria compromisso. Nunca pergunte "quando vc tem tempo?".</p>
+  </div>
+
+  <div class="painel">
+    <h3>⭐ Prova social — do jeito certo</h3>
+    <p>Nunca genérico ("temos alunas com ótimos resultados"). Sempre <b>nome real + número antes + número depois + tempo</b>:</p>
+    <div class="msg-ex"><span class="tag">Você</span>viu a Dani? em 1 mês ela saiu de 12k pra 120k, uma coisa que nunca tinha feito na vida.</div>
+    <p class="alt">↳ Use quando o lead estiver em dúvida ou adiando. Se o caso não for recente, conte sem ancorar no mês.</p>
+  </div>
+
+  <div class="painel">
+    <h3>⏱️ Custo de oportunidade — quando querem esperar</h3>
+    <p>O argumento não é a urgência da oferta, é o <b>custo do tempo parado</b>:</p>
+    <div class="msg-ex"><span class="tag">Você</span>a conta é: o quanto vc deixa de fazer esperando esses 2 meses. E não é só financeiro — é estrutura, paz, tranquilidade, impacto.</div>
+  </div>
+
+  <div class="painel">
+    <h3>🌟 A Sabrina como autoridade</h3>
+    <p>Referencie a Sabrina pra dar peso — naturalmente, sem forçar em toda mensagem:</p>
+    <div class="chips">
+      <span class="chip">"A Sá pediu pra eu falar com vc"</span>
+      <span class="chip">"Viu que a Sá vai fazer uma imersão?"</span>
+      <span class="chip">"A Sá é bem presente no grupo"</span>
+    </div>
+  </div>
+
+  <!-- ══════════ REGRAS ══════════ -->
+  <div class="regras">
+    <h2>Etiqueta de WhatsApp (vale pra tudo)</h2>
+    <ul>
+      <li><b>Leia a conversa antes de escrever.</b> Não repita perguntas, não se reapresente pra quem já te conhece.</li>
+      <li><b>Uma ideia por mensagem, uma pergunta por vez.</b> Mensagens curtas ganham resposta.</li>
+      <li><b>Respeite o horário.</b> Cumprimente conforme a hora e não escreva de manhã como se fosse noite. Se o lead pediu outro momento, espere.</li>
+      <li><b>Não seja carente.</b> Nada de "eu de novo", "sumiu?" ou esticar o nome toda hora. Follow-up é retomada natural, não cobrança.</li>
+      <li><b>Marque reunião com data e hora reais</b> — nunca sem horário. Mova o lead pra "Reunião Realizada" depois que ela acontecer.</li>
+      <li><b>Só mande preço/link após sinal de compra.</b> Antes disso, conversa e diagnóstico.</li>
+      <li><b>Registre no CRM.</b> Anote o que descobriu do lead — some com o histórico e ajuda o próximo toque a ser certeiro.</li>
+    </ul>
+  </div>
+
+  <footer>
+    Instituto Sabrina Bogiani · Guia comercial do funil Escola Empreendedorismo &amp; Club · Material de apoio ao time de vendas — 21/07/2026.<br>
+    As mensagens são <b>exemplos</b>: adapte à conversa real e à voz de cada vendedor. Os textos entre [ ] são preenchidos com os dados do lead.
+  </footer>
+
+</div>
+
+</body>
+</html>

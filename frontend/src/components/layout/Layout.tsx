@@ -1,21 +1,37 @@
 import React, { useState, useEffect } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { TOUR_SIDEBAR_EVENT } from '@/contexts/TourContext'
 import { useSwipeable } from 'react-swipeable'
-import { Menu } from 'lucide-react'
+import { LogOut, Menu } from 'lucide-react'
+// Símbolo quadrado (o logo.png original é 1920x1080 e ficaria minúsculo em h-7).
+import iconeApp from '/icons/icon-192.png'
 import { Sidebar } from './Sidebar'
 import { SubscriptionExpired } from '@/components/ui/SubscriptionExpired'
 import { useAssinatura } from '@/hooks/useAssinatura'
 import { useAuth } from '@/contexts/AuthContext'
-import SextaFeiraWidget from '@/components/SextaFeiraWidget'
+import DuoWidget from '@/components/DuoWidget'
+import { AvisoContaBloqueada } from '@/components/assinatura/AvisoContaBloqueada'
+import { VideoAjudaProvider } from '@/tutoriais/VideoAjuda'
 
 const ROTAS_LIVRES = ['/planos', '/minha-conta', '/perfil']
 
 export const Layout: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const { user } = useAuth()
-  const { assinatura, isBloqueado } = useAssinatura()
+  const { user, logout } = useAuth()
+  const { assinatura, isBloqueado, bloqueio, loading: carregandoAssinatura } = useAssinatura()
   const location = useLocation()
+  // Aviso de conta sem acesso: uma vez por sessão e por motivo (sessionStorage pode
+  // faltar — aba anônima, bloqueio de site —, e aí ele só volta a aparecer).
+  const chaveAviso = `aviso_bloqueio_${bloqueio ?? ''}_${user?.empresa_id ?? ''}`
+  const [avisoFechado, setAvisoFechado] = useState<string | null>(null)
+  const avisoAberto = (() => {
+    if (avisoFechado === chaveAviso) return false
+    try { return sessionStorage.getItem(chaveAviso) !== '1' } catch { return true }
+  })()
+  const fecharAviso = React.useCallback(() => {
+    setAvisoFechado(chaveAviso)
+    try { sessionStorage.setItem(chaveAviso, '1') } catch { /* só não lembra */ }
+  }, [chaveAviso])
 
   // O tour guiado abre/fecha a sidebar no mobile via evento (ver TourContext)
   useEffect(() => {
@@ -27,10 +43,15 @@ export const Layout: React.FC = () => {
     return () => window.removeEventListener(TOUR_SIDEBAR_EVENT, handler)
   }, [])
 
+  // Largura da faixa na borda esquerda que aceita o swipe de abrir a sidebar (padrão de drawer)
+  const SWIPE_EDGE_PX = 40
+
   // Gestos de swipe (apenas em mobile)
   const swipeHandlers = useSwipeable({
-    onSwipedRight: () => {
-      if (window.innerWidth < 768) {
+    onSwipedRight: ({ initial }) => {
+      // Só abre se o gesto começou na borda esquerda — senão qualquer scroll
+      // horizontal (kanban, tabelas) abriria a sidebar sem querer.
+      if (window.innerWidth < 768 && initial[0] <= SWIPE_EDGE_PX) {
         setIsSidebarOpen(true)
       }
     },
@@ -48,7 +69,46 @@ export const Layout: React.FC = () => {
   const ROTAS_ALTURA_CHEIA = ['/crm', '/crm-cx']
   const alturaCheia = ROTAS_ALTURA_CHEIA.includes(location.pathname)
 
-  // Tela de bloqueio total (trial/plano expirado) — não para super_admin nem rotas livres
+  // Só na primeira carga da sessão: sem a assinatura não dá para saber se a página
+  // pedida pode ser aberta.
+  if (carregandoAssinatura && !assinatura) {
+    return <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-900" aria-busy="true" />
+  }
+
+  // Conta sem acesso (25/09/2026) — trial encerrado, suspensa ou aguardando
+  // pagamento: só a Minha Conta e a escolha de plano. O resto do sistema redireciona
+  // para lá — a API também recusa com 402, então isto é a porta visível, não a única.
+  // Sem menu nem Duo: nada ali levaria a lugar nenhum além de volta para cá.
+  if (bloqueio && user?.nivel !== 'super_admin') {
+    const liberada = ['/minha-conta', '/planos'].some(r => location.pathname.startsWith(r))
+    if (!liberada) return <Navigate to="/minha-conta" replace />
+    return (
+      <div className="flex h-screen flex-col bg-gray-50 dark:bg-gray-900">
+        <header className="flex shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] dark:border-gray-700 dark:bg-gray-800 sm:px-6">
+          <img src={iconeApp} alt="" className="h-7 w-7" />
+          <span className="text-base font-bold text-brand-navy dark:text-white">DuoFuturo</span>
+          <button
+            type="button"
+            onClick={logout}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            <LogOut size={16} /> Sair
+          </button>
+        </header>
+        <div className="flex-1 overflow-auto">
+          <div className="mx-auto w-full max-w-6xl">
+            <Outlet />
+          </div>
+        </div>
+        {avisoAberto && (
+          <AvisoContaBloqueada motivo={bloqueio} nome={user?.nome} terminouEm={assinatura?.trial_expira_em} onFechar={fecharAviso} />
+        )}
+      </div>
+    )
+  }
+
+  // Tela de bloqueio total (cancelada/expirada — os motivos com saída pelo pagamento
+  // já foram tratados acima) — não para super_admin nem rotas livres
   const rotaLivre = ROTAS_LIVRES.some(r => location.pathname.startsWith(r))
   if (isBloqueado && user?.nivel !== 'super_admin' && assinatura && !rotaLivre) {
     return (
@@ -59,28 +119,42 @@ export const Layout: React.FC = () => {
     )
   }
 
+  // Ajuda em vídeo (player no canto, dica nos botões, oferta do Duo) só na
+  // conta liberada: nas telas de bloqueio e cobrança acima ela não entra.
   return (
+    <VideoAjudaProvider>
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900" {...swipeHandlers}>
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
       <div className="flex-1 md:ml-64 flex flex-col overflow-hidden">
-        <div className={`flex-1 overflow-auto relative ${alturaCheia ? '' : 'pb-24'}`}>
-          {/* Botão Hamburguer - apenas mobile */}
+        {/*
+          Barra de topo do mobile. Ocupa espaço no fluxo, em vez de flutuar: o ☰ era
+          `fixed top-4 left-4` e cobria o título de qualquer página que começasse no
+          topo (só o CRM reservava recuo). Aqui nenhuma página precisa saber que ela
+          existe. Fica fora da área de rolagem, então não sobe junto com o conteúdo.
+        */}
+        <header className="md:hidden flex items-center gap-3 shrink-0 border-b border-gray-200 bg-white px-4 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] dark:border-gray-700 dark:bg-gray-800">
           <button
             onClick={() => setIsSidebarOpen(true)}
-            className="md:hidden fixed top-4 left-4 z-30 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-md text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Abrir menu"
+            className="-ml-2 rounded-lg p-2 text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <Menu size={24} />
           </button>
+          <img src={iconeApp} alt="" className="h-7 w-7" />
+          <span className="text-base font-bold text-brand-navy dark:text-white">DuoFuturo</span>
+        </header>
 
+        <div className={`flex-1 overflow-auto relative ${alturaCheia ? '' : 'pb-24'}`}>
           <Outlet />
         </div>
       </div>
 
-      {/* Widget global Sexta-feira — agente IA consultora */}
-      {!rotaLivre && location.pathname !== '/agente-sexta-feira' && (
-        <SextaFeiraWidget />
+      {/* Widget global do Duo — assistente de IA */}
+      {!rotaLivre && location.pathname !== '/agente-duo' && (
+        <DuoWidget />
       )}
     </div>
+    </VideoAjudaProvider>
   )
 }

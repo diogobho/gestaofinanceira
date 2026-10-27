@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="92 180 216 210">
+  <defs>
+    <!-- Corpo = UMA peca de quebra-cabeca. Topo com ENCAIXE (concavo), nunca knob solto.
+         Grade: corpo 180x180 em x[110,290] y[210,390]; centro exato (200,300). -->
+    <path id="d3-shape" d="M138,210
+             H182 C180,236 220,236 218,210 H262
+             A28,28 0 0 1 290,238
+             V282 C316,280 316,320 290,318
+             V362 A28,28 0 0 1 262,390
+             H138 A28,28 0 0 1 110,362
+             V318 C134,320 134,280 110,282
+             V238 A28,28 0 0 1 138,210 Z"/>
+    <clipPath id="d3-clip"><use href="#d3-shape"/></clipPath>
+    <clipPath id="d3-eyeL"><ellipse cx="170" cy="292" rx="26" ry="28"/></clipPath>
+    <clipPath id="d3-eyes">
+      <ellipse cx="170" cy="292" rx="24" ry="26"/>
+      <ellipse cx="230" cy="292" rx="24" ry="26"/>
+    </clipPath>
+    <clipPath id="d3-eyeR"><ellipse cx="230" cy="292" rx="26" ry="28"/></clipPath>
+
+    <!-- ===== LUVAS DO MASCOTE (4 dedos + polegar) ===== -->
+    <!-- MITTEN meia-lua (sem dedos): dome para -y, base plana no punho. Origem = punho. -->
+    <g id="d3-glove-open" fill="#E5DDD1">
+      <path d="M-20,5 C-20,-19 -11,-31 0,-31 C11,-31 20,-19 20,5 Z"/>
+    </g>
+    <!-- punho fechado segurando: origem = punho, dedos para +x -->
+    <g id="d3-glove-grip">
+      <path d="M-4,-19 C6,-22 20,-18 24,-8 C28,2 24,15 14,19 C4,23 -8,20 -13,12 C-18,3 -14,-15 -4,-19 Z" fill="#E5DDD1"/>
+      <g fill="#E5DDD1" stroke-width="3.4">
+        <path d="M6,-16 h14 a7,7 0 0 1 0,14 h-14 Z"/>
+        <path d="M7,-2 h16 a7,7 0 0 1 0,14 h-16 Z"/>
+      </g>
+      <path d="M-2,-14 C6,-20 18,-16 18,-8 C18,-2 10,1 3,-1" fill="none" stroke-width="3.4"/>
+    </g>
+  </defs>
+
+  <g id="d3-root" stroke="#0F1F3E" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- ============ SOMBRA (fora do grupo que flutua: fica no chao) ============ -->
+    <ellipse id="d3-shadow" cx="200" cy="482" rx="94" ry="12" fill="#13264C" opacity="0.14" stroke="none"/>
+
+    <g id="d3-duo">
+
+    <!-- ============ PERNAS + PES (alinhados no eixo de cada perna) ============ -->
+    <g id="d3-legs">
+      <path d="M172,376 V452" fill="none" stroke-width="27"/>
+      <path d="M228,376 V452" fill="none" stroke-width="27"/>
+      <path d="M186,450 L162,450 C142,450 130,462 130,470 C130,475 134,478 140,478 L182,478 C187,478 190,474 190,468 Z" fill="#E5DDD1"/>
+      <path d="M214,450 L238,450 C258,450 270,462 270,470 C270,475 266,478 260,478 L218,478 C213,478 210,474 210,468 Z" fill="#E5DDD1"/>
+      <path d="M136,472 H186" fill="none" stroke-width="2.6" opacity="0.4"/>
+      <path d="M214,472 H264" fill="none" stroke-width="2.6" opacity="0.4"/>
+    </g>
+
+    <!-- ============ BRACO ESQUERDO (aceno) ============ -->
+    <g id="d3-arm-wave">
+      <path d="M120,262 C88,250 68,224 66,198" fill="none" stroke-width="22"/>
+      <g transform="translate(64,192) rotate(-12)"><use href="#d3-glove-open"/></g>
+    </g>
+
+    <!-- ============ BRACO DIREITO (segura a peca) ============ -->
+    <g id="d3-arm-piece">
+      <path d="M280,330 C308,340 322,354 328,368" fill="none" stroke-width="22"/>
+      <!-- peca dourada que ele encaixa -->
+      <g id="d3-piece"><g transform="rotate(-8 356 392)">
+        <path d="M326,360 H348 C347,348 369,348 368,360 H390 V382 C378,381 378,401 390,400 V422 H326 Z" fill="#D2B773" stroke-width="4"/>
+        <path d="M326,360 H348 C347,348 369,348 368,360 H390 V370 H326 Z" fill="#E3CD97" stroke="none"/>
+      </g></g>
+      <!-- mao do Duo: meia-lua pequena, por cima da peca -->
+      <g fill="#E5DDD1">
+        <path d="M320,374 C310,368 310,352 322,350 C333,348 340,360 335,372 C331,382 326,380 320,374 Z"/>
+      </g>
+    </g>
+
+    <!-- ============ CORPO: A PECA ============ -->
+    <g id="d3-body">
+      <use href="#d3-shape" fill="#16294F"/>
+      <g clip-path="url(#d3-clip)" stroke="none">
+        <!-- faixa dourada do topo: simetrica no eixo x=200, recortada pelo encaixe -->
+        <path d="M96,196 H336 V266 H96 Z" fill="#D2B773"/>
+        <path d="M180,196 C178,238 222,238 220,196 Z" fill="#0F1F3E" opacity="0"/>
+        <!-- luz suave seguindo a borda superior-esquerda -->
+        <path d="M100,330 C100,250 138,202 200,200 L200,212 C152,214 116,254 116,330 Z" fill="#FFFFFF" opacity="0.10"/>
+        <!-- sombra suave na base -->
+        <path d="M96,368 H336 V404 H96 Z" fill="#0E1D3A" opacity="0.22"/>
+      </g>
+      <!-- costura central: o "duo" — duas metades que se encaixam -->
+      <g clip-path="url(#d3-clip)" fill="none" stroke="#0D1A36" stroke-width="2.6" opacity="0.28">
+        <path d="M200,238 V404"/>
+      </g>
+      <path d="M182,210 C180,236 220,236 218,210" fill="none" stroke-width="4.5"/>
+      <use href="#d3-shape" fill="none"/>
+
+      <!-- ============ ROSTO ============ -->
+      <g id="d3-face">
+        <ellipse cx="170" cy="292" rx="26" ry="28" fill="#FFFFFF" stroke-width="4"/>
+        <ellipse cx="230" cy="292" rx="26" ry="28" fill="#FFFFFF" stroke-width="4"/>
+        <g clip-path="url(#d3-eyes)"><g id="d3-pupils" stroke="none">
+          <circle cx="174" cy="296" r="13.5" fill="#16294F"/><circle cx="234" cy="296" r="13.5" fill="#16294F"/>
+          <circle cx="168.5" cy="289" r="5.2" fill="#FFFFFF"/><circle cx="228.5" cy="289" r="5.2" fill="#FFFFFF"/>
+          <circle cx="179" cy="303" r="2.6" fill="#FFFFFF" opacity="0.9"/><circle cx="239" cy="303" r="2.6" fill="#FFFFFF" opacity="0.9"/>
+        </g></g>
+        <g clip-path="url(#d3-eyeL)"><rect id="d3-lidL" x="142" y="202" width="56" height="62" fill="#16294F"/></g>
+        <g clip-path="url(#d3-eyeR)"><rect id="d3-lidR" x="202" y="202" width="56" height="62" fill="#16294F"/></g>
+        <!-- olho fechado: arco creme que aparece so no frame da piscada -->
+        <path id="d3-closedL" d="M154,290 Q170,304 186,290" fill="none" stroke="#E5DDD1" stroke-width="6" opacity="0"/>
+        <path id="d3-closedR" d="M214,290 Q230,304 246,290" fill="none" stroke="#E5DDD1" stroke-width="6" opacity="0"/>
+        <!-- sobrancelhas simetricas (agrupadas: sobem sozinhas no hover) -->
+        <g id="d3-brows">
+          <path d="M150,256 Q170,243 190,255" fill="none" stroke="#16294F" stroke-width="6"/>
+          <path d="M210,255 Q230,243 250,256" fill="none" stroke="#16294F" stroke-width="6"/>
+        </g>
+        <!-- sorriso centrado no eixo -->
+        <path d="M172,334 Q200,364 228,334" fill="none" stroke="#E5DDD1" stroke-width="8"/>
+        <ellipse cx="140" cy="328" rx="12" ry="6" fill="#D2B773" opacity="0.9" stroke="none"/>
+        <ellipse cx="260" cy="328" rx="12" ry="6" fill="#D2B773" opacity="0.9" stroke="none"/>
+      </g>
+    </g>
+    </g>
+  </g>
+</svg>

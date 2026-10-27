@@ -1,85 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Calendar, Users, XCircle, RefreshCw, Pencil, Check, X } from 'lucide-react'
+import { Calendar, Users, XCircle, RefreshCw, Pencil, Mail, MessageSquare } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { disparosAgendadosApi, type DisparoAgendado } from '@/api/crm'
-
-function toLocalDatetimeInput(isoString: string): string {
-  // Converte ISO UTC para string YYYY-MM-DDTHH:MM no fuso local do browser (Brasil)
-  const d = new Date(isoString)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function EditForm({
-  disparo,
-  onSave,
-  onCancel,
-}: {
-  disparo: DisparoAgendado
-  onSave: () => void
-  onCancel: () => void
-}) {
-  const [template, setTemplate] = useState(disparo.template ?? '')
-  const [agendadoPara, setAgendadoPara] = useState(toLocalDatetimeInput(disparo.agendado_para))
-  const [saving, setSaving] = useState(false)
-
-  const salvar = async () => {
-    if (!template.trim()) { toast.error('Mensagem não pode ficar vazia'); return }
-    if (!agendadoPara) { toast.error('Data/hora obrigatória'); return }
-    setSaving(true)
-    try {
-      await disparosAgendadosApi.editar(disparo.id, {
-        template: template.trim(),
-        agendado_para: new Date(agendadoPara).toISOString(),
-      })
-      toast.success('Disparo atualizado')
-      onSave()
-    } catch {
-      toast.error('Erro ao salvar alterações')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="mt-3 space-y-2">
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Mensagem</label>
-        <textarea
-          value={template}
-          onChange={e => setTemplate(e.target.value)}
-          rows={4}
-          className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
-        />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Nova data e hora de disparo</label>
-        <input
-          type="datetime-local"
-          value={agendadoPara}
-          onChange={e => setAgendadoPara(e.target.value)}
-          min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
-          className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
-        />
-      </div>
-      <div className="flex gap-2 justify-end pt-1">
-        <button
-          onClick={onCancel}
-          className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300"
-        >
-          <X size={12} /> Cancelar edição
-        </button>
-        <button
-          onClick={salvar}
-          disabled={saving}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-700 disabled:opacity-50"
-        >
-          <Check size={12} /> {saving ? 'Salvando…' : 'Salvar'}
-        </button>
-      </div>
-    </div>
-  )
-}
+import { EditarAgendamentoModal } from './EditarAgendamentoModal'
 
 interface DisparosAgendadosSectionProps {
   funilTipo?: 'aquisicao' | 'cx'
@@ -88,7 +11,7 @@ interface DisparosAgendadosSectionProps {
 export function DisparosAgendadosSection({ funilTipo }: DisparosAgendadosSectionProps) {
   const [itens, setItens] = useState<DisparoAgendado[]>([])
   const [loading, setLoading] = useState(false)
-  const [editandoId, setEditandoId] = useState<number | null>(null)
+  const [editando, setEditando] = useState<DisparoAgendado | null>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -161,8 +84,13 @@ export function DisparosAgendadosSection({ funilTipo }: DisparosAgendadosSection
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
                         <Calendar size={10} /> Agendado
                       </span>
+                      {/* Sem isto, e-mail e WhatsApp ficavam idênticos na lista. */}
+                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                        {d.tipo === 'email' ? <><Mail size={10} /> E-mail</> : <><MessageSquare size={10} /> WhatsApp</>}
+                      </span>
                     </div>
                     <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400 line-clamp-1">
+                      {d.tipo === 'email' && d.assunto ? <strong>{d.assunto}: </strong> : null}
                       {d.template?.slice(0, 80)}{(d.template?.length ?? 0) > 80 ? '…' : ''}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
@@ -191,7 +119,7 @@ export function DisparosAgendadosSection({ funilTipo }: DisparosAgendadosSection
                 {/* Ações */}
                 <div className="flex items-center gap-2 self-end sm:self-start sm:flex-shrink-0">
                   <button
-                    onClick={() => setEditandoId(editandoId === d.id ? null : d.id)}
+                    onClick={() => setEditando(d)}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-primary-100 px-3 py-1.5 text-xs font-medium text-primary-700 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-300"
                   >
                     <Pencil size={12} /> Editar
@@ -205,18 +133,18 @@ export function DisparosAgendadosSection({ funilTipo }: DisparosAgendadosSection
                 </div>
               </div>
 
-              {/* Formulário de edição inline */}
-              {editandoId === d.id && (
-                <EditForm
-                  disparo={d}
-                  onSave={() => { setEditandoId(null); carregar() }}
-                  onCancel={() => setEditandoId(null)}
-                />
-              )}
             </li>
           ))}
         </ul>
       )}
+
+      {/* A edição virou modal com o mesmo compositor da criação: o formulário
+          inline de antes não tinha variáveis, formatação, prévia nem assunto. */}
+      <EditarAgendamentoModal
+        disparo={editando}
+        onClose={() => setEditando(null)}
+        onAlterado={carregar}
+      />
     </div>
   )
 }

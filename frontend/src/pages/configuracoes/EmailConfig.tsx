@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { configuracoesSmtpApi, SmtpConfig } from '@/api/configuracoes-smtp'
 import toast from 'react-hot-toast'
+import { useAuth } from '@/contexts/AuthContext'
+import { isAdminEmpresa } from '@/utils/roles'
+import { AssinaturaEmailCard } from '@/components/perfil/AssinaturaEmailCard'
+import { AgendaExternaCard } from '@/components/perfil/AgendaExternaCard'
 
 const BREVO_GUIDE = [
   {
@@ -30,18 +34,53 @@ const BREVO_GUIDE = [
   },
 ]
 
+// Host/porta são do Brevo (iguais para todo mundo). O nome do remetente, não:
+// nasce com o nome da empresa do usuário, nunca com o de outra.
 const DEFAULT_CONFIG: Partial<SmtpConfig> = {
   smtp_host: 'smtp-relay.brevo.com',
   smtp_port: 587,
   smtp_user: '',
   smtp_pass: '',
   email_from: '',
-  email_from_name: 'Cobrança',
+  email_from_name: '',
   ativo: true,
 }
 
+/**
+ * Configurações de E-mail. Desde 23/10/2026 (pedido do dono) a página reúne o que é de
+ * e-mail e de agenda: o SMTP da empresa (só quem administra), a assinatura de e-mail e
+ * a agenda externa (de cada usuário, por isso a página abriu para todos).
+ */
 export const EmailConfig: React.FC = () => {
-  const [config, setConfig] = useState<Partial<SmtpConfig>>(DEFAULT_CONFIG)
+  const { user } = useAuth()
+  const admin = isAdminEmpresa(user)
+  return (
+    <div className="pb-6">
+      {admin ? <ConfigSmtp /> : (
+        <div className="flex items-center gap-3 px-4 py-4 sm:px-6">
+          <Mail className="w-6 h-6 text-primary-600" />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Configuração de E-mail</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Sua assinatura de e-mail e a conexão com a sua agenda.</p>
+          </div>
+        </div>
+      )}
+      <div className="space-y-6 px-4 sm:px-6">
+        <AssinaturaEmailCard />
+        <AgendaExternaCard />
+      </div>
+    </div>
+  )
+}
+
+/** SMTP da empresa (Brevo) — só para quem administra a conta. */
+const ConfigSmtp: React.FC = () => {
+  const { user } = useAuth()
+  const configInicial: Partial<SmtpConfig> = {
+    ...DEFAULT_CONFIG,
+    email_from_name: user?.empresa?.nome || '',
+  }
+  const [config, setConfig] = useState<Partial<SmtpConfig>>(configInicial)
   const [hasExisting, setHasExisting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -111,7 +150,7 @@ export const EmailConfig: React.FC = () => {
     if (!confirm('Tem certeza que deseja remover a configuração de e-mail desta empresa?')) return
     try {
       await configuracoesSmtpApi.delete()
-      setConfig(DEFAULT_CONFIG)
+      setConfig(configInicial)
       setHasExisting(false)
       setShowGuide(true)
       toast.success('Configuração removida.')
@@ -133,9 +172,9 @@ export const EmailConfig: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6">
       {/* Header */}
-      <div className="flex items-center justify-between ml-10 md:ml-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <Mail className="w-6 h-6 text-primary-600" />
           <div>

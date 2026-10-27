@@ -1,0 +1,275 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 620" width="440" height="620" role="img" aria-label="A dupla DuoFuturo: mentor e cliente com o resultado">
+  <title>A Dupla v3 — mentor e cliente DuoFuturo</title>
+  <defs>
+    <clipPath id="p3-faceA"><ellipse cx="152" cy="170" rx="46" ry="50"/></clipPath>
+    <clipPath id="p3-faceB"><ellipse cx="288" cy="150" rx="43" ry="47"/></clipPath>
+    <clipPath id="p3-eyeA1"><ellipse cx="134" cy="177" rx="12" ry="14"/></clipPath>
+    <clipPath id="p3-eyeA2"><ellipse cx="170" cy="177" rx="12" ry="14"/></clipPath>
+    <clipPath id="p3-eyeB1"><ellipse cx="272" cy="156" rx="11" ry="13"/></clipPath>
+    <clipPath id="p3-eyeB2"><ellipse cx="304" cy="156" rx="11" ry="13"/></clipPath>
+    <clipPath id="p3-card"><rect x="60" y="420" width="320" height="180" rx="22"/></clipPath>
+
+    <!-- maos: origem = punho, dedos para +y -->
+    <g id="p3-hand" >
+      <path d="M-12,2 C-21,4 -24,13 -19,18 C-15,22 -10,20 -10,16 Z"/>
+      <path d="M-13,-2 C-15,9 -15,21 -13,28 C-12,34 -5,35 -4,28
+               C-3,36 3,36 3,28 C4,35 10,34 10,26
+               C11,31 15,30 15,23 C16,14 16,4 14,-2 Z"/>
+    </g>
+    <g id="p3-hand-creases" fill="none" stroke="#C99870" stroke-width="2.1" opacity="0.65">
+      <path d="M-4,27 C-5,20 -5,12 -4,8"/><path d="M3,27 C2,20 2,11 3,7"/><path d="M10,25 C10,18 10,11 11,7"/>
+    </g>
+  </defs>
+
+  <style><![CDATA[
+    /* ============ RIG DE ANIMACAO — A DUPLA ============ */
+    #p3-mentor, #p3-cliente, #p3-mentor-head, #p3-cliente-head, #p3-cliente-arm,
+    #p3-float-a, #p3-float-b, #p3-bars rect, #p3-trend, #p3-arrow,
+    #p3-lidA1, #p3-lidA2, #p3-lidB1, #p3-lidB2,
+    #p3-cliente-pupils, #p3-mentor-pupils { transform-box: view-box; }
+
+    /* respiracao dessincronizada entre os dois (nunca em uniso) */
+    #p3-cliente { animation: p3-breatheA 5.2s ease-in-out infinite; }
+    #p3-mentor  { animation: p3-breatheB 6.1s ease-in-out infinite; }
+    #p3-cliente-head { transform-origin: 152px 236px; animation: p3-tiltA 7.4s ease-in-out infinite; }
+    #p3-mentor-head  { transform-origin: 288px 226px; animation: p3-tiltB 8.6s ease-in-out -1s infinite; }
+    #p3-cliente-arm  { transform-origin: 112px 296px; animation: p3-thumb 5.2s ease-in-out infinite; }
+
+    /* pecas flutuando: o transform="rotate(...)" do atributo fica no grupo pai;
+       aqui animamos so a translacao para nao sobrescrever a rotacao base */
+    #p3-float-a { animation: p3-floatA 6s ease-in-out infinite; }
+    #p3-float-b { animation: p3-floatB 7.2s ease-in-out -1.4s infinite; }
+
+    /* piscadas com periodos primos entre si -> nunca coincidem */
+    #p3-lidA1, #p3-lidA2 { animation: p3-blinkA 5.7s infinite; }
+    #p3-lidA2 { animation-delay: 0.03s; }
+    #p3-lidB1, #p3-lidB2 { animation: p3-blinkB 6.9s -2.4s infinite; }
+    #p3-lidB2 { animation-delay: -2.37s; }
+    #p3-cliente-pupils { animation: p3-lookA 9.5s ease-in-out infinite; }
+    #p3-mentor-pupils  { animation: p3-lookB 11s ease-in-out infinite; }
+
+    /* REVEAL do resultado: barras crescem da base e a tendencia se desenha.
+       Roda uma vez (forwards) — e um dado, nao um enfeite em loop. */
+    #p3-bars rect { transform-origin: 200px 578px; animation: p3-grow 0.62s cubic-bezier(.22,1,.36,1) both; }
+    #p3-bars rect:nth-child(1){ animation-delay:.15s } #p3-bars rect:nth-child(2){ animation-delay:.25s }
+    #p3-bars rect:nth-child(3){ animation-delay:.35s } #p3-bars rect:nth-child(4){ animation-delay:.45s }
+    #p3-bars rect:nth-child(5){ animation-delay:.55s }
+    #p3-trend { stroke-dasharray: 240; stroke-dashoffset: 240; animation: p3-draw 1.1s .7s ease-out both; }
+    #p3-arrow { opacity: 0; animation: p3-fade .3s 1.7s ease-out both; }
+
+    @keyframes p3-breatheA { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+    @keyframes p3-breatheB { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-2.4px)} }
+    @keyframes p3-tiltA { 0%,100%{transform:rotate(-1.3deg)} 50%{transform:rotate(1.3deg)} }
+    @keyframes p3-tiltB { 0%,100%{transform:rotate(1.1deg)} 50%{transform:rotate(-1.1deg)} }
+    @keyframes p3-thumb { 0%,72%,100%{transform:rotate(0)} 82%{transform:rotate(-5deg)} 90%{transform:rotate(1deg)} }
+    @keyframes p3-floatA { 0%,100%{transform:translate(0,0)} 50%{transform:translate(3px,-9px)} }
+    @keyframes p3-floatB { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-4px,-7px)} }
+    @keyframes p3-blinkA { 0%,90%{transform:translateY(0)} 91.4%{transform:translateY(28px)} 93.6%,100%{transform:translateY(0)} }
+    @keyframes p3-blinkB { 0%,92%{transform:translateY(0)} 93.2%{transform:translateY(26px)} 95.2%,100%{transform:translateY(0)} }
+    @keyframes p3-lookA { 0%,46%{transform:translate(0,0)} 54%,70%{transform:translate(2px,.5px)} 78%,94%{transform:translate(-1.6px,0)} 100%{transform:translate(0,0)} }
+    @keyframes p3-lookB { 0%,40%{transform:translate(0,0)} 48%,72%{transform:translate(-2.4px,.6px)} 80%,96%{transform:translate(1.4px,0)} 100%{transform:translate(0,0)} }
+    @keyframes p3-grow  { from{transform:scaleY(0)} to{transform:scaleY(1)} }
+    @keyframes p3-draw  { to{stroke-dashoffset:0} }
+    @keyframes p3-fade  { to{opacity:1} }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+
+  ]]></style>
+
+
+  <g stroke="#0F1F3E" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- ====== pecas flutuando (eixo de rotacao proprio) ====== -->
+    <g id="p3-float-a"><g transform="rotate(-14 68 74)">
+      <path d="M44,52 H62 C61,42 79,42 78,52 H96 V70 C87,69 87,87 96,86 V104 H44 Z" fill="#D2B773" stroke-width="3.5"/>
+    </g></g>
+    <g id="p3-float-b"><g transform="rotate(12 384 62)">
+      <path d="M360,40 H378 C377,30 395,30 394,40 H412 V58 C403,57 403,75 412,74 V92 H360 Z" fill="#24406F" stroke-width="3.5"/>
+    </g></g>
+
+    <!-- ============================================================ -->
+    <!-- ================= MENTOR (atras, direita) ================== -->
+    <!-- ============================================================ -->
+    <g id="p3-mentor">
+      <!-- braco que aponta o card (atras do corpo) -->
+      <path d="M332,290 C358,310 364,340 358,372" fill="none" stroke="#0F1F3E" stroke-width="30"/>
+      <path d="M332,290 C358,310 364,340 358,372" fill="none" stroke="#F7F3EA" stroke-width="23"/>
+
+      <!-- pescoco -->
+      <path d="M274,190 L274,240 L288,264 L302,240 L302,190 Z" fill="#EBC49B"/>
+      <path d="M275,203 Q288,218 301,203" fill="none" stroke="#D5A87F" stroke-width="6" opacity="0.6" stroke-linecap="butt"/>
+
+      <!-- camisa -->
+      <path d="M228,470 C228,376 232,296 236,272 C240,252 256,242 274,236
+               L288,256 L302,236 C320,242 336,252 340,272
+               C344,296 348,376 348,470 Z" fill="#FBF8F2"/>
+      <!-- colarinho + gravata dourada -->
+      <path d="M274,236 L288,262 L280,268 L268,246 Z" fill="#24406F"/>
+      <path d="M302,236 L288,262 L296,268 L308,246 Z" fill="#24406F"/>
+      <path d="M288,262 L297,274 L292,330 L284,330 L279,274 Z" fill="#D2B773"/>
+
+      <!-- cabeca -->
+      <g id="p3-mentor-head">
+        <!-- cabelo (massa unica, corte curto) -->
+        <path d="M243,158 C241,112 262,88 288,88 C314,88 335,112 333,158
+                 C330,140 326,126 318,118 C302,102 274,102 258,118
+                 C250,126 246,140 243,158 Z" fill="#13264C"/>
+        <ellipse cx="245" cy="158" rx="7.5" ry="10.5" fill="#EBC49B"/>
+        <ellipse cx="331" cy="158" rx="7.5" ry="10.5" fill="#EBC49B"/>
+        <ellipse cx="288" cy="150" rx="43" ry="47" fill="#EBC49B"/>
+        <g clip-path="url(#p3-faceB)" stroke="none">
+          <path d="M240,100 L258,100 C250,132 250,166 260,196 L240,196 Z" fill="#D5A87F" opacity="0.4"/>
+          <path d="M326,100 L336,100 L336,196 L320,196 C328,166 328,130 326,100 Z" fill="#F8DCC0" opacity="0.7"/>
+        </g>
+        <!-- cabelo por cima (linha do corte) -->
+        <path d="M245,150 C243,110 263,88 288,88 C313,88 333,110 331,150
+                 C326,124 314,112 296,114 C280,116 262,122 253,132
+                 C249,136 247,142 245,150 Z" fill="#13264C"/>
+        <path d="M318,98 C328,108 332,122 332,134" fill="none" stroke="#2F4C82" stroke-width="5" opacity="0.5"/>
+
+        <!-- olhos -->
+        <ellipse cx="272" cy="156" rx="11" ry="13" fill="#FFFFFF" stroke-width="3.2"/>
+        <ellipse cx="304" cy="156" rx="11" ry="13" fill="#FFFFFF" stroke-width="3.2"/>
+        <g id="p3-mentor-pupils" stroke="none">
+          <circle cx="273" cy="158" r="6.8" fill="#13264C"/><circle cx="305" cy="158" r="6.8" fill="#13264C"/>
+          <circle cx="270" cy="154" r="2.5" fill="#FFFFFF"/><circle cx="302" cy="154" r="2.5" fill="#FFFFFF"/>
+        </g>
+        <g clip-path="url(#p3-eyeB1)"><rect id="p3-lidB1" x="260" y="114" width="26" height="30" fill="#EBC49B"/></g>
+        <g clip-path="url(#p3-eyeB2)"><rect id="p3-lidB2" x="292" y="114" width="26" height="30" fill="#EBC49B"/></g>
+        <path d="M262,138 Q272,132 283,137" fill="none" stroke-width="4"/>
+        <path d="M293,137 Q304,132 314,138" fill="none" stroke-width="4"/>
+        <path d="M289,163 Q295,172 287,174" fill="none" stroke-width="3"/>
+        <path d="M275,182 Q288,196 301,182" fill="none" stroke-width="4"/>
+        <ellipse cx="259" cy="175" rx="8" ry="4.5" fill="#D2B773" opacity="0.35" stroke="none"/>
+        <ellipse cx="317" cy="175" rx="8" ry="4.5" fill="#D2B773" opacity="0.35" stroke="none"/>
+      </g>
+
+      <!-- mao apontando o resultado -->
+      <g transform="translate(358,372) rotate(-8) scale(1.05)">
+        <use href="#p3-hand" fill="#EBC49B"/><use href="#p3-hand-creases"/>
+      </g>
+    </g>
+
+    <!-- ============================================================ -->
+    <!-- ================= CLIENTE (frente, esquerda) =============== -->
+    <!-- ============================================================ -->
+    <g id="p3-cliente">
+      <!-- braco de tras -->
+      <path d="M198,294 C222,314 228,344 224,378" fill="none" stroke="#0F1F3E" stroke-width="32"/>
+      <path d="M198,294 C222,314 228,344 224,378" fill="none" stroke="#24406F" stroke-width="25"/>
+      <g transform="translate(224,378) rotate(6)">
+        <use href="#p3-hand" fill="#F6D5B8"/><use href="#p3-hand-creases"/>
+      </g>
+
+      <!-- pescoco -->
+      <path d="M137,212 L137,248 Q152,260 167,248 L167,212 Z" fill="#F6D5B8"/>
+      <path d="M138,226 Q152,242 166,226" fill="none" stroke="#DFB593" stroke-width="6.5" opacity="0.6" stroke-linecap="butt"/>
+
+      <!-- blazer -->
+      <path d="M88,486 C88,392 92,306 96,282 C100,260 116,250 136,246
+               L152,268 L168,246 C188,250 204,260 208,282
+               C212,306 216,392 216,486 Z" fill="#FBF8F2"/>
+      <path d="M96,282 C100,260 116,250 136,246 L152,282 L144,486 L88,486 C88,392 92,306 96,282 Z" fill="#24406F"/>
+      <path d="M208,282 C204,260 188,250 168,246 L152,282 L160,486 L216,486 C216,392 212,306 208,282 Z" fill="#24406F"/>
+      <path d="M136,246 L152,282 L142,292" fill="none" stroke-width="3.2"/>
+      <path d="M168,246 L152,282 L162,292" fill="none" stroke-width="3.2"/>
+      <path d="M139,276 Q152,298 165,276" fill="none" stroke="#D2B773" stroke-width="3.2"/>
+      <path d="M146,300 h5 a4,4 0 0 1 8,0 h5 v5 a4,4 0 0 0 0,8 h-18 Z" fill="#D2B773" stroke-width="2.8"/>
+
+      <!-- cabeca -->
+      <g id="p3-cliente-head">
+        <!-- cabelo: mesmo sistema da Nina (silhueta unica com cachos), reescalado 0.92 -->
+        <g transform="translate(-32,61.4) scale(0.92)">
+          <path d="M138,188
+                   C128,168 126,148 128,132
+                   A21,21 0 0 1 134,101
+                   A23,23 0 0 1 154,76
+                   A23,23 0 0 1 181,61
+                   A23,23 0 0 1 219,61
+                   A23,23 0 0 1 246,76
+                   A23,23 0 0 1 266,101
+                   A21,21 0 0 1 272,132
+                   C274,148 272,168 262,188
+                   C258,178 254,166 253,152
+                   L147,152
+                   C146,166 142,178 138,188 Z" fill="#13264C" stroke-width="4.35"/>
+        </g>
+        <ellipse cx="105" cy="180" rx="7.5" ry="11" fill="#F6D5B8"/>
+        <ellipse cx="199" cy="180" rx="7.5" ry="11" fill="#F6D5B8"/>
+        <circle cx="105" cy="193" r="4.2" fill="#D2B773" stroke-width="2.2"/>
+        <circle cx="199" cy="193" r="4.2" fill="#D2B773" stroke-width="2.2"/>
+        <ellipse cx="152" cy="170" rx="46" ry="50" fill="#F6D5B8"/>
+        <g clip-path="url(#p3-faceA)" stroke="none">
+          <path d="M102,118 L124,118 C116,154 116,190 126,226 L102,226 Z" fill="#DFB593" opacity="0.45"/>
+          <path d="M192,118 L202,118 L202,226 L188,226 C196,190 196,152 192,118 Z" fill="#FBE4CC" opacity="0.7"/>
+        </g>
+        <!-- franja (mesma curva da Nina, reescalada) -->
+        <g transform="translate(-32,61.4) scale(0.92)">
+          <path d="M142,134
+                   C140,88 166,58 200,58
+                   C234,58 260,88 258,134
+                   C252,104 244,92 234,89
+                   C226,86 220,93 211,91
+                   C201,89 194,81 184,83
+                   C174,85 168,93 158,91
+                   C150,89 146,110 142,134 Z" fill="#13264C" stroke-width="4.35"/>
+        </g>
+
+        <path d="M122,157 Q134,150 146,156" fill="none" stroke="#13264C" stroke-width="4.4"/>
+        <path d="M158,156 Q170,150 182,157" fill="none" stroke="#13264C" stroke-width="4.4"/>
+        <ellipse cx="134" cy="177" rx="12" ry="14" fill="#FFFFFF" stroke-width="3.2"/>
+        <ellipse cx="170" cy="177" rx="12" ry="14" fill="#FFFFFF" stroke-width="3.2"/>
+        <g id="p3-cliente-pupils" stroke="none">
+          <circle cx="135" cy="179" r="7.6" fill="#24406F"/><circle cx="171" cy="179" r="7.6" fill="#24406F"/>
+          <circle cx="135" cy="179" r="3.8" fill="#0F1F3E"/><circle cx="171" cy="179" r="3.8" fill="#0F1F3E"/>
+          <circle cx="132" cy="175" r="2.8" fill="#FFFFFF"/><circle cx="168" cy="175" r="2.8" fill="#FFFFFF"/>
+        </g>
+        <g clip-path="url(#p3-eyeA1)"><rect id="p3-lidA1" x="121" y="134" width="28" height="30" fill="#F6D5B8"/></g>
+        <g clip-path="url(#p3-eyeA2)"><rect id="p3-lidA2" x="157" y="134" width="28" height="30" fill="#F6D5B8"/></g>
+        <path d="M153,184 Q160,194 151,196" fill="none" stroke-width="3"/>
+        <path d="M137,204 Q152,220 167,204 Z" fill="#7E3B45" stroke-width="3"/>
+        <path d="M140,205 Q152,210 164,205 Z" fill="#FFFFFF" stroke="none"/>
+        <ellipse cx="121" cy="196" rx="9" ry="5" fill="#E3A183" opacity="0.5" stroke="none"/>
+        <ellipse cx="183" cy="196" rx="9" ry="5" fill="#E3A183" opacity="0.5" stroke="none"/>
+      </g>
+
+      <!-- braco da frente: polegar para cima -->
+      <g id="p3-cliente-arm">
+        <path d="M106,294 C84,318 80,346 84,374" fill="none" stroke="#0F1F3E" stroke-width="32"/>
+        <path d="M106,294 C84,318 80,346 84,374" fill="none" stroke="#24406F" stroke-width="25"/>
+        <g transform="translate(84,376)">
+          <path d="M-14,4 C-15,16 -13,28 -6,32 C2,37 15,33 17,24 C19,15 17,6 14,0 C6,-6 -8,-4 -14,4 Z" fill="#F6D5B8"/>
+          <path d="M-13,2 C-16,-10 -12,-24 -4,-23 C3,-22 4,-10 2,1 Z" fill="#F6D5B8"/>
+          <g fill="none" stroke="#C99870" stroke-width="2.1" opacity="0.6">
+            <path d="M-6,30 C-5,24 -4,18 -3,14"/><path d="M4,30 C5,24 6,19 7,15"/><path d="M12,26 C13,21 14,17 14,14"/>
+          </g>
+        </g>
+      </g>
+    </g>
+
+    <!-- ============================================================ -->
+    <!-- ======================= CARD RESULTADO ===================== -->
+    <!-- ============================================================ -->
+    <g id="p3-card-g">
+      <rect x="60" y="420" width="320" height="180" rx="22" fill="#FFFFFF" stroke-width="4.5"/>
+      <rect x="84" y="440" width="104" height="12" rx="6" fill="#E5DDD1" stroke="none"/>
+      <rect x="84" y="460" width="62" height="9" rx="4.5" fill="#E5DDD1" stroke="none"/>
+      <!-- linha de base -->
+      <path d="M84,578 H356" fill="none" stroke-width="3" opacity="0.25"/>
+      <!-- barras: base comum y=578, larguras e passos iguais -->
+      <g id="p3-bars" stroke="none">
+        <rect x="92"  y="552" width="34" height="26"  rx="7" fill="#24406F"/>
+        <rect x="140" y="534" width="34" height="44"  rx="7" fill="#24406F"/>
+        <rect x="188" y="512" width="34" height="66"  rx="7" fill="#D2B773"/>
+        <rect x="236" y="490" width="34" height="88"  rx="7" fill="#D2B773"/>
+        <rect x="284" y="468" width="34" height="110" rx="7" fill="#127760"/>
+      </g>
+      <!-- tendencia: passa exatamente 8px acima do topo de cada barra -->
+      <path id="p3-trend" d="M109,544 L157,526 L205,504 L253,482 L301,460 L326,447"
+            fill="none" stroke="#127760" stroke-width="4.5"/>
+      <path id="p3-arrow" d="M312,444 L328,444 L328,460" fill="none" stroke="#127760" stroke-width="4.5"/>
+    </g>
+  </g>
+</svg>

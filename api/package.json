@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test": "tsx --test tests/*.test.ts",
+    "test:tipos": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.77.0",

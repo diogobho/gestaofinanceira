@@ -8,6 +8,8 @@ import type {
   ParticipanteGrupo,
   ImportarParticipantesResult,
   Tag,
+  Origem,
+  CreateOrigemDto,
   AtividadeLead,
   CreateLeadDto,
   UpdateLeadDto,
@@ -45,7 +47,9 @@ export const funisApi = {
   update: (id: number, data: Partial<Funil>) =>
     api.put<Funil>(`/crm/funis/${id}`, data).then(r => r.data),
 
-  delete: (id: number) => api.delete(`/crm/funis/${id}`),
+  // Exclui o funil junto com os leads que estiverem nele; devolve quantos foram removidos.
+  delete: (id: number) =>
+    api.delete<{ leadsRemovidos: number }>(`/crm/funis/${id}`).then(r => r.data),
 }
 
 // Estagios
@@ -75,6 +79,8 @@ export interface FiltrosLead {
   responsavel_id?: number
   temperatura?: 'frio' | 'morno' | 'quente'
   origem?: string
+  /** Ids de tag separados por vírgula ("12,25") — o lead entra se tiver qualquer uma. */
+  tags?: string
   com_tarefa_atrasada?: boolean
   com_tarefa_hoje?: boolean
   sem_tarefa?: boolean
@@ -83,7 +89,13 @@ export interface FiltrosLead {
   com_telefone?: boolean
   sem_nome_real?: boolean
   search?: string
+  /** Ordem dos cards na coluna — não é filtro, mas viaja junto para a API. */
+  ordenar?: OrdemCards
 }
+
+export type OrdemCards =
+  | 'manual' | 'recentes' | 'antigos' | 'mensagem' | 'mais_recebidas'
+  | 'nome_az' | 'nome_za' | 'valor' | 'temperatura' | 'janela_24h'
 
 // Leads
 export const leadsApi = {
@@ -112,12 +124,19 @@ export const leadsApi = {
     api.put<Lead>(`/crm/leads/${id}/transferir-funil`, { novo_funil_id: novoFunilId }).then(r => r.data),
 
   arquivar: (id: number) =>
-    api.post<Lead>(`/crm/leads/${id}/arquivar`).then(r => r.data),
+    api.put<Lead>(`/crm/leads/${id}/arquivar`).then(r => r.data),
 
   reativar: (id: number) =>
-    api.post<Lead>(`/crm/leads/${id}/reativar`).then(r => r.data),
+    api.put<Lead>(`/crm/leads/${id}/reativar`).then(r => r.data),
 
   delete: (id: number) => api.delete(`/crm/leads/${id}`),
+
+  // Exclusão em massa: estágio inteiro (com estagio_id) ou funil inteiro. Só admin.
+  previaExclusaoEmMassa: (funilId: number, estagioId?: number) =>
+    api.get<{ total: number }>('/crm/leads/excluir-em-massa', { params: { funil_id: funilId, estagio_id: estagioId } }).then(r => r.data),
+
+  excluirEmMassa: (funilId: number, estagioId?: number) =>
+    api.post<{ excluidos: number }>('/crm/leads/excluir-em-massa', { funil_id: funilId, estagio_id: estagioId }).then(r => r.data),
 
   // Atividades
   getAtividades: (id: number, limit = 50) =>
@@ -131,8 +150,12 @@ export const leadsApi = {
     api.delete(`/crm/leads/${id}/tags/${tagId}`),
 
   // WhatsApp messaging via lead
-  enviarMensagem: (id: number, mensagem: string) =>
-    api.post(`/crm/leads/${id}/mensagem`, { mensagem }).then(r => r.data),
+  enviarMensagem: (id: number, mensagem: string, respostaA?: string | null) =>
+    api.post(`/crm/leads/${id}/mensagem`, { mensagem, ...(respostaA ? { resposta_a: respostaA } : {}) }).then(r => r.data),
+
+  // emoji vazio remove a reação
+  reagirMensagem: (id: number, mensagemId: number, emoji: string) =>
+    api.post(`/crm/leads/${id}/mensagens/${mensagemId}/reacao`, { emoji }).then(r => r.data),
 
   enviarMedia: (id: number, file: File, caption?: string) => {
     const formData = new FormData()
@@ -267,6 +290,48 @@ export const tagsApi = {
   delete: (id: number) => api.delete(`/crm/tags/${id}`),
 }
 
+// Origens
+// Respostas por botão (094): no estágio, origem + botão clicado → sequência + tarefa de FUP.
+export interface PassoRespostaBotao {
+  texto?: string | null
+  media_url?: string | null
+  media_mimetype?: string | null
+  media_filename?: string | null
+  /** Botões de resposta rápida (só QR, até 3) — o clique cai nas regras da etapa para onde o card foi. */
+  botoes?: string[] | null
+}
+export interface RegraRespostaBotao {
+  id?: number
+  origem: string | null
+  botao: string
+  passos: PassoRespostaBotao[]
+  tarefa_dias: number | null
+  /** Depois do clique, move o card para esta etapa do mesmo funil. */
+  mover_para_estagio_id?: number | null
+  /** Vale também a resposta escrita igual ao botão — para o QR, onde o botão não aparece. */
+  aceita_texto?: boolean
+  ativa: boolean
+}
+export const respostasBotaoApi = {
+  listar: (estagioId: number) =>
+    api.get<RegraRespostaBotao[]>(`/crm/estagios/${estagioId}/respostas-botao`).then(r => r.data),
+  salvar: (estagioId: number, regras: RegraRespostaBotao[]) =>
+    api.put<RegraRespostaBotao[]>(`/crm/estagios/${estagioId}/respostas-botao`, { regras }).then(r => r.data),
+}
+
+export const origensApi = {
+  list: () =>
+    api.get<Origem[]>('/crm/origens').then(r => r.data),
+
+  create: (data: CreateOrigemDto) =>
+    api.post<Origem>('/crm/origens', data).then(r => r.data),
+
+  update: (id: number, data: Partial<CreateOrigemDto>) =>
+    api.put<Origem>(`/crm/origens/${id}`, data).then(r => r.data),
+
+  delete: (id: number) => api.delete(`/crm/origens/${id}`),
+}
+
 // Importacao
 export interface MapeamentoColunas {
   nome: string
@@ -315,6 +380,9 @@ export const importacaoApi = {
 }
 
 // Dashboard
+/** Agrupamento da série temporal do CRM Dashboard. */
+export type Granularidade = 'dia' | 'semana' | 'mes' | 'ano'
+
 export interface DashboardMetricas {
   totalLeads: number
   leadsAtivos: number
@@ -324,6 +392,8 @@ export interface DashboardMetricas {
   valorGanho: number
   taxaConversao: number
   leadsPorMes: Array<{ mes: string; total: number; ganhos: number; perdidos: number }>
+  /** Em que granularidade a série acima foi agrupada. */
+  granularidade?: Granularidade
   valorPorMes: Array<{ mes: string; valor: number }>
   leadsPorEstagio: Array<{ estagio: string; cor: string; total: number; valor: number }>
   leadsPorTemperatura: Array<{ temperatura: string; total: number; valor: number }>
@@ -338,6 +408,8 @@ export interface DashboardMetricas {
   }>
   tarefasAtrasadas: number
   tarefasHoje: number
+  /** true quando um período foi aplicado — a tela troca o rótulo de "hoje". */
+  periodoAtivo?: boolean
   tarefasPendentes: number
   tempoMedioConversao: number | null
   leadsSemContato7Dias: number
@@ -350,19 +422,56 @@ export interface DashboardDateFilters {
 }
 
 export const dashboardApi = {
-  getMetricas: (funilId?: number, filters?: DashboardDateFilters) =>
+  getMetricas: (funilId?: number, filters?: DashboardDateFilters, granularidade?: Granularidade) =>
     api.get<DashboardMetricas>('/crm/dashboard', {
-      params: { funil_id: funilId, data_inicio: filters?.data_inicio, data_fim: filters?.data_fim, responsavel_id: filters?.responsavel_id }
+      params: { funil_id: funilId, data_inicio: filters?.data_inicio, data_fim: filters?.data_fim, responsavel_id: filters?.responsavel_id, granularidade }
     }).then(r => r.data),
 
   getFunilAnalytics: (funilId?: number, dias?: number, filters?: DashboardDateFilters) =>
     api.get<FunilAnalytics>('/crm/dashboard/funil', {
       params: { funil_id: funilId, dias, data_inicio: filters?.data_inicio, data_fim: filters?.data_fim, responsavel_id: filters?.responsavel_id }
+    }).then(r => r.data),
+
+  getProdutividade: (funilId: number, filters?: DashboardDateFilters) =>
+    api.get<ProdutividadeFunil>('/crm/dashboard/produtividade', {
+      params: { funil_id: funilId, data_inicio: filters?.data_inicio, data_fim: filters?.data_fim, responsavel_id: filters?.responsavel_id }
     }).then(r => r.data)
 }
 
+/** Boca → FUP → Reunião → Oferta → Venda; cada card num indicador só. Definições em `api/.../dashboard/produtividade.ts`. */
+export interface LinhaProdutividade {
+  /** Pessoas faladas no dia: mensagem nossa ou tarefa de follow-up/reunião concluída. */
+  trabalhados: number
+  responderam: number
+  contatos_novos: number
+  retornos: number
+  fup_leads: number
+  fup_responderam: number
+  fup_mensagens: number
+  fup_tarefas: number
+  reunioes_agendadas: number
+  reunioes_realizadas: number
+  ofertas: number
+  vendas: number
+  valor_vendas: number
+  perdas: number
+}
+
+export interface ProdutividadeFunil {
+  periodo: { inicio: string; fim: string }
+  /** Cards que estão AGORA em reunião agendada e nas etapas de oferta. */
+  atual: {
+    agendadas: number
+    ofertas: number
+    etapas: Array<{ id: number; nome: string; leads: number; marco: 'agendada' | 'oferta' }>
+  }
+  total: LinhaProdutividade
+  diario: Array<LinhaProdutividade & { dia: string }>
+  marcosAusentes: Array<'reuniao_agendada' | 'reuniao_realizada' | 'oferta' | 'venda' | 'perda'>
+}
+
 // Agente IA
-import type { AgenteIAConfig, AgenteIALeadStatus } from '../types/crm'
+import type { AgenteIAConfig, AgenteIALeadStatus, FollowupErroCategoria } from '../types/crm'
 
 export const agenteIaApi = {
   getConfig: () =>
@@ -370,9 +479,6 @@ export const agenteIaApi = {
 
   updateConfig: (data: Partial<AgenteIAConfig>) =>
     api.put<AgenteIAConfig>('/crm/agente-ia/config', data).then(r => r.data),
-
-  toggleEstagio: (estagioId: number, ativo: boolean) =>
-    api.put(`/crm/agente-ia/estagios/${estagioId}`, { ativo }).then(r => r.data),
 
   toggleLead: (leadId: number, ativo: boolean | null) =>
     api.put(`/crm/agente-ia/leads/${leadId}`, { ativo }).then(r => r.data),
@@ -382,7 +488,7 @@ export const agenteIaApi = {
 }
 
 export const usuariosEmpresaApi = {
-  list: () => api.get<{ id: number; nome: string; email: string }[]>('/crm/usuarios').then(r => r.data),
+  list: () => api.get<{ id: number; nome: string; email: string; whatsapp_porta?: number | null }[]>('/crm/usuarios').then(r => r.data),
 }
 
 export interface Followup {
@@ -394,19 +500,50 @@ export interface Followup {
   tipo: 'manual' | 'agente_ia'
   mensagem: string | null
   instrucao_ia: string | null
-  status: 'pendente' | 'enviado' | 'falhou' | 'cancelado'
+  media_url: string | null
+  media_mimetype: string | null
+  media_filename: string | null
+  // 'processando' = reclamado por um ciclo do scheduler (migration 070).
+  status: 'pendente' | 'processando' | 'enviado' | 'falhou' | 'cancelado'
   origem: 'lead' | 'estagio'
   erro: string | null
+  /** Categoria da última falha (migration 070). Ver `utils/followupErros.ts`. */
+  erro_categoria?: FollowupErroCategoria | null
+  tentativas?: number
   enviado_at: string | null
-  hora_inicio: string | null
-  hora_fim: string | null
+  modo?: 'dias' | 'data' | null
+  atraso_dias?: number | null
+  atraso_unidade?: 'minuto' | 'hora' | 'dia' | null
+  data_fixa?: string | null
+  hora_envio?: string | null
   dias_semana: number[] | null
   created_at: string
+  updated_at?: string
+  claim_at?: string | null
+  passo_ordem?: number | null
+  mover_apos_envio?: boolean
+  /** Quem CRIOU o agendamento — não necessariamente quem envia. */
   usuario_nome?: string
   lead_nome?: string
   lead_telefone?: string
+  lead_arquivado?: boolean
+  funil_id?: number
+  estagio_id?: number
   estagio_nome?: string
   estagio_cor?: string
+  /**
+   * Quem ENVIA: o responsável do lead (fallback para o criador). É o dono do chip —
+   * a mensagem sai por este número, não pelo de quem agendou.
+   */
+  responsavel_id?: number
+  responsavel_nome?: string
+  responsavel_porta?: number | null
+  /**
+   * O passo guardado aqui não corresponde mais à cadência do estágio ATUAL do lead.
+   * Acontece quando o follow-up falhou, o lead mudou de etapa e ele foi reagendado
+   * depois: o cancelamento por mudança de estágio só alcança quem está 'pendente'.
+   */
+  cadencia_desatualizada?: boolean
 }
 
 export interface FollowupMetricas {
@@ -415,6 +552,30 @@ export interface FollowupMetricas {
   pendentes_hoje: number
   enviados_hoje: number
   total_falhados: number
+  /** true quando um período foi aplicado — a tela troca os rótulos de "hoje". */
+  periodo_ativo?: boolean
+}
+
+/**
+ * Configuração de envio da empresa.
+ * `janela_dias`: 0=Dom..6=Sáb; null = todos os dias.
+ */
+export interface ConflitoJanela {
+  estagio_id: number
+  estagio_nome: string
+  passo: number
+  dias_passo: string
+  dias_janela: string
+}
+
+export interface ConfigEnvio {
+  intervalo_min_seg: number
+  intervalo_max_seg: number
+  janela_inicio: string   // 'HH:MM'
+  janela_fim: string      // 'HH:MM'
+  janela_dias: number[] | null
+  /** Só no PUT: passos de cadência que ficaram sem nenhum dia possível. */
+  conflitos?: ConflitoJanela[]
 }
 
 export const followupsApi = {
@@ -422,23 +583,59 @@ export const followupsApi = {
     api.get<Followup[]>(`/crm/leads/${leadId}/followups`).then(r => r.data),
 
   criar: (leadId: number, data: {
-    agendado_para: string
     tipo: 'manual' | 'agente_ia'
     mensagem?: string
     instrucao_ia?: string
-    hora_inicio?: string
-    hora_fim?: string
-    dias_semana?: number[]
+    // Mídia opcional (só tipo manual)
+    media_url?: string | null
+    media_mimetype?: string | null
+    media_filename?: string | null
+    // Padrão único de agendamento
+    modo?: 'dias' | 'data'
+    atraso_dias?: number | null
+    atraso_unidade?: 'minuto' | 'hora' | 'dia'
+    data_fixa?: string | null
+    hora_envio?: string | null
+    dias_semana?: number[] | null
+    // Override opcional: instante já calculado
+    agendado_para?: string
+    // Número oficial: modelo que sai se a janela de 24h estiver fechada (migration 098)
+    modelo_whatsapp?: { nome: string; idioma?: string; variaveis: string[]; cabecalho?: string | null }
   }) => api.post<Followup>(`/crm/leads/${leadId}/followups`, data).then(r => r.data),
+
+  // Sobe um arquivo e devolve a referência de mídia para anexar num follow-up.
+  uploadMedia: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<{ media_url: string; media_mimetype: string; media_filename: string }>(
+      '/crm/followups/upload-media', formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    ).then(r => r.data)
+  },
 
   listarTodos: (filtro?: 'hoje' | 'semana' | 'atrasados' | 'todos', status?: string, funilTipo?: 'aquisicao' | 'cx') =>
     api.get<Followup[]>('/crm/followups', { params: { filtro, status, funil_tipo: funilTipo } }).then(r => r.data),
 
-  metricas: () =>
-    api.get<FollowupMetricas>('/crm/followups/metricas').then(r => r.data),
+  metricas: (funilId?: number, filters?: DashboardDateFilters) =>
+    api.get<FollowupMetricas>('/crm/followups/metricas', {
+      params: { funil_id: funilId, data_inicio: filters?.data_inicio, data_fim: filters?.data_fim, responsavel_id: filters?.responsavel_id }
+    }).then(r => r.data),
 
-  cancelar: (id: number) =>
-    api.delete<Followup>(`/crm/followups/${id}`).then(r => r.data),
+  // Configuração de envio da empresa: intervalo anti-ban entre mensagens + janela
+  // operacional (horário e dias). A janela vale para o follow-up agendado E para o
+  // agente reativo — é a mesma regra de "quando podemos falar com o lead".
+  getConfig: () =>
+    api.get<ConfigEnvio>('/crm/followups/config').then(r => r.data),
+
+  setConfig: (data: Partial<ConfigEnvio>) =>
+    api.put<ConfigEnvio>('/crm/followups/config', data).then(r => r.data),
+
+  // `motivo` é opcional: quando a pessoa informa, fica registrado no próprio
+  // follow-up (categoria `cancelado_usuario`) e a tela consegue explicar depois
+  // por que aquele envio não aconteceu.
+  cancelar: (id: number, motivo?: string) =>
+    api.delete<Followup>(`/crm/followups/${id}`, { data: motivo ? { motivo } : undefined })
+      .then(r => r.data),
 
   reagendar: (id: number, agendado_para: string) =>
     api.patch<Followup>(`/crm/followups/${id}/reagendar`, { agendado_para }).then(r => r.data),
@@ -458,6 +655,11 @@ export interface DisparoAgendado {
   funil_id: number | null
   funil_tipo: 'aquisicao' | 'cx' | null
   funil_nome: string | null
+  /** Só em disparo de e-mail. */
+  assunto?: string | null
+  estagio_pos_disparo_id?: number | null
+  /** Intervalo anti-ban e filtros do modo 'todos'. */
+  configuracao_json?: Record<string, any> | null
 }
 
 export const disparosAgendadosApi = {
@@ -467,7 +669,17 @@ export const disparosAgendadosApi = {
     }).then(r => r.data),
   cancelar: (id: number) =>
     api.delete(`/crm/disparos/${id}/cancelar`).then(r => r.data),
-  editar: (id: number, data: { template?: string; agendado_para?: string }) =>
+  editar: (
+    id: number,
+    data: {
+      template?: string
+      agendado_para?: string
+      assunto?: string
+      estagio_pos_disparo_id?: number | null
+      intervalo_min?: number
+      intervalo_max?: number
+    }
+  ) =>
     api.patch(`/crm/disparos/${id}/agendado`, data).then(r => r.data),
 }
 
@@ -477,6 +689,7 @@ export default {
   leads: leadsApi,
   contatos: contatosApi,
   tags: tagsApi,
+  origens: origensApi,
   tarefas: tarefasApi,
   anotacoes: anotacoesApi,
   importacao: importacaoApi,

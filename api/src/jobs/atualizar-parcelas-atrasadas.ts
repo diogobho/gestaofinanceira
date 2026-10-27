@@ -7,6 +7,7 @@
 
 import cron from 'node-cron';
 import { query } from '../config/database';
+import { isMainInstance } from '../shared/utils';
 
 async function atualizarParcelasAtrasadas() {
   try {
@@ -35,10 +36,14 @@ async function atualizarParcelasAtrasadas() {
   }
 }
 
-// Executar imediatamente na inicialização para corrigir estado atual
-atualizarParcelasAtrasadas();
+if (isMainInstance) {
+  // Executar imediatamente na inicialização para corrigir estado atual
+  atualizarParcelasAtrasadas();
 
-// Rodar todo dia às 00:05 horário de Brasília
-cron.schedule('5 0 * * *', atualizarParcelasAtrasadas, {
-  timezone: 'America/Sao_Paulo'
-});
+  // Rodar todo dia às 00:05 horário de Brasília
+  cron.schedule('5 0 * * *', atualizarParcelasAtrasadas, {
+    timezone: 'America/Sao_Paulo'
+  });
+} else {
+  console.log(`[parcelas-atrasadas] Instância #${process.env.NODE_APP_INSTANCE} — cron desativado (apenas instância 0 processa).`);
+}

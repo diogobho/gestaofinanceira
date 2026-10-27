@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware, empresaRequired } from '../../middlewares/auth.middleware';
+import { exigirCapacidade } from '../../middlewares/capacidade.middleware';
 import { query } from '../../config/database';
 
 import funisRoutes from './funis/funis.routes';
@@ -7,14 +8,17 @@ import estagiosRoutes from './estagios/estagios.routes';
 import leadsRoutes from './leads/leads.routes';
 import contatosRoutes from './contatos/contatos.routes';
 import tagsRoutes from './tags/tags.routes';
+import origensRoutes from './origens/origens.routes';
 import tarefasRoutes from './tarefas/tarefas.routes';
 import anotacoesRoutes from './anotacoes/anotacoes.routes';
 import importacaoRoutes from './importacao/importacao.routes';
 import disparosRoutes from './disparos/disparos.routes';
 import disparosEmailRoutes from './disparos-email/disparos-email.routes';
 import dashboardRoutes from './dashboard/dashboard.routes';
+import integracoesRoutes from './integracoes/integracoes.routes';
 import agenteIaRoutes from '../agente-ia/agente-ia.routes';
 import followupsRoutes from './followups/followups.routes';
+import respostasBotaoRoutes from './respostas-botao/respostas-botao.routes';
 import { webhookController } from './webhook/webhook.controller';
 
 const router = Router();
@@ -23,27 +27,36 @@ const router = Router();
 router.use(authMiddleware);
 router.use(empresaRequired);
 
+// ...e o plano tem que incluir CRM. O guard vem DEPOIS do authMiddleware de
+// propósito: `checkSubscription`, em server.ts, está montado antes de qualquer
+// autenticação e por isso nunca enxerga `req.user` — plano só se verifica com
+// usuário resolvido. O webhook de captação é registrado fora deste router.
+router.use(exigirCapacidade('crm'));
+
 // Montar rotas com prefixos
 router.use('/funis', funisRoutes);
 router.use(estagiosRoutes);  // Já tem /funis/:funilId/estagios
 router.use(leadsRoutes);     // Já tem /funis/:funilId/leads e /leads
 router.use(contatosRoutes);  // Já tem /contatos
 router.use(tagsRoutes);      // Já tem /tags
+router.use(origensRoutes);   // Já tem /origens
 router.use(tarefasRoutes);   // /tarefas e /leads/:leadId/tarefas
 router.use(anotacoesRoutes); // /anotacoes e /leads/:leadId/anotacoes
 router.use(importacaoRoutes); // /importacao/preview e /importacao/importar
 router.use(disparosRoutes);   // /disparos
 router.use(disparosEmailRoutes); // /disparos-email
 router.use(dashboardRoutes);  // /dashboard
+router.use(integracoesRoutes); // /integracoes/dashboard
 router.use(agenteIaRoutes);  // /agente-ia/*
 router.use(followupsRoutes); // /leads/:leadId/followups e /followups/:id
+router.use(respostasBotaoRoutes); // /estagios/:id/respostas-botao
 
 // Listar usuários da empresa (acessível por todos os usuários da empresa)
 router.get('/usuarios', async (req: Request, res: Response) => {
   try {
     const empresaId = (req as any).user?.empresa_id;
     const result = await query(
-      'SELECT id, nome, email FROM usuarios WHERE empresa_id = $1 AND ativo = true ORDER BY nome',
+      'SELECT id, nome, email, whatsapp_porta FROM usuarios WHERE empresa_id = $1 AND ativo = true ORDER BY nome',
       [empresaId]
     );
     return res.json(result.rows);

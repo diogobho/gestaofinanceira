@@ -34,6 +34,11 @@ const router = Router();
 router.post('/login', authController.login);
 router.post('/registrar', authController.registrar);
 
+// Esqueci minha senha — públicas (ver redefinir-senha.ts)
+router.post('/esqueci-senha', authController.esqueciSenha);
+router.get('/redefinir-senha/:token', authController.conferirTokenSenha);
+router.post('/redefinir-senha', authController.redefinirSenha);
+
 /**
  * @swagger
  * /auth/me:

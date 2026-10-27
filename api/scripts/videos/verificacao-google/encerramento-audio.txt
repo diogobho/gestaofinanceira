@@ -1,0 +1,5 @@
+file '/var/www/apps/gestao_financeira/api/scripts/videos/verificacao-google/silencio.wav'
+file '/var/www/apps/gestao_financeira/api/scripts/videos/.cache-voz/3b003932962a2abe.wav'
+file '/var/www/apps/gestao_financeira/api/scripts/videos/verificacao-google/silencio.wav'
+file '/var/www/apps/gestao_financeira/api/scripts/videos/.cache-voz/c452f631f734e9ec.wav'
+file '/var/www/apps/gestao_financeira/api/scripts/videos/verificacao-google/silencio.wav'

@@ -2,31 +2,48 @@ import { useState, useRef, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import {
   X, Phone, Mail, Building, DollarSign, Calendar, MessageCircle,
-  Thermometer, Tag as TagIcon, Archive, Trash2, Send, Clock, User,
+  Thermometer, Archive, ArchiveRestore, Trash2, Send, Clock, User,
   Paperclip, Image, FileText, Mic, XCircle, Plus, Check,
   Trash, PhoneCall, Video, MailIcon, RefreshCw, FileSignature, MapPin,
-  MoreHorizontal, StickyNote, AlertTriangle, Bell, Globe, Square, Edit2, ArrowRight
+  MoreHorizontal, StickyNote, AlertTriangle, Bell, Globe, Square, Edit2, ArrowRight, ChevronRight, ChevronDown, Reply
 } from 'lucide-react'
 import LeadFormModal from './LeadFormModal'
+import AgendamentoConfig, { AgendamentoValue, agendamentoPadrao } from './AgendamentoConfig'
+import ModeloReservaWhatsApp from './ModeloReservaWhatsApp'
 import {
-  useArquivarLead, useDeleteLead, useUpdateLead,
-  useLeadAtividades, useMarcarLido, useHistoricoMensagens,
+  useArquivarLead, useReativarLead, useDeleteLead, useUpdateLead,
+  useLeadAtividades, useMarcarLido,
   useTarefasLead, useCreateTarefa, useUpdateTarefa, useConcluirTarefa, useDeleteTarefa,
   useAnotacoesLead, useCreateAnotacao, useDeleteAnotacao,
   useLeadEnviarMensagem, useLeadEnviarMedia, useLeadHistoricoWhatsApp, useLeadMarcarLido,
   useUsuariosEmpresa, useFunis, useTransferirFunil,
   useFollowupsLead, useCreateFollowup, useCancelarFollowup,
+  useOrigensCatalogo, useLead, useLeadReagirMensagem,
 } from '@/hooks/useCRM'
+import GerenciarOrigensModal from './GerenciarOrigensModal'
+import TagsDoLead from './TagsDoLead'
+import PerfilDoLead from './PerfilDoLead'
 import ChatBubble, { ChatDateSeparator } from './ChatBubble'
+import { trechoDaMensagem } from '@/utils/mensagemChat'
 import AgenteIALeadToggle from './AgenteIALeadToggle'
+import FollowupFalhadoItem from './FollowupFalhadoItem'
 import { WhatsAppFormatToolbar } from '@/components/ui/WhatsAppFormatToolbar'
+import SeletorModeloWhatsApp from '@/components/whatsapp/SeletorModeloWhatsApp'
+import { useCanalWhatsApp, useJanelaWhatsApp, useModelosWhatsApp, useEnviarModeloLead } from '@/hooks/useCanalWhatsApp'
+import type { ModeloConfigurado } from '@/api/canalWhatsapp'
 import type { Lead, EstagioFunil, HistoricoMensagem, TarefaTipo, TarefaPrioridade, AnotacaoTipo, LeadOrigem } from '@/types/crm'
+import { DicaVideo } from '@/tutoriais/DicaVideo'
+import { LinkVideo } from '@/tutoriais/LinkVideo'
+import { AvisoAgendaReuniao, DURACOES_REUNIAO } from './AvisoAgendaReuniao'
 
 interface LeadDetailsModalProps {
   lead: Lead | null
   estagios: EstagioFunil[]
   isOpen: boolean
   onClose: () => void
+  /** Trocar de estágio pelo cabeçalho (#183). Sem ele, o estágio é só etiqueta.
+   *  Passa pelo mesmo handler do arrastar, para "ganho" abrir a conversão. */
+  onMoverEstagio?: (leadId: number, novoEstagioId: number) => void
 }
 
 const temperaturaOptions = [
@@ -47,21 +64,23 @@ const origemConfig: Record<string, { label: string; color: string }> = {
   forms: { label: 'Forms', color: 'bg-teal-100 text-teal-700' },
 }
 
-const origemOptions: { value: LeadOrigem; label: string }[] = [
-  { value: 'manual', label: 'Manual' },
-  { value: 'indicacao', label: 'Indicacao' },
-  { value: 'networking', label: 'Networking' },
-  { value: 'parceria', label: 'Parceria' },
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'lancamento', label: 'Lancamento' },
-  { value: 'forms', label: 'Forms' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'importacao', label: 'Importacao' },
-]
 
-export default function LeadDetailsModal({ lead, estagios, isOpen, onClose }: LeadDetailsModalProps) {
+export default function LeadDetailsModal({ lead: leadProp, estagios, isOpen, onClose, onMoverEstagio }: LeadDetailsModalProps) {
+  // A página passa o objeto que estava no card — um retrato do momento do clique,
+  // que não se atualiza quando uma edição daqui invalida a lista. Era por isso que
+  // trocar o responsável parecia não funcionar: o PUT ia, mas o <select> voltava a
+  // ler o valor antigo do retrato. Esta query segue a mesma chave que as mutações
+  // invalidam, então o modal passa a mostrar o lead como ele está no banco.
+  const { data: leadAtualizado } = useLead(leadProp?.id)
+  const lead = leadAtualizado ?? leadProp
+
   const [activeTab, setActiveTab] = useState<'info' | 'tarefas' | 'anotacoes' | 'atividades' | 'mensagem'>('info')
+  // Dica de rolagem da barra de abas (mobile): degradê/seta some ao chegar no fim
+  const tabsRef = useRef<HTMLDivElement>(null)
+  const [tabScroll, setTabScroll] = useState({ left: false, right: false })
   const [mensagem, setMensagem] = useState('')
+  // Mensagem sendo respondida (#188): vira citação no envio e some depois dele.
+  const [respondendoA, setRespondendoA] = useState<HistoricoMensagem | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [caption, setCaption] = useState('')
   const [isRecording, setIsRecording] = useState(false)
@@ -71,6 +90,9 @@ export default function LeadDetailsModal({ lead, estagios, isOpen, onClose }: Le
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const mensagemTextareaRef = useRef<HTMLTextAreaElement>(null)
+  // O botão fica desabilitado enquanto envia, mas o Enter não: dois Enter (ou Enter +
+  // clique) antes da resposta mandavam a mensagem duas vezes ao lead (#422, 20/10/2026).
+  const enviandoRef = useRef(false)
 
   // Tarefas state
   const [showTarefaForm, setShowTarefaForm] = useState(false)
@@ -78,7 +100,11 @@ export default function LeadDetailsModal({ lead, estagios, isOpen, onClose }: Le
   const [tarefaTitulo, setTarefaTitulo] = useState('')
   const [tarefaDescricao, setTarefaDescricao] = useState('')
   const [tarefaDataVencimento, setTarefaDataVencimento] = useState('')
+  // Duração da reunião (104) — vai para a agenda externa; só aparece com tipo Reunião.
+  const [tarefaDuracao, setTarefaDuracao] = useState(60)
   const [tarefaPrioridade, setTarefaPrioridade] = useState<TarefaPrioridade>('normal')
+  // Mesmo formulário para criar e editar (#183): com id, o "salvar" é um PUT.
+  const [tarefaEditandoId, setTarefaEditandoId] = useState<number | null>(null)
 
   const [showEditModal, setShowEditModal] = useState(false)
   const [showTransferirFunil, setShowTransferirFunil] = useState(false)
@@ -86,26 +112,22 @@ export default function LeadDetailsModal({ lead, estagios, isOpen, onClose }: Le
 
   // Follow-up state
   const [showFollowupPanel, setShowFollowupPanel] = useState(false)
-  const [followupTipo, setFollowupTipo] = useState<'manual' | 'agente_ia'>('agente_ia')
-  const [followupMensagem, setFollowupMensagem] = useState('')
-  const [followupInstrucaoIa, setFollowupInstrucaoIa] = useState('')
-  const [followupData, setFollowupData] = useState('')
-  const [followupHora, setFollowupHora] = useState('09:00')
-  const [followupHoraInicioJanela, setFollowupHoraInicioJanela] = useState('08:00')
-  const [followupHoraFimJanela, setFollowupHoraFimJanela] = useState('18:00')
-  const [followupDiasSemana, setFollowupDiasSemana] = useState<number[]>([1, 2, 3, 4, 5])
+  const [agendamento, setAgendamento] = useState<AgendamentoValue>({ ...agendamentoPadrao(), ativo: true })
 
   // Origem state (local para evitar que o select reverta ao valor antigo após mutação)
   const [leadOrigem, setLeadOrigem] = useState<LeadOrigem>(lead?.origem || 'manual')
   useEffect(() => {
     setLeadOrigem(lead?.origem || 'manual')
   }, [lead?.id, lead?.origem])
+  const [showGerenciarOrigens, setShowGerenciarOrigens] = useState(false)
+  const { data: origens = [] } = useOrigensCatalogo()
 
   // Anotacoes state
   const [anotacaoConteudo, setAnotacaoConteudo] = useState('')
   const [anotacaoTipo, setAnotacaoTipo] = useState<AnotacaoTipo>('nota')
 
 const arquivarLead = useArquivarLead()
+  const reativarLead = useReativarLead()
   const deleteLead = useDeleteLead()
   const updateLead = useUpdateLead()
   const marcarLido = useMarcarLido()
@@ -113,6 +135,7 @@ const arquivarLead = useArquivarLead()
   const { data: funisList = [] } = useFunis()
   const transferirFunilMutation = useTransferirFunil()
   const leadEnviarMensagem = useLeadEnviarMensagem()
+  const leadReagir = useLeadReagirMensagem()
   const leadEnviarMedia = useLeadEnviarMedia()
   const leadMarcarLido = useLeadMarcarLido()
   const { data: atividades } = useLeadAtividades(lead?.id)
@@ -120,15 +143,43 @@ const arquivarLead = useArquivarLead()
   // Determinar se o lead pode usar WhatsApp (tem contato vinculado OU tem telefone)
   const canWhatsApp = !!(lead?.contato_whatsapp_id || lead?.telefone)
 
-  // Usar historico via contato se ja vinculado, ou via lead
-  const { data: historicoContato } = useHistoricoMensagens(
-    activeTab === 'mensagem' && lead?.contato_whatsapp_id ? lead.contato_whatsapp_id : undefined
-  )
-  const { data: historicoLead } = useLeadHistoricoWhatsApp(
+  // Atualiza os indicadores de rolagem das abas (há mais conteúdo à esquerda/direita?)
+  const updateTabScroll = () => {
+    const el = tabsRef.current
+    if (!el) return
+    const max = el.scrollWidth - el.clientWidth
+    setTabScroll({ left: el.scrollLeft > 4, right: el.scrollLeft < max - 4 })
+  }
+  useEffect(() => {
+    if (!isOpen) return
+    const id = requestAnimationFrame(updateTabScroll)
+    window.addEventListener('resize', updateTabScroll)
+    return () => { cancelAnimationFrame(id); window.removeEventListener('resize', updateTabScroll) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, canWhatsApp])
+
+  // Pelo lead, não pelo contato: a conversa do card junta os chips da empresa com o
+  // mesmo número (#425) — o contato ligado é só o do chip que envia agora.
+  const { data: historico } = useLeadHistoricoWhatsApp(lead?.id, activeTab === 'mensagem')
+
+  // Número oficial (Cloud API): texto livre só dentro da janela de 24h aberta pela
+  // última mensagem DO CLIENTE; fora dela, só modelo aprovado.
+  const { data: canal } = useCanalWhatsApp()
+  const oficial = canal?.provedor === 'cloud_api'
+  const { data: janela, refetch: refetchJanela } = useJanelaWhatsApp(
     lead?.id,
-    activeTab === 'mensagem' && canWhatsApp && !lead?.contato_whatsapp_id
+    oficial && activeTab === 'mensagem' && canWhatsApp
   )
-  const historico = lead?.contato_whatsapp_id ? historicoContato : historicoLead
+  const janelaFechada = oficial && janela?.provedor === 'cloud_api' && !janela.aberta
+  const [mostrarModelo, setMostrarModelo] = useState(false)
+  const [modeloSel, setModeloSel] = useState<ModeloConfigurado | null>(null)
+  const { data: modelos = [], isLoading: carregandoModelos, refetch: refetchModelos } = useModelosWhatsApp(oficial && mostrarModelo)
+  const enviarModelo = useEnviarModeloLead()
+  // Mensagem nova no histórico pode ter reaberto a janela.
+  useEffect(() => {
+    if (oficial) refetchJanela()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historico?.length, oficial])
 
   const { data: tarefas } = useTarefasLead(activeTab === 'tarefas' ? lead?.id : undefined)
   const createTarefa = useCreateTarefa()
@@ -166,38 +217,113 @@ const arquivarLead = useArquivarLead()
     }
   }, [historico, activeTab, isOpen])
 
+  // A caixa de mensagem cresce junto com o texto (até o maxHeight do style) e
+  // volta ao tamanho mínimo depois do envio, quando `mensagem` é limpa.
+  useEffect(() => {
+    const el = mensagemTextareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [mensagem, activeTab])
+
   if (!isOpen || !lead) return null
 
   const estagioAtual = estagios.find((e) => e.id === lead.estagio_id)
 
+  const fecharFormTarefa = () => {
+    setShowTarefaForm(false)
+    setTarefaEditandoId(null)
+    setTarefaTitulo('')
+    setTarefaDescricao('')
+    setTarefaDataVencimento('')
+    setTarefaTipo('follow_up')
+    setTarefaPrioridade('normal')
+    setTarefaDuracao(60)
+  }
+
+  const abrirEdicaoTarefa = (tarefa: { id: number; tipo: TarefaTipo; titulo: string; descricao?: string | null; data_vencimento: string; prioridade: TarefaPrioridade; duracao_min?: number | null }) => {
+    // datetime-local quer a hora LOCAL, sem fuso — a mesma que a lista mostra.
+    const d = new Date(tarefa.data_vencimento)
+    const p = (n: number) => String(n).padStart(2, '0')
+    setTarefaEditandoId(tarefa.id)
+    setTarefaTipo(tarefa.tipo)
+    setTarefaTitulo(tarefa.titulo)
+    setTarefaDescricao(tarefa.descricao ?? '')
+    setTarefaDataVencimento(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`)
+    setTarefaPrioridade(tarefa.prioridade)
+    setTarefaDuracao(tarefa.duracao_min || 60)
+    setShowTarefaForm(true)
+  }
+
   const handleEnviarMensagem = async () => {
-    if (!mensagem.trim()) return
-    // Usar endpoint via lead (auto-cria contato se necessario)
-    await leadEnviarMensagem.mutateAsync({
-      leadId: lead.id,
-      mensagem,
-    })
-    setMensagem('')
+    if (!mensagem.trim() || enviandoRef.current) return
+    enviandoRef.current = true
+    try {
+      // Usar endpoint via lead (auto-cria contato se necessario)
+      await leadEnviarMensagem.mutateAsync({
+        leadId: lead.id,
+        mensagem,
+        respostaA: respondendoA?.whatsapp_message_id ?? null,
+      })
+      setMensagem('')
+      setRespondendoA(null)
+    } finally {
+      enviandoRef.current = false
+    }
+  }
+
+  const handleResponder = (m: HistoricoMensagem) => {
+    setRespondendoA(m)
+    mensagemTextareaRef.current?.focus()
+  }
+
+  const handleReagir = (m: HistoricoMensagem, emoji: string) => {
+    leadReagir.mutate({ leadId: lead.id, mensagemId: m.id, emoji })
   }
 
   const handleEnviarMedia = async () => {
-    if (!selectedFile) return
-    // Usar endpoint via lead (auto-cria contato se necessario)
-    await leadEnviarMedia.mutateAsync({
-      leadId: lead.id,
-      file: selectedFile,
-      caption: caption || undefined,
-    })
-    setSelectedFile(null)
-    setCaption('')
+    if (!selectedFile || enviandoRef.current) return
+    enviandoRef.current = true
+    try {
+      // Usar endpoint via lead (auto-cria contato se necessario)
+      await leadEnviarMedia.mutateAsync({
+        leadId: lead.id,
+        file: selectedFile,
+        caption: caption || undefined,
+      })
+      setSelectedFile(null)
+      setCaption('')
+    } finally {
+      enviandoRef.current = false
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleEnviarMensagem()
+      if (!janelaFechada) handleEnviarMensagem()
     }
   }
+
+  const handleEnviarModelo = async () => {
+    if (!modeloSel) return
+    await enviarModelo.mutateAsync({
+      leadId: lead.id,
+      nome: modeloSel.nome,
+      idioma: modeloSel.idioma,
+      corpo: modeloSel.variaveis,
+      cabecalho: modeloSel.cabecalho,
+    })
+    setModeloSel(null)
+    setMostrarModelo(false)
+  }
+
+  const restaJanela = (() => {
+    const s = janela?.restaSegundos ?? 0
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    return h > 0 ? `${h}h${m > 0 ? ` ${m}min` : ''}` : `${m}min`
+  })()
 
   const handleToggleRecording = async () => {
     if (isRecording) {
@@ -242,38 +368,43 @@ const handleArquivar = async () => {
     }
   }
 
+  // Lead arquivado aparece com "Mostrar arquivados" no filtro; daqui ele volta ao quadro.
+  const handleReativar = async () => {
+    await reativarLead.mutateAsync(lead.id)
+    onClose()
+  }
+
   const handleDeletar = async () => {
-    if (confirm('Tem certeza que deseja deletar este lead? Esta acao nao pode ser desfeita.')) {
+    if (confirm('Tem certeza que deseja deletar este lead? Esta ação não pode ser desfeita.')) {
       await deleteLead.mutateAsync(lead.id)
       onClose()
     }
   }
 
   const handleAgendarFollowup = async () => {
-    if (followupTipo === 'manual' && (!followupData || !followupHora || !followupMensagem.trim())) return
-    // Agente IA: agenda para agora — janela e dias controlam quando envia
-    // Manual: usa a data/hora escolhida pelo usuário
-    const agendadoPara = followupTipo === 'agente_ia'
-      ? new Date().toISOString()
-      : new Date(`${followupData}T${followupHora}:00`).toISOString()
+    // Manual precisa de mensagem OU mídia anexada.
+    if (agendamento.tipo === 'manual' && !agendamento.mensagem?.trim() && !agendamento.media_url) return
+    if (agendamento.modo === 'data' && !agendamento.data_fixa) return
     await createFollowup.mutateAsync({
       leadId: lead.id,
       data: {
-        agendado_para: agendadoPara,
-        tipo: followupTipo,
-        mensagem: followupTipo === 'manual' ? followupMensagem : undefined,
-        instrucao_ia: followupTipo === 'agente_ia' ? followupInstrucaoIa : undefined,
-        hora_inicio: followupHoraInicioJanela || undefined,
-        hora_fim: followupHoraFimJanela || undefined,
-        dias_semana: followupDiasSemana.length > 0 ? followupDiasSemana : undefined,
+        tipo: agendamento.tipo,
+        mensagem: agendamento.tipo === 'manual' ? agendamento.mensagem : undefined,
+        instrucao_ia: agendamento.tipo === 'agente_ia' ? agendamento.instrucao_ia : undefined,
+        media_url: agendamento.tipo === 'manual' ? (agendamento.media_url ?? undefined) : undefined,
+        media_mimetype: agendamento.tipo === 'manual' ? (agendamento.media_mimetype ?? undefined) : undefined,
+        media_filename: agendamento.tipo === 'manual' ? (agendamento.media_filename ?? undefined) : undefined,
+        modo: agendamento.modo,
+        atraso_dias: agendamento.modo === 'dias' ? (agendamento.atraso_dias ?? 0) : undefined,
+        atraso_unidade: agendamento.modo === 'dias' ? (agendamento.atraso_unidade ?? 'dia') : undefined,
+        data_fixa: agendamento.modo === 'data' ? agendamento.data_fixa : undefined,
+        hora_envio: agendamento.hora_envio,
+        dias_semana: (agendamento.dias_semana?.length ?? 0) > 0 ? agendamento.dias_semana : undefined,
+        modelo_whatsapp: oficial ? (agendamento.modelo_whatsapp ?? undefined) : undefined,
       }
     })
     setShowFollowupPanel(false)
-    setFollowupData('')
-    setFollowupHora('09:00')
-    setFollowupMensagem('')
-    setFollowupInstrucaoIa('')
-    setFollowupDiasSemana([1, 2, 3, 4, 5])
+    setAgendamento({ ...agendamentoPadrao(), ativo: true })
   }
 
   const formatarData = (data: string) => {
@@ -303,12 +434,39 @@ const handleArquivar = async () => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div
+        className={`bg-white rounded-lg shadow-xl w-full flex flex-col ${
+          activeTab === 'mensagem' ? 'max-w-4xl h-[90vh]' : 'max-w-3xl max-h-[90vh]'
+        }`}
+      >
         {/* Header */}
         <div className="p-4 border-b flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">{lead.titulo || lead.nome}</h2>
-            {estagioAtual && (
+            <h2 className="text-lg font-semibold text-gray-800">{lead.nome}</h2>
+            {lead.titulo && lead.titulo !== lead.nome && (
+              <p className="text-sm text-gray-500">{lead.titulo}</p>
+            )}
+            {estagioAtual && onMoverEstagio ? (
+              <label
+                className="relative inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-xs font-medium mt-1 cursor-pointer hover:brightness-95"
+                style={{ backgroundColor: `${estagioAtual.cor}20`, color: estagioAtual.cor }}
+                title="Mudar de estágio"
+              >
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: estagioAtual.cor }} />
+                <select
+                  value={estagioAtual.id}
+                  onChange={(e) => onMoverEstagio(lead.id, Number(e.target.value))}
+                  aria-label="Estágio do lead"
+                  className="appearance-none bg-transparent border-0 p-0 pr-4 text-xs font-medium focus:ring-0 cursor-pointer"
+                  style={{ color: estagioAtual.cor }}
+                >
+                  {[...estagios].sort((a, b) => a.ordem - b.ordem).map((e) => (
+                    <option key={e.id} value={e.id} className="text-gray-800">{e.nome}</option>
+                  ))}
+                </select>
+                <ChevronDown size={12} className="absolute right-1 pointer-events-none" />
+              </label>
+            ) : estagioAtual && (
               <span
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium mt-1"
                 style={{ backgroundColor: `${estagioAtual.cor}20`, color: estagioAtual.cor }}
@@ -332,21 +490,22 @@ const handleArquivar = async () => {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="border-b flex">
+        {/* Tabs — roláveis horizontalmente no mobile (senão a aba WhatsApp fica fora da tela) */}
+        <div className="relative">
+        <div ref={tabsRef} onScroll={updateTabScroll} className="border-b flex overflow-x-auto">
           <button
             onClick={() => setActiveTab('info')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex-shrink-0 whitespace-nowrap ${
               activeTab === 'info'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            Informacoes
+            Informações
           </button>
           <button
             onClick={() => setActiveTab('tarefas')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 flex-shrink-0 whitespace-nowrap ${
               activeTab === 'tarefas'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -361,13 +520,13 @@ const handleArquivar = async () => {
           </button>
           <button
             onClick={() => setActiveTab('anotacoes')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 flex-shrink-0 whitespace-nowrap ${
               activeTab === 'anotacoes'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            Anotacoes
+            Anotações
             {(lead.total_anotacoes || 0) > 0 && (
               <span className="ml-1 px-1.5 py-0.5 bg-gray-100 text-gray-700 text-xs rounded-full font-bold min-w-[20px] text-center">
                 {lead.total_anotacoes}
@@ -376,7 +535,7 @@ const handleArquivar = async () => {
           </button>
           <button
             onClick={() => setActiveTab('atividades')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex-shrink-0 whitespace-nowrap ${
               activeTab === 'atividades'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -387,7 +546,7 @@ const handleArquivar = async () => {
           {canWhatsApp && (
             <button
               onClick={() => setActiveTab('mensagem')}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 ${
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1 flex-shrink-0 whitespace-nowrap ${
                 activeTab === 'mensagem'
                   ? 'border-primary-500 text-primary-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -403,9 +562,23 @@ const handleArquivar = async () => {
             </button>
           )}
         </div>
+        {/* Dica de rolagem: degradê + seta à direita enquanto houver aba escondida (some no fim) */}
+        {tabScroll.right && (
+          <div className="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center pl-8 pr-1 bg-gradient-to-l from-white via-white to-transparent">
+            <ChevronRight size={18} className="text-primary-400 animate-pulse" />
+          </div>
+        )}
+        {tabScroll.left && (
+          <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-white to-transparent" />
+        )}
+        </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div
+          className={`flex-1 min-h-0 ${
+            activeTab === 'mensagem' ? 'overflow-hidden' : 'overflow-y-auto p-4'
+          }`}
+        >
           {activeTab === 'info' && (
             <div className="space-y-4">
               {/* Contato */}
@@ -417,7 +590,9 @@ const handleArquivar = async () => {
                 {lead.telefone && (
                   <div className="flex items-center gap-2 text-sm">
                     <Phone size={16} className="text-gray-400" />
-                    <span className="text-gray-600">{lead.telefone}</span>
+                    <a href={`tel:+${lead.telefone.replace(/\D/g, '')}`} className="text-gray-600 hover:underline">
+                      {lead.telefone.replace(/^55/, '').replace(/(\d{2})(\d{4,5})(\d{4})$/, '($1) $2-$3')}
+                    </a>
                   </div>
                 )}
                 {lead.email && (
@@ -442,13 +617,13 @@ const handleArquivar = async () => {
 
               {/* Detalhes do negocio */}
               <div className="border-t pt-4">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Detalhes do Negocio</h3>
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Detalhes do negócio</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  {lead.valor_potencial && (
+                  {Number(lead.valor_potencial) > 0 && (
                     <div className="flex items-center gap-2 text-sm">
                       <DollarSign size={16} className="text-green-500" />
                       <span className="font-medium text-green-600">
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(lead.valor_potencial)}
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(lead.valor_potencial))}
                       </span>
                     </div>
                   )}
@@ -462,32 +637,54 @@ const handleArquivar = async () => {
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Globe size={16} className="text-gray-400" />
-                    <select
-                      value={leadOrigem}
-                      onChange={(e) => {
-                        const nova = e.target.value as LeadOrigem
-                        setLeadOrigem(nova)
-                        updateLead.mutate({ id: lead.id, data: { origem: nova } })
-                      }}
-                      className={`px-2 py-0.5 rounded text-xs font-medium border-0 cursor-pointer ${
-                        origemConfig[leadOrigem]?.color || 'bg-gray-100 text-gray-700'
-                      }`}
+                    {(() => {
+                      const origemAtual = origens.find(o => o.nome === leadOrigem)
+                      const corHex = origemAtual?.cor
+                      return (
+                        <select
+                          aria-label="Origem do lead" title="Origem do lead"
+                          value={leadOrigem}
+                          onChange={(e) => {
+                            const nova = e.target.value as LeadOrigem
+                            setLeadOrigem(nova)
+                            updateLead.mutate({ id: lead.id, data: { origem: nova } })
+                          }}
+                          style={corHex ? { backgroundColor: `${corHex}22`, color: corHex } : undefined}
+                          className={`px-2 py-0.5 rounded text-xs font-medium border-0 cursor-pointer ${
+                            corHex ? '' : (origemConfig[leadOrigem]?.color || 'bg-gray-100 text-gray-700')
+                          }`}
+                        >
+                          {leadOrigem && !origens.some(o => o.nome === leadOrigem) && (
+                            <option value={leadOrigem}>{leadOrigem === 'manual' ? 'Cadastro manual' : leadOrigem}</option>
+                          )}
+                          {origens.map((o) => (
+                            <option key={o.id} value={o.nome}>{o.nome}</option>
+                          ))}
+                        </select>
+                      )
+                    })()}
+                    <button
+                      type="button"
+                      onClick={() => setShowGerenciarOrigens(true)}
+                      className="text-xs text-primary-600 hover:text-primary-700 hover:underline"
                     >
-                      {!origemOptions.some(o => o.value === leadOrigem) && (
-                        <option value={leadOrigem}>{leadOrigem}</option>
-                      )}
-                      {origemOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                      Gerenciar
+                    </button>
                   </div>
                   {usuariosEmpresa.length > 0 && (
                     <div className="flex items-center gap-2 text-sm">
                       <User size={16} className="text-gray-400" />
                       <select
+                        aria-label="Responsável pelo lead" title="Responsável pelo lead"
                         value={lead.responsavel_id || ''}
                         onChange={(e) => {
-                          updateLead.mutate({ id: lead.id, data: { responsavel_id: Number(e.target.value) } })
+                          // "Sem responsável" vem como '' — mandar null, não 0
+                          // (Number('') === 0 batia na FK e derrubava o update).
+                          const valor = e.target.value
+                          updateLead.mutate({
+                            id: lead.id,
+                            data: { responsavel_id: valor ? Number(valor) : null } as any,
+                          })
                         }}
                         className="px-2 py-0.5 rounded text-xs font-medium border border-gray-200 cursor-pointer bg-white text-gray-700"
                       >
@@ -498,7 +695,7 @@ const handleArquivar = async () => {
                       </select>
                     </div>
                   )}
-                  {lead.probabilidade && (
+                  {Number(lead.probabilidade) > 0 && (
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-gray-400">Probabilidade:</span>
                       <span className="font-medium">{lead.probabilidade}%</span>
@@ -508,7 +705,8 @@ const handleArquivar = async () => {
                     <div className="flex items-center gap-2 text-sm">
                       <Calendar size={16} className="text-gray-400" />
                       <span className="text-gray-600">
-                        {new Intl.DateTimeFormat('pt-BR').format(new Date(lead.data_previsao_fechamento))}
+                        {/* DATE chega como meia-noite UTC: new Date() no Brasil voltaria um dia */}
+                        {String(lead.data_previsao_fechamento).slice(0, 10).split('-').reverse().join('/')}
                       </span>
                     </div>
                   )}
@@ -516,25 +714,10 @@ const handleArquivar = async () => {
               </div>
 
               {/* Tags */}
-              {lead.tags && lead.tags.length > 0 && (
-                <div className="border-t pt-4">
-                  <h3 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
-                    <TagIcon size={14} />
-                    Tags
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {lead.tags.map((tag) => (
-                      <span
-                        key={tag.id}
-                        className="px-2 py-1 rounded text-xs font-medium"
-                        style={{ backgroundColor: `${tag.cor}20`, color: tag.cor }}
-                      >
-                        {tag.nome}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <TagsDoLead lead={lead} />
+
+              {/* O que o lead contou: variáveis das mensagens automáticas do oficial */}
+              <PerfilDoLead lead={lead} />
 
               {/* Notas */}
               {lead.notas && (() => {
@@ -577,6 +760,9 @@ const handleArquivar = async () => {
               {/* Form nova tarefa */}
               {showTarefaForm && (
                 <div className="p-4 border rounded-lg bg-gray-50 space-y-3">
+                  {tarefaEditandoId && (
+                    <p className="text-sm font-medium text-gray-700">Editar tarefa</p>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs font-medium text-gray-600 mb-1 block">Tipo</label>
@@ -585,8 +771,8 @@ const handleArquivar = async () => {
                         onChange={(e) => setTarefaTipo(e.target.value as TarefaTipo)}
                         className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                       >
-                        <option value="ligacao">Ligacao</option>
-                        <option value="reuniao">Reuniao</option>
+                        <option value="ligacao">Ligação</option>
+                        <option value="reuniao">Reunião</option>
                         <option value="email">Email</option>
                         <option value="follow_up">Follow-up</option>
                         <option value="proposta">Proposta</option>
@@ -609,11 +795,11 @@ const handleArquivar = async () => {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600 mb-1 block">Titulo</label>
+                    <label className="text-xs font-medium text-gray-600 mb-1 block">Título</label>
                     <input
                       value={tarefaTitulo}
                       onChange={(e) => setTarefaTitulo(e.target.value)}
-                      placeholder="Ex: Ligar para confirmar reuniao"
+                      placeholder="Ex: Ligar para confirmar reunião"
                       className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
                   </div>
@@ -626,8 +812,23 @@ const handleArquivar = async () => {
                       className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
                   </div>
+                  {tarefaTipo === 'reuniao' && (
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 mb-1 block">Duração</label>
+                        <select
+                          value={tarefaDuracao}
+                          onChange={(e) => setTarefaDuracao(Number(e.target.value))}
+                          className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                        >
+                          {DURACOES_REUNIAO.map(([m, rotulo]) => <option key={m} value={m}>{rotulo}</option>)}
+                        </select>
+                      </div>
+                      <AvisoAgendaReuniao />
+                    </div>
+                  )}
                   <div>
-                    <label className="text-xs font-medium text-gray-600 mb-1 block">Descricao (opcional)</label>
+                    <label className="text-xs font-medium text-gray-600 mb-1 block">Descrição (opcional)</label>
                     <textarea
                       value={tarefaDescricao}
                       onChange={(e) => setTarefaDescricao(e.target.value)}
@@ -639,12 +840,7 @@ const handleArquivar = async () => {
                   <div className="flex gap-2 justify-end">
                     <button
                       onClick={() => {
-                        setShowTarefaForm(false)
-                        setTarefaTitulo('')
-                        setTarefaDescricao('')
-                        setTarefaDataVencimento('')
-                        setTarefaTipo('follow_up')
-                        setTarefaPrioridade('normal')
+                        fecharFormTarefa()
                       }}
                       className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
                     >
@@ -654,28 +850,40 @@ const handleArquivar = async () => {
                       onClick={async () => {
                         if (!tarefaTitulo.trim() || !tarefaDataVencimento) return
                         try {
-                          await createTarefa.mutateAsync({
-                            lead_id: lead.id,
-                            tipo: tarefaTipo,
-                            titulo: tarefaTitulo,
-                            descricao: tarefaDescricao || undefined,
-                            data_vencimento: new Date(tarefaDataVencimento).toISOString(),
-                            prioridade: tarefaPrioridade,
-                          })
-                          setShowTarefaForm(false)
-                          setTarefaTitulo('')
-                          setTarefaDescricao('')
-                          setTarefaDataVencimento('')
-                          setTarefaTipo('follow_up')
-                          setTarefaPrioridade('normal')
+                          if (tarefaEditandoId) {
+                            await updateTarefa.mutateAsync({
+                              id: tarefaEditandoId,
+                              data: {
+                                tipo: tarefaTipo,
+                                titulo: tarefaTitulo,
+                                descricao: tarefaDescricao,
+                                data_vencimento: new Date(tarefaDataVencimento).toISOString(),
+                                prioridade: tarefaPrioridade,
+                                ...(tarefaTipo === 'reuniao' ? { duracao_min: tarefaDuracao } : {}),
+                              },
+                            })
+                          } else {
+                            await createTarefa.mutateAsync({
+                              lead_id: lead.id,
+                              tipo: tarefaTipo,
+                              titulo: tarefaTitulo,
+                              descricao: tarefaDescricao || undefined,
+                              data_vencimento: new Date(tarefaDataVencimento).toISOString(),
+                              prioridade: tarefaPrioridade,
+                              ...(tarefaTipo === 'reuniao' ? { duracao_min: tarefaDuracao } : {}),
+                            })
+                          }
+                          fecharFormTarefa()
                         } catch {
                           // Erro já tratado pelo onError do hook
                         }
                       }}
-                      disabled={!tarefaTitulo.trim() || !tarefaDataVencimento || createTarefa.isPending}
+                      disabled={!tarefaTitulo.trim() || !tarefaDataVencimento || createTarefa.isPending || updateTarefa.isPending}
                       className="px-4 py-1.5 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
                     >
-                      {createTarefa.isPending ? 'Criando...' : 'Criar Tarefa'}
+                      {tarefaEditandoId
+                        ? (updateTarefa.isPending ? 'Salvando...' : 'Salvar alterações')
+                        : (createTarefa.isPending ? 'Criando...' : 'Criar Tarefa')}
                     </button>
                   </div>
                 </div>
@@ -754,7 +962,21 @@ const handleArquivar = async () => {
                         <p className="text-xs text-gray-400 mt-1">
                           {new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(tarefa.data_vencimento))}
                         </p>
+                        {tarefa.link_reuniao && (
+                          <a href={tarefa.link_reuniao} target="_blank" rel="noopener noreferrer"
+                            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:underline">
+                            Entrar na reunião ({tarefa.agenda_provedor === 'microsoft' ? 'Teams' : 'Meet'})
+                          </a>
+                        )}
                       </div>
+
+                      <button
+                        onClick={() => abrirEdicaoTarefa(tarefa)}
+                        className="p-1 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded"
+                        title="Editar tarefa"
+                      >
+                        <Edit2 size={14} />
+                      </button>
 
                       {/* Delete — sempre visível */}
                       <button
@@ -834,6 +1056,14 @@ const handleArquivar = async () => {
                   }
                   const cfg = tipoConfig[anotacao.tipo] || tipoConfig.nota
                   const AnotIcon = cfg.icon
+                  // Anotação automática (follow-up enviado, resultado de formulário) e
+                  // anotação escrita pelo agente não são observações de vendedor — a
+                  // etiqueta evita que quem lê o card confunda as três coisas.
+                  const selo = anotacao.origem === 'sistema'
+                    ? { texto: 'Automático', classe: 'bg-gray-100 text-gray-500' }
+                    : anotacao.origem === 'agente'
+                      ? { texto: 'Agente IA', classe: 'bg-primary-100 text-primary-700' }
+                      : null
 
                   return (
                     <div key={anotacao.id} className="p-3 border rounded-lg bg-white">
@@ -844,8 +1074,13 @@ const handleArquivar = async () => {
                           </span>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-gray-800 whitespace-pre-wrap">{anotacao.conteudo}</p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              {anotacao.usuario_nome && <span className="font-medium text-gray-500">{anotacao.usuario_nome} - </span>}
+                            <p className="text-xs text-gray-400 mt-1 flex flex-wrap items-center gap-1">
+                              {selo && (
+                                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${selo.classe}`}>
+                                  {selo.texto}
+                                </span>
+                              )}
+                              {!selo && anotacao.usuario_nome && <span className="font-medium text-gray-500">{anotacao.usuario_nome} - </span>}
                               {new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(anotacao.created_at))}
                             </p>
                           </div>
@@ -887,9 +1122,9 @@ const handleArquivar = async () => {
           )}
 
           {activeTab === 'mensagem' && canWhatsApp && (
-            <div className="flex flex-col h-full -m-4">
+            <div className="flex flex-col h-full min-h-0">
               {/* Chat area */}
-              <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 min-h-[350px] max-h-[450px]"
+              <div ref={chatContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 bg-gray-50"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23e5e7eb\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}
               >
                 {mensagensComDatas.length === 0 ? (
@@ -906,7 +1141,13 @@ const handleArquivar = async () => {
                       item.type === 'date' ? (
                         <ChatDateSeparator key={`date-${i}`} date={item.date!} />
                       ) : (
-                        <ChatBubble key={item.msg!.id} mensagem={item.msg!} />
+                        <ChatBubble
+                          key={item.msg!.id}
+                          mensagem={item.msg!}
+                          nomeContato={lead.nome}
+                          onResponder={janelaFechada ? undefined : handleResponder}
+                          onReagir={janelaFechada ? undefined : handleReagir}
+                        />
                       )
                     )}
                   </>
@@ -948,6 +1189,68 @@ const handleArquivar = async () => {
                 </div>
               )}
 
+              {/* Número oficial: estado da janela de 24h e envio de modelo aprovado */}
+              {oficial && janela?.provedor === 'cloud_api' && (
+                <div className={`px-4 py-2 border-t text-xs flex flex-wrap items-center gap-2 ${
+                  janela.aberta ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'
+                }`}>
+                  {janela.aberta ? (
+                    <span>
+                      WhatsApp oficial · janela aberta — texto livre até daqui a <strong>{restaJanela}</strong>
+                    </span>
+                  ) : (
+                    <span className="flex items-start gap-1.5 flex-1 min-w-0">
+                      <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                      <span>
+                        <strong>Janela de 24h fechada.</strong>{' '}
+                        {janela.ultimaEntrada
+                          ? 'O cliente não escreve há mais de 24h.'
+                          : 'O cliente ainda não escreveu para o número oficial.'}{' '}
+                        Pela regra da Meta, só modelo aprovado é entregue até ele responder.
+                      </span>
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setMostrarModelo(v => !v)}
+                    className={`ml-auto px-2.5 py-1 rounded-md font-medium border ${
+                      janela.aberta
+                        ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                        : 'border-amber-400 bg-white text-amber-900 hover:bg-amber-100'
+                    }`}
+                  >
+                    {mostrarModelo ? 'Fechar modelo' : 'Enviar modelo'}
+                  </button>
+                </div>
+              )}
+              {oficial && mostrarModelo && (
+                <div className="px-4 py-3 border-t bg-white space-y-3 max-h-[45vh] overflow-y-auto">
+                  <SeletorModeloWhatsApp
+                    modelos={modelos}
+                    carregando={carregandoModelos}
+                    valor={modeloSel}
+                    onChange={setModeloSel}
+                    modo="literal"
+                    sugestaoPrimeira={(lead.nome || '').trim().split(/\s+/)[0] || ''}
+                    onRecarregar={() => refetchModelos()}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => { setMostrarModelo(false); setModeloSel(null) }}
+                      className="px-3 py-1.5 text-sm rounded-lg border hover:bg-gray-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleEnviarModelo}
+                      disabled={!modeloSel || enviarModelo.isPending || modeloSel.variaveis.some(v => !v.trim())}
+                      className="px-3 py-1.5 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      <Send size={14} /> {enviarModelo.isPending ? 'Enviando…' : 'Enviar modelo'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Input area */}
               <div className="p-3 bg-white border-t">
                 {selectedFile ? (
@@ -961,17 +1264,17 @@ const handleArquivar = async () => {
                     />
                     <button
                       onClick={handleEnviarMedia}
-                      disabled={leadEnviarMedia.isPending}
+                      disabled={leadEnviarMedia.isPending || janelaFechada}
                       className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 disabled:opacity-50"
                     >
                       <Send size={18} />
                     </button>
                   </div>
                 ) : (
-                  <div className="flex gap-2">
+                  <div className="flex items-end gap-2">
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="p-2 text-gray-500 hover:bg-gray-100 rounded-full"
+                      className="p-2 mb-1 text-gray-500 hover:bg-gray-100 rounded-full shrink-0"
                       title="Anexar arquivo"
                     >
                       <Paperclip size={20} />
@@ -987,9 +1290,10 @@ const handleArquivar = async () => {
                         e.target.value = ''
                       }}
                     />
+                    <DicaVideo video="conversa-card" alinhar="inicio" className="inline-flex shrink-0">
                     <button
                       onClick={handleToggleRecording}
-                      className={`p-2 rounded-full transition-colors ${
+                      className={`p-2 mb-1 rounded-full transition-colors shrink-0 ${
                         isRecording
                           ? 'text-red-500 bg-red-50 animate-pulse'
                           : 'text-gray-500 hover:bg-gray-100'
@@ -998,7 +1302,30 @@ const handleArquivar = async () => {
                     >
                       {isRecording ? <Square size={20} /> : <Mic size={20} />}
                     </button>
-                    <div className="flex-1 flex flex-col gap-1">
+                    </DicaVideo>
+                    <div className="flex-1 min-w-0 flex flex-col gap-1">
+                      {respondendoA && (
+                        <div className="flex items-start gap-2 rounded-lg border-l-4 border-green-500 bg-gray-50 dark:bg-gray-700/60 px-2.5 py-1.5">
+                          <Reply size={14} className="mt-0.5 shrink-0 text-gray-400" />
+                          <div className="min-w-0 flex-1 text-xs">
+                            <p className="font-semibold text-gray-700 dark:text-gray-200">
+                              Respondendo a {respondendoA.direcao === 'saida' ? 'você' : (lead.nome || 'lead')}
+                            </p>
+                            <p className="truncate text-gray-500 dark:text-gray-400">
+                              {trechoDaMensagem(respondendoA.conteudo, respondendoA.tipo)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setRespondendoA(null)}
+                            className="shrink-0 rounded p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                            title="Cancelar resposta"
+                            aria-label="Cancelar resposta"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      )}
                       <WhatsAppFormatToolbar
                         textareaRef={mensagemTextareaRef}
                         value={mensagem}
@@ -1010,18 +1337,21 @@ const handleArquivar = async () => {
                         value={mensagem}
                         onChange={(e) => setMensagem(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Digite uma mensagem..."
-                        rows={1}
-                        className="w-full px-3 py-2 border rounded-full text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
-                        style={{ maxHeight: '80px' }}
+                        placeholder={janelaFechada
+                          ? 'Janela de 24h fechada — use “Enviar modelo” acima'
+                          : 'Digite uma mensagem…  (Enter envia • Shift+Enter pula linha)'}
+                        rows={2}
+                        className="w-full px-3.5 py-2.5 border rounded-2xl text-sm leading-relaxed focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none overflow-y-auto"
+                        style={{ minHeight: '56px', maxHeight: '160px' }}
                       />
                     </div>
                     <button
                       onClick={handleEnviarMensagem}
-                      disabled={!mensagem.trim() || leadEnviarMensagem.isPending}
-                      className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 disabled:opacity-50"
+                      disabled={!mensagem.trim() || leadEnviarMensagem.isPending || janelaFechada}
+                      title={janelaFechada ? 'Janela de 24h fechada — envie um modelo aprovado' : 'Enviar mensagem (Enter)'}
+                      className="p-3 mb-1 bg-green-500 text-white rounded-full hover:bg-green-600 disabled:opacity-50 shrink-0 shadow-sm transition-colors"
                     >
-                      <Send size={18} />
+                      <Send size={20} />
                     </button>
                   </div>
                 )}
@@ -1032,11 +1362,12 @@ const handleArquivar = async () => {
 
         {/* Follow-up panel */}
         {showFollowupPanel && (
-          <div className="border-t bg-orange-50 p-4 space-y-3">
+          <div className="border-t bg-amber-50 p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-orange-800 flex items-center gap-1.5">
+              <span className="text-sm font-medium text-amber-800 flex items-center gap-1.5">
                 <Bell size={15} />
                 Agendar Follow-up
+                <LinkVideo video="agendar-followup" className="ml-1" />
               </span>
               <button onClick={() => setShowFollowupPanel(false)} className="text-gray-400 hover:text-gray-600">
                 <XCircle size={16} />
@@ -1057,12 +1388,7 @@ const handleArquivar = async () => {
                           timeZone: 'America/Sao_Paulo'
                         })}
                         {isAtrasado && <span className="font-semibold text-red-600 ml-1">· atrasado</span>}
-                        {f.hora_inicio && (
-                          <span className="text-gray-400 ml-1">
-                            (janela: {f.hora_inicio}{f.hora_fim ? `–${f.hora_fim}` : ''})
-                          </span>
-                        )}
-                        {f.origem === 'estagio' && <span className="ml-1 text-orange-500">(estágio)</span>}
+                        {f.origem === 'estagio' && <span className="ml-1 text-amber-600">(estágio)</span>}
                       </span>
                       <button
                         onClick={() => cancelarFollowup.mutate({ id: f.id, leadId: lead.id })}
@@ -1076,137 +1402,40 @@ const handleArquivar = async () => {
                 })}
               </div>
             )}
-            {/* Follow-ups falhados com opção de retry */}
+            {/* Follow-ups falhados: motivo em linguagem de operador + reagendamento.
+                O texto cru de `erro` vinha truncado numa linha e não havia botão
+                nenhum — retomar um follow-up só era possível pela API. */}
             {followups.filter(f => f.status === 'falhou').length > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-red-700">Falhados:</p>
+              <div className="space-y-1.5">
+                <p className="flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-300">Falhados: <LinkVideo video="followup-motivo-falha" /></p>
                 {followups.filter(f => f.status === 'falhou').map(f => (
-                  <div key={f.id} className="flex items-center justify-between bg-red-50 rounded px-2 py-1 text-xs border border-red-200 text-red-700">
-                    <span className="flex items-center gap-1 truncate">
-                      <Clock size={11} />
-                      {f.tipo === 'agente_ia' ? 'Agente IA' : 'Manual'} ·{' '}
-                      {new Date(f.agendado_para).toLocaleString('pt-BR', {
-                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-                        timeZone: 'America/Sao_Paulo'
-                      })}
-                      {f.erro && <span className="text-red-400 truncate ml-1">· {f.erro}</span>}
-                    </span>
-                  </div>
+                  <FollowupFalhadoItem key={f.id} followup={f} />
                 ))}
               </div>
             )}
-            {/* Tipo */}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
-              <div className="flex gap-3">
-                <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="radio" value="agente_ia" checked={followupTipo === 'agente_ia'} onChange={() => setFollowupTipo('agente_ia')} className="text-orange-500" />
-                  Agente IA
-                </label>
-                <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="radio" value="manual" checked={followupTipo === 'manual'} onChange={() => setFollowupTipo('manual')} className="text-orange-500" />
-                  Mensagem fixa
-                </label>
-              </div>
-            </div>
-
-            {/* Campos por tipo */}
-            {followupTipo === 'agente_ia' ? (
-              <div className="space-y-2">
-                <p className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1.5">
-                  O agente enviará a mensagem assim que a janela de horário permitir — respeitando os dias da semana configurados.
-                </p>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Janela de atuação do agente</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="time"
-                      value={followupHoraInicioJanela}
-                      onChange={(e) => setFollowupHoraInicioJanela(e.target.value)}
-                      className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                    />
-                    <span className="text-xs text-gray-500">até</span>
-                    <input
-                      type="time"
-                      value={followupHoraFimJanela}
-                      onChange={(e) => setFollowupHoraFimJanela(e.target.value)}
-                      className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Instrução para o agente (opcional)</label>
-                  <textarea
-                    value={followupInstrucaoIa}
-                    onChange={(e) => setFollowupInstrucaoIa(e.target.value)}
-                    placeholder="Ex: Retome o contato perguntando se o lead já tomou uma decisão sobre a proposta..."
-                    rows={3}
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 resize-none"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Data e hora de envio</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="date"
-                      value={followupData}
-                      onChange={(e) => setFollowupData(e.target.value)}
-                      className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                    />
-                    <input
-                      type="time"
-                      value={followupHora}
-                      onChange={(e) => setFollowupHora(e.target.value)}
-                      className="px-2 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Mensagem</label>
-                  <textarea
-                    value={followupMensagem}
-                    onChange={(e) => setFollowupMensagem(e.target.value)}
-                    placeholder="Olá! Gostaria de saber se tem alguma dúvida..."
-                    rows={3}
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 resize-none"
-                  />
-                </div>
-              </div>
+            {/* Padrão único de agendamento */}
+            <AgendamentoConfig
+              value={agendamento}
+              onChange={setAgendamento}
+              nivel="lead"
+              showToggle={false}
+            />
+            {oficial && (
+              <ModeloReservaWhatsApp
+                valor={agendamento.modelo_whatsapp ?? null}
+                onChange={(m) => setAgendamento({ ...agendamento, modelo_whatsapp: m })}
+                ehIA={agendamento.tipo === 'agente_ia'}
+              />
             )}
-
-            {/* Dias da semana */}
-            <div className="pt-2 border-t">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Dias da semana</label>
-              <div className="flex gap-1 flex-wrap">
-                {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'].map((d, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => setFollowupDiasSemana(prev =>
-                      prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i].sort()
-                    )}
-                    className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors ${
-                      followupDiasSemana.includes(i)
-                        ? 'bg-orange-500 text-white border-orange-500'
-                        : 'bg-white text-gray-600 border-gray-300 hover:border-orange-400'
-                    }`}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
-            </div>
 
             <button
               onClick={handleAgendarFollowup}
               disabled={
-                (followupTipo === 'manual' && (!followupData || !followupHora || !followupMensagem.trim())) ||
+                (agendamento.tipo === 'manual' && !agendamento.mensagem?.trim()) ||
+                (agendamento.modo === 'data' && !agendamento.data_fixa) ||
                 createFollowup.isPending
               }
-              className="w-full px-3 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
+              className="w-full px-3 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-50"
             >
               {createFollowup.isPending ? 'Agendando...' : 'Confirmar agendamento'}
             </button>
@@ -1235,13 +1464,23 @@ const handleArquivar = async () => {
                       </span>
                     )}
                   </button>
-                  <button
-                    onClick={handleArquivar}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-orange-600 hover:bg-orange-50 rounded"
-                  >
-                    <Archive size={16} />
-                    Arquivar
-                  </button>
+                  {lead.arquivado ? (
+                    <button
+                      onClick={handleReativar}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50 rounded"
+                    >
+                      <ArchiveRestore size={16} />
+                      Reativar
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleArquivar}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm text-orange-600 hover:bg-orange-50 rounded"
+                    >
+                      <Archive size={16} />
+                      Arquivar
+                    </button>
+                  )}
                   <button
                     onClick={handleDeletar}
                     className="flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded"
@@ -1312,6 +1551,13 @@ const handleArquivar = async () => {
           mode="edit"
           initialLead={lead}
           onUpdate={() => setShowEditModal(false)}
+        />
+      )}
+
+      {showGerenciarOrigens && (
+        <GerenciarOrigensModal
+          isOpen={showGerenciarOrigens}
+          onClose={() => setShowGerenciarOrigens(false)}
         />
       )}
     </div>

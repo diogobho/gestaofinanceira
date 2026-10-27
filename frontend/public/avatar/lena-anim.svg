@@ -1,0 +1,398 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="80 20 240 560" width="240" height="560" role="img" aria-label="Lena, avatar DuoFuturo">
+  <title>Lena v3 — avatar DuoFuturo (Helena)</title>
+  <defs>
+    <clipPath id="l3-face"><ellipse cx="200" cy="132" rx="53" ry="57"/></clipPath>
+    <clipPath id="l3-shirt"><path d="M152,214 C152,208 160,204 168,202 L200,216 L232,202 C240,204 248,208 248,214 C251,240 252,268 252,294 C253,314 253,326 254,338 L146,338 C147,326 147,314 148,294 C148,268 149,240 152,214 Z"/></clipPath>
+    <clipPath id="l3-eyeL"><ellipse cx="181" cy="138" rx="15.5" ry="16.5"/></clipPath>
+    <clipPath id="l3-eyeR"><ellipse cx="219" cy="138" rx="15.5" ry="16.5"/></clipPath>
+    <!-- silhueta do cabelo de tras (cacheado): recorta mechas e sombras -->
+    <clipPath id="l3-hairback-clip"><path d="M148,152
+             a15,15 0 0 1 -2,-28  a16,16 0 0 1 4,-30  a16,16 0 0 1 12,-24
+             a16,16 0 0 1 20,-16 a16,16 0 0 1 18,-8
+             a16,16 0 0 1 18,8   a16,16 0 0 1 20,16  a16,16 0 0 1 12,24
+             a16,16 0 0 1 4,30   a15,15 0 0 1 -2,28
+             a12,12 0 0 1 6,24   a13,13 0 0 1 6,26   a13,13 0 0 1 4,26
+             a13,13 0 0 1 2,26   a13,13 0 0 1 0,26   a13,13 0 0 1 -2,26
+             a13,13 0 0 1 -4,26  a12,12 0 0 1 -6,24  a12,12 0 0 1 -8,22
+             C244,392 230,390 228,374
+             C238,300 234,222 212,186
+             L188,186
+             C166,222 162,300 172,374
+             C170,390 156,392 150,378
+             a12,12 0 0 1 -8,-22 a12,12 0 0 1 -6,-24 a13,13 0 0 1 -4,-26
+             a13,13 0 0 1 -2,-26 a13,13 0 0 1 0,-26  a13,13 0 0 1 2,-26
+             a13,13 0 0 1 4,-26  a13,13 0 0 1 6,-26  a12,12 0 0 1 6,-24 Z"/></clipPath>
+    <!-- silhueta da franja (cacheada) -->
+    <clipPath id="l3-fringe-clip"><path d="M152,150
+               C142,108 162,56 200,54
+               C238,56 258,104 250,146
+               C250,128 242,110 226,105
+               L216,93
+               c-8,9 -20,13 -32,10
+               c-11,-3 -18,1 -22,9
+               c-6,12 -11,26 -12,40 Z"/></clipPath>
+
+    <!-- mao em repouso: silhueta LISA + vincos. Ondulacao na borda nao sobrevive a
+         escala pequena (o contorno fecha no vale e vira mancha); os vincos leem melhor. -->
+    <g id="l3-hand-relax" stroke-width="3.4">
+      <path d="M-12,-2
+               C-16,6 -17,18 -14,25
+               C-11,29.5 -4,31 2,30
+               C8,29 12.5,26 13,20
+               C14.5,10 14,2 12,-2 Z" fill="#E7B58C"/>
+      <g fill="none" stroke="#D49B77" stroke-width="2" opacity="0.65" stroke-linecap="round">
+        <path d="M-6,26.5 C-7,23.5 -7,20 -6,17.5"/>
+        <path d="M1.5,27.5 C0.5,24.5 0.5,21 1.5,18.5"/>
+        <path d="M8,25.5 C7,22.5 7,19.5 8,17"/>
+      </g>
+    </g>
+
+    <!-- ===== SOMBREAMENTO EM GRADIENTE (luz vindo da direita) =====
+         userSpaceOnUse para que a mesma rampa valha em todas as pecas do corpo -->
+    <linearGradient id="l3-g-hair" gradientUnits="userSpaceOnUse" x1="140" y1="0" x2="262" y2="0">
+      <stop offset="0" stop-color="#3E2718"/><stop offset="0.42" stop-color="#563921"/><stop offset="1" stop-color="#7E5636"/>
+    </linearGradient>
+    <linearGradient id="l3-g-skin" gradientUnits="userSpaceOnUse" x1="146" y1="0" x2="256" y2="0">
+      <stop offset="0" stop-color="#D3966F"/><stop offset="0.45" stop-color="#E7B58C"/><stop offset="1" stop-color="#F3C8A3"/>
+    </linearGradient>
+    <linearGradient id="l3-g-leg" gradientUnits="userSpaceOnUse" x1="156" y1="0" x2="244" y2="0">
+      <stop offset="0" stop-color="#D3966F"/><stop offset="0.45" stop-color="#E7B58C"/><stop offset="1" stop-color="#F3C8A3"/>
+    </linearGradient>
+    <linearGradient id="l3-g-shirt" gradientUnits="userSpaceOnUse" x1="146" y1="0" x2="254" y2="0">
+      <stop offset="0" stop-color="#39679A"/><stop offset="0.46" stop-color="#4E86BE"/><stop offset="1" stop-color="#77AAD9"/>
+    </linearGradient>
+    <linearGradient id="l3-g-sleeve-back" gradientUnits="userSpaceOnUse" x1="246" y1="0" x2="282" y2="0">
+      <stop offset="0" stop-color="#325D8A"/><stop offset="1" stop-color="#4A80B4"/>
+    </linearGradient>
+    <linearGradient id="l3-g-short" gradientUnits="userSpaceOnUse" x1="146" y1="0" x2="254" y2="0">
+      <stop offset="0" stop-color="#5C4185"/><stop offset="0.46" stop-color="#7B5CA8"/><stop offset="1" stop-color="#A085CA"/>
+    </linearGradient>
+    <linearGradient id="l3-g-shine" gradientUnits="userSpaceOnUse" x1="204" y1="56" x2="252" y2="146">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.17"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <style><![CDATA[
+    /* ============ RIG DE ANIMACAO — LENA ============
+       Cada keyframe embute seu proprio pivo via translate(...) rotate(...) translate(-...),
+       em vez de transform-origin + transform-box. Assim o rig funciona tanto no arquivo
+       isolado quanto quando o avatar e injetado numa cena com outro viewBox. */
+
+    #l3-lena       { animation: l3-breathe 5.2s ease-in-out infinite; }
+    #l3-head       { animation: l3-tilt 7.4s ease-in-out infinite; }
+    #l3-hair-back  { animation: l3-tilt 7.4s ease-in-out -0.3s infinite; }
+    #l3-fringe     { animation: l3-swayhair 7.4s ease-in-out -0.42s infinite; }
+    #l3-arm-back   { animation: l3-armB 6.2s ease-in-out infinite; }
+    #l3-arm-front  { animation: l3-armF 6.2s ease-in-out -0.45s infinite; }
+    #l3-badge      { animation: l3-badge 4.6s ease-in-out infinite; }
+    #l3-shadow     { animation: l3-shadow 5.2s ease-in-out infinite; }
+    #l3-lidL, #l3-lidR { animation: l3-blink 5.8s infinite; }
+    #l3-lidR       { animation-delay: 0.04s; }   /* olhos nunca 100% sincronos */
+    #l3-pupils     { animation: l3-look 8.6s ease-in-out infinite; }
+
+    @keyframes l3-breathe { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+    /* cabeca e cabelo: pivo na base do pescoco (200,204) */
+    @keyframes l3-tilt {
+      0%,100% { transform:translate(200px,204px) rotate(-1.5deg) translate(-200px,-204px) }
+      50%     { transform:translate(200px,204px) rotate(1.5deg)  translate(-200px,-204px) }
+    }
+    /* franja: pivo no topo da testa (200,150) */
+    @keyframes l3-swayhair {
+      0%,100% { transform:translate(200px,150px) rotate(-1.6deg) translate(-200px,-150px) }
+      50%     { transform:translate(200px,150px) rotate(1.6deg)  translate(-200px,-150px) }
+    }
+    /* bracos: pivo no ombro */
+    @keyframes l3-armB {
+      0%,100% { transform:translate(248px,214px) rotate(1.8deg)  translate(-248px,-214px) }
+      50%     { transform:translate(248px,214px) rotate(-1.8deg) translate(-248px,-214px) }
+    }
+    @keyframes l3-armF {
+      0%,100% { transform:translate(152px,214px) rotate(-1.4deg) translate(-152px,-214px) }
+      50%     { transform:translate(152px,214px) rotate(1.4deg)  translate(-152px,-214px) }
+    }
+    @keyframes l3-badge {
+      0%,100% { transform:translate(203px,259px) rotate(-5deg) translate(-203px,-259px) }
+      50%     { transform:translate(203px,259px) rotate(5deg)  translate(-203px,-259px) }
+    }
+    /* sombra respira ao contrario do corpo */
+    @keyframes l3-shadow {
+      0%,100% { transform:translate(200px,558px) scaleX(1)     translate(-200px,-558px) }
+      50%     { transform:translate(200px,558px) scaleX(0.965) translate(-200px,-558px) }
+    }
+    @keyframes l3-look {
+      0%,36%   { transform:translate(0,0) }
+      42%,60%  { transform:translate(2.4px,0.6px) }
+      66%,86%  { transform:translate(-2.2px,-0.4px) }
+      92%,100% { transform:translate(0,0) }
+    }
+    @keyframes l3-blink {
+      0%, 87%     { transform:translateY(0) }
+      88.5%       { transform:translateY(36px) }
+      90.8%       { transform:translateY(0) }
+      93%         { transform:translateY(36px) }
+      95.5%, 100% { transform:translateY(0) }
+    }
+
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+
+  ]]></style>
+
+
+  <g id="l3-root" stroke="#0F1F3E" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- ============ SOMBRA ============ -->
+    <ellipse id="l3-shadow" cx="200" cy="558" rx="92" ry="13" fill="#13264C" opacity="0.15" stroke="none"/>
+
+    <g id="l3-lena">
+
+    <!-- ============ CABELO DE TRAS (massa longa e cacheada) ============ -->
+    <g transform="translate(200,177) scale(0.95) translate(-200,-189)">
+    <g id="l3-hair-back">
+      <path id="l3-hair-back-shape" d="M148,152
+             a15,15 0 0 1 -2,-28  a16,16 0 0 1 4,-30  a16,16 0 0 1 12,-24
+             a16,16 0 0 1 20,-16 a16,16 0 0 1 18,-8
+             a16,16 0 0 1 18,8   a16,16 0 0 1 20,16  a16,16 0 0 1 12,24
+             a16,16 0 0 1 4,30   a15,15 0 0 1 -2,28
+             a12,12 0 0 1 6,24   a13,13 0 0 1 6,26   a13,13 0 0 1 4,26
+             a13,13 0 0 1 2,26   a13,13 0 0 1 0,26   a13,13 0 0 1 -2,26
+             a13,13 0 0 1 -4,26  a12,12 0 0 1 -6,24  a12,12 0 0 1 -8,22
+             C244,392 230,390 228,374
+             C238,300 234,222 212,186
+             L188,186
+             C166,222 162,300 172,374
+             C170,390 156,392 150,378
+             a12,12 0 0 1 -8,-22 a12,12 0 0 1 -6,-24 a13,13 0 0 1 -4,-26
+             a13,13 0 0 1 -2,-26 a13,13 0 0 1 0,-26  a13,13 0 0 1 2,-26
+             a13,13 0 0 1 4,-26  a13,13 0 0 1 6,-26  a12,12 0 0 1 6,-24 Z" fill="url(#l3-g-hair)"/>
+      <g clip-path="url(#l3-hairback-clip)">
+        <!-- brilho especular na massa de cachos -->
+        <path d="M212,60 C234,74 248,102 250,136 C244,108 230,86 206,70 Z" fill="url(#l3-g-shine)" stroke="none"/>
+        <!-- cachos: mechas onduladas claras -->
+        <g fill="none" stroke="#8A6440" stroke-width="2.8" opacity="0.5" stroke-linecap="round">
+          <path d="M160,194 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26"/>
+          <path d="M240,194 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26"/>
+          <path d="M200,198 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24"/>
+          <path d="M138,206 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26 c7,9 -7,17 0,26"/>
+          <path d="M262,206 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26 c-7,9 7,17 0,26"/>
+        </g>
+        <!-- cachos: mechas onduladas escuras -->
+        <g fill="none" stroke="#3B2718" stroke-width="2.6" opacity="0.42" stroke-linecap="round">
+          <path d="M177,200 c-6,8 6,16 0,24 c-6,8 6,16 0,24 c-6,8 6,16 0,24 c-6,8 6,16 0,24 c-6,8 6,16 0,24 c-6,8 6,16 0,24"/>
+          <path d="M223,200 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24 c6,8 -6,16 0,24"/>
+          <path d="M148,178 c7,8 -6,14 0,22 c7,8 -6,14 0,22"/>
+          <path d="M252,178 c-7,8 6,14 0,22 c-7,8 6,14 0,22"/>
+        </g>
+        <!-- espirais nas pontas -->
+        <g fill="none" stroke="#3B2718" stroke-width="2.6" opacity="0.4" stroke-linecap="round">
+          <path d="M156,362 a9,9 0 1 0 12,6"/>
+          <path d="M244,362 a9,9 0 1 1 -12,6"/>
+          <path d="M194,352 a8,8 0 1 0 11,5"/>
+        </g>
+      </g>
+    </g>
+    </g>
+
+    <!-- ============ PERNAS + TENIS ============ -->
+    <g id="l3-legs">
+      <path d="M158,346 C155,390 157,466 162,532
+               L188,532 C191,490 194,440 194,392
+               C196,387 204,387 206,392
+               C206,440 209,490 212,532
+               L238,532 C243,466 245,390 242,346 Z" fill="url(#l3-g-leg)"/>
+          </g>
+    <g id="l3-feet">
+      <path d="M195,523.2 L166,523.2 C150,523.2 140,534.1 140,545.1 C140,551.6 144,556 150,556 L192,556 C196,556 199,552.7 199,546.2 Z" fill="#F4F0E8"/>
+      <path d="M205,523.2 L234,523.2 C250,523.2 260,534.1 260,545.1 C260,551.6 256,556 250,556 L208,556 C204,556 201,552.7 201,546.2 Z" fill="#F4F0E8"/>
+      <path d="M144,547.3 H196" fill="none" stroke-width="2.4" opacity="0.4"/>
+      <path d="M204,547.3 H256" fill="none" stroke-width="2.4" opacity="0.4"/>
+      <path d="M150,531.9 l6,-8 M168,527.6 l4,-6" fill="none" stroke="#D8CFBE" stroke-width="2.6"/>
+      <path d="M250,531.9 l-6,-8 M232,527.6 l-4,-6" fill="none" stroke="#D8CFBE" stroke-width="2.6"/>
+    </g>
+
+    <!-- ============ SHORT ROXO ============ -->
+    <path d="M150,330 L250,330
+             C255,344 255,370 246,392
+             L210,392 C206,387 194,387 190,392
+             L154,392 C145,370 145,344 150,330 Z" fill="url(#l3-g-short)"/>
+            <g stroke="none" fill="#A98BD0" opacity="0.65">
+      <circle cx="184" cy="346" r="3.2"/><circle cx="214" cy="356" r="2.8"/><circle cx="226" cy="344" r="3.2"/>
+      <circle cx="176" cy="372" r="2.6"/><circle cx="238" cy="368" r="2.8"/><circle cx="200" cy="352" r="2.4"/>
+    </g>
+    <path d="M150,330 L250,330" fill="none" stroke-width="4"/>
+
+    <!-- ============ BRACO DE TRAS (manga media azul) ============ -->
+    <g id="l3-arm-back">
+      <path d="M264,258 C267,282 266,306 263,326" fill="none" stroke="#0F1F3E" stroke-width="26"/>
+      <path d="M264,258 C267,282 266,306 263,326" fill="none" stroke="#D9A87F" stroke-width="22"/>
+      <!-- manga media: costura de cima sobre a curva do ombro da blusa (248,214 -> 232,202) -->
+      <path d="M248,214
+               C260,224 282,244 280,268
+               L251.8,273.4
+               C251.3,253.6 250.2,233.2 248,214 Z" fill="url(#l3-g-sleeve-back)"/>
+      <g transform="translate(263,322) scale(-1,1) rotate(8)"><use href="#l3-hand-relax"/></g>
+    </g>
+
+    <!-- ============ PESCOCO + BASE DOS OMBROS (atras da blusa) ============ -->
+    <g id="l3-neck">
+      <path d="M186,170 L184,198 C180,206 174,212 168,220 L232,220 C226,212 220,206 216,198 L214,170 Z" fill="url(#l3-g-skin)"/>
+      <path d="M187,186 Q200,200 213,186" fill="none" stroke="#D49B77" stroke-width="6" opacity="0.6" stroke-linecap="butt"/>
+    </g>
+
+    <!-- ============ BLUSA AZUL ============ -->
+    <path d="M152,214
+             C152,208 160,204 168,202
+             L200,216
+             L232,202
+             C240,204 248,208 248,214
+             C251,240 252,268 252,294
+             C253,314 253,326 254,338
+             L146,338
+             C147,326 147,314 148,294
+             C148,268 149,240 152,214 Z" fill="url(#l3-g-shirt)"/>
+    <!-- gola em V acompanhando o decote -->
+    <path d="M172,206 L200,219 L228,206" fill="none" stroke="#3C6C9E" stroke-width="6" opacity="0.85"/>
+    <!-- pecinha dourada no peito (marca) -->
+    <g id="l3-badge">
+      <path d="M192,266 h6 a4,4 0 0 1 10,0 h6 v6 a4,4 0 0 0 0,9 v6 h-22 Z" fill="#D2B773" stroke-width="3"/>
+    </g>
+
+    <!-- ============ BRACO DA FRENTE (manga media azul) ============ -->
+    <g id="l3-arm-front">
+      <path d="M136,258 C133,282 134,306 137,326" fill="none" stroke="#0F1F3E" stroke-width="26"/>
+      <path d="M136,258 C133,282 134,306 137,326" fill="none" stroke="#E7B58C" stroke-width="22"/>
+      <!-- manga media: a costura de cima percorre a MESMA curva do ombro da blusa
+           (152,214 -> 168,202), por isso nao sobra bico acima da linha do ombro -->
+      <path d="M152,214
+               C140,224 118,244 120,268
+               L148.2,273.4
+               C148.7,253.6 149.8,233.2 152,214 Z" fill="url(#l3-g-shirt)"/>
+      <g transform="translate(137,322) rotate(-8)"><use href="#l3-hand-relax"/></g>
+    </g>
+
+    <!-- ============ CABECA ============ -->
+    <g transform="translate(200,177) scale(0.95) translate(-200,-189)">
+    <g id="l3-head">
+      <ellipse cx="200" cy="132" rx="53" ry="57" fill="url(#l3-g-skin)"/>
+      <!-- sombreamento do rosto (luz da direita) -->
+      <g clip-path="url(#l3-face)" stroke="none">
+        <ellipse cx="176" cy="157" rx="12" ry="7" fill="#E88A9A" opacity="0.28"/>
+        <ellipse cx="224" cy="157" rx="12" ry="7" fill="#E88A9A" opacity="0.28"/>
+      </g>
+
+      <!-- sobrancelhas marcadas -->
+      <path d="M166,120 C174,114 187,113 195,118" fill="none" stroke="#4A3020" stroke-width="5.5"/>
+      <path d="M205,118 C213,113 226,114 234,120" fill="none" stroke="#4A3020" stroke-width="5.5"/>
+
+      <!-- olhos -->
+      <g id="l3-eyes">
+        <ellipse cx="181" cy="138" rx="13" ry="14" fill="#FBF8F2"/>
+        <ellipse cx="219" cy="138" rx="13" ry="14" fill="#FBF8F2"/>
+        <g id="l3-pupils" stroke="none">
+          <circle cx="182" cy="140" r="8" fill="#4A2E1A"/>
+          <circle cx="220" cy="140" r="8" fill="#4A2E1A"/>
+          <circle cx="182" cy="140" r="3.6" fill="#25160C"/>
+          <circle cx="220" cy="140" r="3.6" fill="#25160C"/>
+          <circle cx="185" cy="137" r="2.4" fill="#FFFFFF"/>
+          <circle cx="223" cy="137" r="2.4" fill="#FFFFFF"/>
+        </g>
+        <path d="M168,138 a13,14 0 0 1 26,0" fill="none" stroke="#0F1F3E" stroke-width="3.4"/>
+        <path d="M206,138 a13,14 0 0 1 26,0" fill="none" stroke="#0F1F3E" stroke-width="3.4"/>
+        <!-- palpebras (rig de piscada): cada uma carrega sua propria linha de fechamento,
+             por isso o olho fechado nao mostra o contorno do olho aberto -->
+        <g clip-path="url(#l3-eyeL)"><g id="l3-lidL">
+          <rect x="164" y="84" width="34" height="36" fill="#E7B58C" stroke="none"/>
+          <path d="M168,107 Q181,114 194,107" fill="none" stroke="#0F1F3E" stroke-width="3.6"/>
+        </g></g>
+      </g>
+
+      <!-- nariz -->
+      <path d="M200,145 C196,156 195,161 200,164 C203,164 205,162.5 205,161" fill="none" stroke="#D49B77" stroke-width="3.4"/>
+
+      <!-- boca: sorriso fechado suave -->
+      <!-- boca: sorriso fechado; o labio inferior e sugerido por um traco de batom
+           logo abaixo da linha do sorriso (dois tons de preenchimento leem como boca aberta) -->
+      <g id="l3-mouth" stroke-linecap="round" fill="none">
+        <path d="M185,171 C192,180 208,180 215,171" stroke="#7E2F38" stroke-width="3.8"/>
+        <path d="M189,175.5 C195,180 205,180 211,175.5" stroke="#C4636D" stroke-width="3.4" opacity="0.9"/>
+      </g>
+
+      <!-- ============ FRANJA / CABELO DA FRENTE (cacheado, risca lateral) ============ -->
+      <g id="l3-fringe">
+        <path id="l3-fringe-shape" d="M152,150
+               C142,108 162,56 200,54
+               C238,56 258,104 250,146
+               C250,128 242,110 226,105
+               L216,93
+               c-8,9 -20,13 -32,10
+               c-11,-3 -18,1 -22,9
+               c-6,12 -11,26 -12,40 Z" fill="url(#l3-g-hair)" stroke="none"/>
+        <g clip-path="url(#l3-fringe-clip)">
+          <!-- mechas cacheadas de luz -->
+          <g stroke-linecap="round" fill="none" opacity="0.55">
+            <path d="M212,90 c-6,7 -15,10 -23,9 c-9,-1 -15,4 -19,11" stroke="#8A6440" stroke-width="3"/>
+            <path d="M174,74 c-6,9 -12,17 -13,27 c-1,9 -6,17 -8,26" stroke="#8A6440" stroke-width="2.8"/>
+            <path d="M238,86 c5,10 4,20 6,28 c2,8 2,16 0,24" stroke="#8A6440" stroke-width="2.8"/>
+            <path d="M196,68 c-9,4 -14,12 -16,20" stroke="#8A6440" stroke-width="2.6"/>
+            <path d="M222,68 c9,4 14,12 16,20" stroke="#8A6440" stroke-width="2.6"/>
+          </g>
+          <!-- espirais no topo -->
+          <g stroke-linecap="round" fill="none" stroke="#3B2718" stroke-width="2.4" opacity="0.35">
+            <path d="M182,84 a9,9 0 1 1 12,-5"/>
+            <path d="M230,100 a8,8 0 1 0 -11,-5"/>
+          </g>
+          <!-- sombra interna da mecha por cima da testa -->
+          <path d="M216,93 C206,101 190,105 176,101 C182,111 200,113 214,105 Z" fill="#4A3020" opacity="0.4" stroke="none"/>
+        </g>
+        <!-- contorno so da borda que fica sobre a testa -->
+        <path id="l3-fringe-edge" d="M252,160
+               C252,138 244,112 226,105
+               L216,93
+               c-8,9 -20,13 -32,10
+               c-11,-3 -18,1 -22,9
+               c-7,13 -11,28 -12,44" fill="none"/>
+      </g>
+
+      <!-- ============ ORELHAS (cabelo preso atras da orelha) ============ -->
+      <g id="l3-ears">
+        <path d="M152,129 C142,126 136,135 137,145 C138,154 144,159 151,157" fill="#E7B58C"/>
+        <path d="M248,129 C258,126 264,135 263,145 C262,154 256,159 249,157" fill="#E7B58C"/>
+        <path d="M148,138 C144,140 143,147 147,151" fill="none" stroke="#D49B77" stroke-width="2.8"/>
+        <path d="M252,138 C256,140 257,147 253,151" fill="none" stroke="#D49B77" stroke-width="2.8"/>
+      </g>
+
+      <!-- ============ OCULOS ROSA ============ -->
+      <!-- lentes: vidro creme translucido (#FBF8F2 da Nina) para o oculos existir na leitura -->
+      <g id="l3-glasses-lens" stroke="none" fill="#FBF8F2" opacity="0.15">
+        <path d="M162,126 C169,120 180,119 188,123 C193,126 196,131 196,138
+                 C196,148 189,155 179,155 C168,155 160,148 159,137 C158,132 159,129 162,126 Z"/>
+        <path d="M238,126 C231,120 220,119 212,123 C207,126 204,131 204,138
+                 C204,148 211,155 221,155 C232,155 240,148 241,137 C242,132 241,129 238,126 Z"/>
+      </g>
+      <!-- armacao: navy da marca (#24406F, paleta Nina) -->
+      <g id="l3-glasses" fill="none" stroke="#24406F" stroke-width="4.2" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M162,126 C169,120 180,119 188,123 C193,126 196,131 196,138
+                 C196,148 189,155 179,155 C168,155 160,148 159,137 C158,132 159,129 162,126 Z"/>
+        <path d="M238,126 C231,120 220,119 212,123 C207,126 204,131 204,138
+                 C204,148 211,155 221,155 C232,155 240,148 241,137 C242,132 241,129 238,126 Z"/>
+        <path d="M196,133 C199,129 201,129 204,133" stroke-width="3.4"/>
+        <path d="M159,132 L150,136" stroke-width="3.4"/>
+        <path d="M241,132 L250,136" stroke-width="3.4"/>
+      </g>
+      <!-- dobradicas douradas (#D2B773) + brilho no vidro -->
+      <g stroke="none">
+        <circle cx="160.5" cy="132" r="2.6" fill="#D2B773"/>
+        <circle cx="239.5" cy="132" r="2.6" fill="#D2B773"/>
+        <g fill="#FBF8F2" opacity="0.42">
+          <path d="M166,131 C172,126 180,124 186,126 C179,128 172,131 166,135 Z"/>
+          <path d="M234,131 C228,126 220,124 214,126 C221,128 228,131 234,135 Z"/>
+        </g>
+      </g>
+    </g>
+    </g>
+
+    </g>
+  </g>
+</svg>

@@ -19,6 +19,9 @@ router.patch('/receitas/:id', parcelasController.updateParcelaReceita);
 // Atualizar parcela de despesa
 router.patch('/despesas/:id', parcelasController.updateParcelaDespesa);
 
+// Excluir uma parcela (as demais são renumeradas; sem nenhuma, o lançamento sai)
+router.delete('/:tipo(receitas|despesas)/:id', parcelasController.excluirParcela);
+
 // Enviar e-mails de cobrança manualmente
 router.post('/enviar-emails-cobranca', parcelasController.enviarEmailsCobranca);
 

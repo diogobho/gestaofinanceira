@@ -17,7 +17,7 @@ export const tarefasController = {
 
       res.json(tarefasComStatus);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -41,7 +41,7 @@ export const tarefasController = {
 
       res.json(tarefasComStatus);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -61,7 +61,7 @@ export const tarefasController = {
         status_visual: tarefasService.getStatusVisual(tarefa)
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -78,7 +78,7 @@ export const tarefasController = {
         status_visual: tarefasService.getStatusVisual(tarefa)
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -99,7 +99,7 @@ export const tarefasController = {
         status_visual: tarefasService.getStatusVisual(tarefa)
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -116,7 +116,7 @@ export const tarefasController = {
 
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -137,7 +137,7 @@ export const tarefasController = {
         status_visual: tarefasService.getStatusVisual(tarefa)
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   }
 };

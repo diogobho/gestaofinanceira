@@ -149,14 +149,19 @@ export default function ContatosWhatsAppModal({ isOpen, onClose, funilId }: Cont
   )
 
   const participantesFiltrados = (participantesData?.participants || []).filter((p) =>
-    p.number.includes(search) || p.id.includes(search)
+    p.number.includes(search) || p.id.includes(search) ||
+    (p.nome || '').toLowerCase().includes(search.toLowerCase())
   )
 
   const selectedGroup = (grupos || []).find((g) => g.id === selectedGroupId)
 
   // ---- Formatters ----
-  const formatarNumero = (numero: string) =>
-    numero.replace(/^55/, '').replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')
+  const formatarNumero = (numero: string) => {
+    const local = numero.replace(/^55(?=\d{10,11}$)/, '')
+    if (local.length === 11) return local.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')
+    if (local.length === 10) return local.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3')
+    return local
+  }
 
   const formatarData = (data: string | undefined) => {
     if (!data) return ''
@@ -177,13 +182,13 @@ export default function ContatosWhatsAppModal({ isOpen, onClose, funilId }: Cont
             <MessageCircle className="text-green-500" size={24} />
             <h2 className="text-lg font-semibold text-gray-800">Contatos WhatsApp</h2>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+          <button onClick={onClose} data-tour="cw-fechar" className="p-1 hover:bg-gray-100 rounded">
             <X size={20} className="text-gray-500" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="border-b flex">
+        <div className="border-b flex" data-tour="cw-abas">
           <button
             onClick={() => handleTabChange('contatos')}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
@@ -212,7 +217,7 @@ export default function ContatosWhatsAppModal({ isOpen, onClose, funilId }: Cont
         {tab === 'contatos' && (
           <>
             <div className="p-4 border-b flex items-center gap-4">
-              <div className="flex-1 relative">
+              <div className="flex-1 relative" data-tour="cw-busca">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                 <input
                   type="text"
@@ -225,6 +230,7 @@ export default function ContatosWhatsAppModal({ isOpen, onClose, funilId }: Cont
               <button
                 onClick={handleSincronizar}
                 disabled={sincronizar.isPending}
+                data-tour="cw-sync"
                 className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
               >
                 <RefreshCw size={18} className={sincronizar.isPending ? 'animate-spin' : ''} />
@@ -232,7 +238,7 @@ export default function ContatosWhatsAppModal({ isOpen, onClose, funilId }: Cont
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto p-4" data-tour="cw-lista">
               {loadingContatos ? (
                 <div className="flex items-center justify-center py-8">
                   <RefreshCw className="animate-spin text-gray-400" size={24} />
@@ -479,9 +485,10 @@ export default function ContatosWhatsAppModal({ isOpen, onClose, funilId }: Cont
                                 <Square size={20} className="text-gray-300" />
                               )}
                             </div>
-                            <Avatar name={displayNumber} size="md" />
+                            <Avatar name={p.nome || displayNumber} size="md" />
                             <div className="flex-1 min-w-0">
-                              <p className="font-medium text-gray-800">{displayNumber}</p>
+                              <p className="font-medium text-gray-800 truncate">{p.nome || displayNumber}</p>
+                              {p.nome && <p className="text-xs text-gray-500">{displayNumber}</p>}
                               {p.isAdmin && (
                                 <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">Admin</span>
                               )}

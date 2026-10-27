@@ -3,6 +3,7 @@ import { X, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Loader2, Download
 import { importacaoApi, type MapeamentoColunas, type PreviewDados, type ResultadoImportacao } from '@/api/crm'
 import { useFunis } from '@/hooks/useCRM'
 import { useQueryClient } from '@tanstack/react-query'
+import { useVideoAjuda } from '@/tutoriais/VideoAjuda'
 
 interface ImportLeadsModalProps {
   isOpen: boolean
@@ -26,6 +27,8 @@ const camposLead = [
 
 export default function ImportLeadsModal({ isOpen, onClose, defaultFunilId }: ImportLeadsModalProps) {
   const [step, setStep] = useState<Step>('upload')
+  // Fechou sem concluir: sinal de que travou. O Duo pode oferecer o vídeo (uma vez por sessão).
+  const { sinalizarDificuldade } = useVideoAjuda()
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<PreviewDados | null>(null)
   const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ nome: '' })
@@ -130,6 +133,7 @@ export default function ImportLeadsModal({ isOpen, onClose, defaultFunilId }: Im
   }
 
   const handleClose = () => {
+    if (step === 'upload' || step === 'mapping') sinalizarDificuldade('importar-planilha', 'Ficou alguma dúvida na importação? Em 1 minuto a Lena mostra como trazer a sua planilha.')
     setStep('upload')
     setFile(null)
     setPreview(null)
@@ -230,7 +234,7 @@ export default function ImportLeadsModal({ isOpen, onClose, defaultFunilId }: Im
                         { col: 'cargo',           desc: 'Cargo ou função do contato',        hint: 'ex: CEO, Diretora...' },
                         { col: 'valor_potencial', desc: 'Valor estimado do negócio',         hint: 'ex: 5000.00' },
                         { col: 'temperatura',     desc: 'Nível de interesse',                hint: 'frio · morno · quente' },
-                        { col: 'origem',          desc: 'Como o lead chegou',                hint: 'manual · instagram · indicacao · whatsapp · lancamento · forms' },
+                        { col: 'origem',          desc: 'Como o lead chegou',                hint: 'texto livre — ex: instagram, indicação, Diagnóstico' },
                         { col: 'notas',           desc: 'Observações livres',                hint: '' },
                       ].map(f => (
                         <div key={f.col} className="flex items-center gap-3 px-3 py-2 bg-white hover:bg-gray-50">
@@ -360,7 +364,7 @@ export default function ImportLeadsModal({ isOpen, onClose, defaultFunilId }: Im
             <div className="space-y-4">
               <div className="text-center py-4">
                 <CheckCircle size={48} className="mx-auto text-green-500 mb-4" />
-                <p className="text-lg font-medium text-gray-800">Importacao Concluida!</p>
+                <p className="text-lg font-medium text-gray-800">Importação concluída!</p>
               </div>
 
               <div className="grid grid-cols-3 gap-4">

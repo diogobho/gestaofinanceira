@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { X, User, Phone, Mail, Building, DollarSign, Thermometer, Calendar, ListTodo, AlertCircle, FileText, Globe, UserCheck } from 'lucide-react'
-import { useCreateLead, useUpdateLead, useUsuariosEmpresa } from '@/hooks/useCRM'
-import type { CreateLeadDto, UpdateLeadDto, TarefaTipo, LeadOrigem, Lead } from '@/types/crm'
+import { useCreateLead, useUpdateLead, useUsuariosEmpresa, useOrigensCatalogo } from '@/hooks/useCRM'
+import type { CreateLeadDto, UpdateLeadDto, TarefaTipo, Lead } from '@/types/crm'
+import { toInputDate } from '@/utils'
+import { lerValorBR, valorParaCampo } from '@/utils/moeda'
 
 interface LeadFormModalProps {
   isOpen: boolean
@@ -19,17 +21,6 @@ const temperaturaOptions = [
   { value: 'quente' as const, label: 'Quente' },
 ]
 
-const origemOptions: { value: LeadOrigem; label: string }[] = [
-  { value: 'manual', label: 'Manual' },
-  { value: 'indicacao', label: 'Indicacao' },
-  { value: 'networking', label: 'Networking' },
-  { value: 'parceria', label: 'Parceria' },
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'lancamento', label: 'Lancamento' },
-  { value: 'forms', label: 'Forms' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'importacao', label: 'Importacao' },
-]
 
 const PAISES = [
   { code: '55',  flag: '🇧🇷', label: '+55 Brasil' },
@@ -68,8 +59,8 @@ function effectiveCode(codigoPais: string, codigoCustom: string): string {
 }
 
 const tipoTarefaOptions: { value: TarefaTipo; label: string }[] = [
-  { value: 'ligacao', label: 'Ligacao' },
-  { value: 'reuniao', label: 'Reuniao' },
+  { value: 'ligacao', label: 'Ligação' },
+  { value: 'reuniao', label: 'Reunião' },
   { value: 'email', label: 'Email' },
   { value: 'follow_up', label: 'Follow-up' },
   { value: 'proposta', label: 'Proposta' },
@@ -105,7 +96,12 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
     responsavel_id: undefined,
   })
 
+  // O que está escrito no campo de valor. Fica separado do número porque
+  // "9.700," no meio da digitação ainda não é um valor (#184).
+  const [valorTexto, setValorTexto] = useState('')
+
   const { data: usuariosEmpresa = [] } = useUsuariosEmpresa()
+  const { data: origens = [] } = useOrigensCatalogo()
 
   const [tarefaData, setTarefaData] = useState<TarefaFormData>({
     tipo: 'follow_up',
@@ -114,8 +110,24 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
     data_vencimento: '',
   })
 
-  // Preencher formulário com dados do lead ao abrir em modo edição
+  // Preencher formulário com dados do lead ao abrir em modo edição.
+  //
+  // Em modo CRIAÇÃO o país volta para o Brasil, sempre. O modal não desmonta ao
+  // fechar (`if (!isOpen) return null` mais abaixo), então sem este ramo o
+  // seletor guardava o país do cadastro anterior: quem lançava um lead de
+  // Portugal e em seguida um do Brasil gravava o segundo como 351 + número
+  // brasileiro. Foram 6 cards assim em agosto/2026, e o envio falhava com "não
+  // tem conta no WhatsApp" num número que a tela mostrava certo.
   useEffect(() => {
+    if (!isOpen) return
+
+    if (!isEditMode) {
+      setCodigoPais('55')
+      setCodigoCustom('')
+      setValorTexto('')
+      return
+    }
+
     if (isEditMode && initialLead) {
       const { code, rest } = detectAndStripCode(initialLead.telefone || '')
       if (PAISES_CODES.includes(code)) {
@@ -125,6 +137,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
         setCodigoPais('outro')
         setCodigoCustom(code)
       }
+      setValorTexto(valorParaCampo(initialLead.valor_potencial))
       setFormData({
         funil_id: initialLead.funil_id,
         estagio_id: initialLead.estagio_id,
@@ -151,9 +164,6 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData((prev) => {
-      if (name === 'valor_potencial') {
-        return { ...prev, valor_potencial: value ? parseFloat(value) : undefined }
-      }
       if (name === 'responsavel_id') {
         return { ...prev, responsavel_id: value ? parseInt(value, 10) : undefined }
       }
@@ -217,6 +227,10 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
       })
 
       onClose()
+      // O país entra no reset junto com o resto: ele é parte do telefone.
+      setCodigoPais('55')
+      setCodigoCustom('')
+      setValorTexto('')
       setFormData({
         funil_id: funilId,
         estagio_id: estagioId,
@@ -275,7 +289,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
           {/* Titulo do negocio */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Titulo do Negocio
+              Título do negócio
             </label>
             <input
               type="text"
@@ -402,13 +416,17 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   name="valor_potencial"
-                  value={formData.valor_potencial || ''}
-                  onChange={handleChange}
+                  value={valorTexto}
+                  onChange={(e) => {
+                    const texto = e.target.value.replace(/[^\d.,]/g, '')
+                    setValorTexto(texto)
+                    setFormData((prev) => ({ ...prev, valor_potencial: lerValorBR(texto) }))
+                  }}
+                  onBlur={() => setValorTexto(valorParaCampo(formData.valor_potencial))}
                   placeholder="0,00"
-                  step="0.01"
-                  min="0"
                   className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 />
               </div>
@@ -448,12 +466,12 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
                 onChange={handleChange}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none"
               >
-                {formData.origem && !origemOptions.some(o => o.value === formData.origem) && (
-                  <option value={formData.origem}>{formData.origem}</option>
+                {formData.origem && !origens.some(o => o.nome === formData.origem) && (
+                  <option value={formData.origem}>{formData.origem === 'manual' ? 'Cadastro manual' : formData.origem}</option>
                 )}
-                {origemOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
+                {origens.map((o) => (
+                  <option key={o.id} value={o.nome}>
+                    {o.nome}
                   </option>
                 ))}
               </select>
@@ -493,7 +511,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
               value={formData.notas}
               onChange={handleChange}
               rows={3}
-              placeholder="Observacoes sobre o lead..."
+              placeholder="Observações sobre o lead..."
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
             />
           </div>
@@ -509,7 +527,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
             {/* Titulo da Tarefa */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Titulo da Tarefa *
+                Título da tarefa *
               </label>
               <input
                 type="text"
@@ -557,7 +575,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
                     value={tarefaData.data_vencimento}
                     onChange={handleTarefaChange}
                     required
-                    min={new Date().toISOString().split('T')[0]}
+                    min={toInputDate()}
                     className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   />
                 </div>
@@ -567,7 +585,7 @@ export default function LeadFormModal({ isOpen, onClose, funilId, estagioId, mod
             {/* Descricao da Tarefa */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Descricao da Tarefa
+                Descrição da tarefa
               </label>
               <textarea
                 name="descricao"

@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Equipe no Número Oficial</title>
+<meta name="description" content="Passo a passo para o dono da conta colocar a equipe no portfólio da empresa na Meta e cada pessoa conectar o número oficial no Duo, sem sair do app WhatsApp Business.">
+<style>
+  :root {
+    --ground: #F6F8FC; --surface: #FFFFFF; --surface-alt: #EEF2F9;
+    --line: #D6DEEB; --ink: #0E1A33; --ink-soft: #4A5570; --ink-faint: #7A849B;
+    --navy: #13264C; --esmeralda: #0E8F65; --esmeralda-bg: #E3F4EC;
+    --dourado: #9A7B1F; --dourado-bg: #F6EEDA; --alerta: #A33A2A; --alerta-bg: #F8E9E6;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0A1120; --surface: #121B2C; --surface-alt: #182339;
+      --line: #2A3852; --ink: #E8EDF7; --ink-soft: #A9B4C9; --ink-faint: #78859E;
+      --navy: #8FB0E8; --esmeralda: #3FD3A0; --esmeralda-bg: #0F2E24;
+      --dourado: #DCBB63; --dourado-bg: #2B2413; --alerta: #F0958A; --alerta-bg: #331B18;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0A1120; --surface: #121B2C; --surface-alt: #182339;
+    --line: #2A3852; --ink: #E8EDF7; --ink-soft: #A9B4C9; --ink-faint: #78859E;
+    --navy: #8FB0E8; --esmeralda: #3FD3A0; --esmeralda-bg: #0F2E24;
+    --dourado: #DCBB63; --dourado-bg: #2B2413; --alerta: #F0958A; --alerta-bg: #331B18;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
+    font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 2.5rem 1rem 4rem; display: flex; flex-direction: column; gap: 2.25rem; }
+  .eyebrow { font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); margin: 0; }
+  h1 { font-family: var(--serif); font-weight: 600; font-size: clamp(1.9rem, 6vw, 2.6rem); line-height: 1.12; margin: .4rem 0 0; color: var(--navy); }
+  h2 { font-family: var(--serif); font-weight: 600; font-size: 1.45rem; line-height: 1.25; margin: 0; color: var(--navy); }
+  p { margin: 0; }
+  .lede { color: var(--ink-soft); font-size: 1.05rem; margin-top: .8rem; }
+  section { display: flex; flex-direction: column; gap: .9rem; }
+  .quem { display: inline-block; font-size: .78rem; font-weight: 700; padding: .15rem .6rem; border-radius: 999px;
+    background: var(--esmeralda-bg); color: var(--esmeralda); align-self: flex-start; }
+  .quem.dono { background: var(--dourado-bg); color: var(--dourado); }
+  ol.passos { list-style: none; counter-reset: p; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .7rem; }
+  ol.passos > li { counter-increment: p; position: relative; padding: .85rem 1rem .85rem 3.1rem;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; break-inside: avoid; }
+  ol.passos > li::before { content: counter(p); position: absolute; left: .9rem; top: .85rem; width: 1.6rem; height: 1.6rem;
+    border-radius: 50%; background: var(--navy); color: var(--surface); font-weight: 700; font-size: .85rem;
+    display: flex; align-items: center; justify-content: center; }
+  ol.passos li ul { margin: .4rem 0 0; padding-left: 1.1rem; color: var(--ink-soft); }
+  .caminho { font-weight: 600; color: var(--navy); }
+  .aviso { border-left: 4px solid var(--alerta); background: var(--alerta-bg); padding: .85rem 1rem; border-radius: 8px; break-inside: avoid; }
+  .dica { border-left: 4px solid var(--esmeralda); background: var(--esmeralda-bg); padding: .85rem 1rem; border-radius: 8px; break-inside: avoid; }
+  .aviso strong, .dica strong { display: block; margin-bottom: .2rem; }
+  dl { margin: 0; display: flex; flex-direction: column; gap: .7rem; }
+  dt { font-weight: 700; }
+  dd { margin: .15rem 0 0; color: var(--ink-soft); }
+  .rodape { font-size: .85rem; color: var(--ink-faint); border-top: 1px solid var(--line); padding-top: 1rem; }
+  a { color: var(--navy); }
+  @media print {
+    body { background: #fff; font-size: 13px; }
+    .wrap { padding: 0; gap: 1.4rem; max-width: none; }
+    h2 { break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+<main class="wrap">
+
+<header>
+  <p class="eyebrow">Duo · WhatsApp oficial · passo a passo</p>
+  <h1>Como colocar a equipe no número oficial da empresa</h1>
+  <p class="lede">O dono da conta libera cada pessoa no portfólio da empresa no site da Meta. Depois, cada pessoa conecta o próprio número no Duo, sem sair do app WhatsApp Business do celular.</p>
+</header>
+
+<section>
+  <h2>Antes de começar</h2>
+  <p><strong>Portfólio</strong> é a "pasta da empresa" no site da Meta. Os números oficiais, os modelos de mensagem e o cartão de pagamento ficam nela. Todos os números da equipe entram no mesmo portfólio. Cada número que continua no app WhatsApp Business ganha a sua própria conta do WhatsApp dentro dele: a Meta não deixa dois números do app na mesma conta. O Duo copia os modelos de mensagem da empresa para a conta nova.</p>
+  <div class="aviso">
+    <strong>Não cadastre os números da equipe direto no site da Meta.</strong>
+    Quem libera é a <em>pessoa</em> (o Facebook dela), não o número. Se o número for cadastrado no site da Meta, ele sai do app WhatsApp Business do celular. A conexão pelo Duo é a única que mantém o número no app e na API ao mesmo tempo.
+  </div>
+  <p>O que cada pessoa precisa ter em mãos:</p>
+  <ol class="passos">
+    <li>Um Facebook pessoal com o qual ela consiga entrar.</li>
+    <li>O celular com o app <strong>WhatsApp Business</strong> atualizado (versão 2.24.17 ou mais nova). O WhatsApp comum não serve.</li>
+    <li>Login no Duo com o usuário dela.</li>
+  </ol>
+</section>
+
+<section>
+  <span class="quem dono">Parte 1 · Dono da conta, no computador</span>
+  <h2>Liberar as pessoas no portfólio da empresa</h2>
+  <ol class="passos">
+    <li>Entre em <span class="caminho">business.facebook.com/settings</span> com o Facebook que criou o portfólio da empresa (o mesmo que conectou o número oficial no Duo).</li>
+    <li>No canto de cima, à esquerda, confira se está aberto o portfólio da empresa. Se aparecer outro, clique no nome e troque.</li>
+    <li>No menu da esquerda, abra <span class="caminho">Usuários › Pessoas</span> e clique em <span class="caminho">Adicionar</span> (ou <span class="caminho">Convidar pessoas</span>).</li>
+    <li>Digite o e-mail que a pessoa usa no Facebook.</li>
+    <li>Em acesso ao portfólio, escolha <strong>Controle total</strong> (pode aparecer como "Acesso de administrador").
+      <ul><li>Com acesso de funcionário, o portfólio pode não aparecer para ela na hora de conectar.</li></ul>
+    </li>
+    <li>Na tela de ativos, abra <span class="caminho">Contas do WhatsApp</span>, marque as contas do WhatsApp da empresa e dê <strong>Controle total</strong>.</li>
+    <li>Clique em <span class="caminho">Convidar</span>. Repita para cada pessoa da equipe.</li>
+    <li>Avise cada pessoa que o convite chegou no e-mail dela.</li>
+  </ol>
+  <div class="dica">
+    <strong>Controle total também abre pagamento e configurações.</strong>
+    Se não quiser dar esse acesso, pule a Parte 1. Você mesmo conecta pela pessoa no Duo: em <span class="caminho">WhatsApp</span>, no cartão da pessoa, clique em <span class="caminho">Conectar o oficial de [nome] na conta da empresa</span>. A janela da Meta abre com o seu Facebook, que precisa estar no portfólio da empresa, e a pessoa só lê o QR Code com o celular dela, ao seu lado ou por chamada de vídeo.
+  </div>
+</section>
+
+<section>
+  <span class="quem dono">Parte 1 · Dono da conta</span>
+  <h2>Verificar a empresa na Meta</h2>
+  <p>Sem a verificação do negócio, a Meta permite só <strong>2 números</strong> no portfólio. Se a empresa já tem 2, o terceiro número não entra até a verificação ser aprovada.</p>
+  <ol class="passos">
+    <li>Em <span class="caminho">business.facebook.com/settings</span>, abra <span class="caminho">Central de segurança</span>.</li>
+    <li>Em <span class="caminho">Verificação do negócio</span>, veja se está "Verificado". Se não estiver, clique em <span class="caminho">Iniciar verificação</span> e envie os dados e documentos da empresa (CNPJ, endereço, site ou conta de luz no nome da empresa).</li>
+    <li>A Meta costuma responder em alguns dias úteis.</li>
+  </ol>
+</section>
+
+<section>
+  <span class="quem">Parte 2 · Cada pessoa da equipe</span>
+  <h2>Aceitar o convite</h2>
+  <ol class="passos">
+    <li>Abra o e-mail da Meta com o convite e clique em <span class="caminho">Aceitar convite</span>.</li>
+    <li>Entre com o seu Facebook e conclua o cadastro que a Meta pedir (nome e e-mail de trabalho).</li>
+  </ol>
+</section>
+
+<section>
+  <span class="quem">Parte 2 · Cada pessoa da equipe</span>
+  <h2>Soltar o número de outro portfólio (só se já tentou conectar antes)</h2>
+  <p>Se você já conectou este número em outro portfólio, por exemplo um que você criou sozinho, solte antes. Se nunca conectou, pule para a próxima parte.</p>
+  <ol class="passos">
+    <li>No celular, abra o WhatsApp Business.</li>
+    <li>Vá em <span class="caminho">Configurações › Conta › Plataforma Business</span> (o nome pode variar um pouco com a versão do app).</li>
+    <li>Toque em <span class="caminho">Desconectar</span>. Não apague a conta do WhatsApp: as conversas continuam no celular.</li>
+  </ol>
+</section>
+
+<section>
+  <span class="quem">Parte 2 · Cada pessoa da equipe</span>
+  <h2>Conectar o número no Duo</h2>
+  <ol class="passos">
+    <li>No computador, entre no Duo com o seu usuário e abra o menu <span class="caminho">WhatsApp</span>.</li>
+    <li>Clique em <span class="caminho">Já uso o WhatsApp Business no celular</span>. Abre a janela da Meta.</li>
+    <li>Entre com o seu Facebook, o mesmo que recebeu e aceitou o convite. Confira o nome que aparece em <span class="caminho">Continuar como</span>. Se for outro, clique em <span class="caminho">Não é você?</span> e entre com o certo.</li>
+    <li>Em portfólio, escolha o <strong>portfólio da empresa</strong>. Não crie um novo.</li>
+    <li>Em conta do WhatsApp, escolha <strong>criar uma nova conta</strong>. Não escolha uma que já existe, nem a do dono da empresa, mesmo que ela apareça na lista. Se escolher uma conta que já existe, a Meta pede um número novo e recusa o seu, dizendo que ele "já está registrado em uma conta do WhatsApp". Os modelos de mensagem o Duo copia depois.</li>
+    <li>Informe o seu número. A janela mostra um QR Code.</li>
+    <li>No celular, chega uma mensagem no WhatsApp Business pedindo para ler o QR Code. Toque nela e aponte a câmera para a tela do computador.</li>
+    <li>Aceite compartilhar o histórico das conversas. Elas aparecem no Duo (até 6 meses).</li>
+    <li>Volte ao Duo e confira se o seu cartão mostra o número oficial conectado.</li>
+  </ol>
+  <div class="dica">
+    <strong>O número continua no celular.</strong>
+    Você segue respondendo pelo app como sempre. O Duo passa a enviar e receber pelo mesmo número.
+  </div>
+</section>
+
+<section>
+  <span class="quem">Parte 2 · Cada pessoa da equipe</span>
+  <h2>Ligar o chip de Grupos</h2>
+  <p>Grupos do WhatsApp ficam só no celular quando o número é oficial. Para o Duo continuar dando as boas-vindas e criando os leads dos grupos, ligue o chip de Grupos.</p>
+  <ol class="passos">
+    <li>No Duo, abra o menu <span class="caminho">Grupos</span>.</li>
+    <li>Clique em <span class="caminho">Conectar WhatsApp por QR Code</span>.</li>
+    <li>No celular que está nos grupos, abra <span class="caminho">Dispositivos conectados › Conectar dispositivo</span> e leia o QR Code.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>Se algo não sair como esperado</h2>
+  <dl>
+    <div><dt>O portfólio da empresa não aparece na janela da Meta</dt>
+      <dd>O mais comum é ter entrado na janela com outro Facebook, diferente do que aceitou o convite. Feche a janela sem concluir, confira o nome em "Continuar como" e entre com o Facebook certo. Se ainda assim não aparecer, o convite não foi aceito ou o acesso dado foi de funcionário: peça Controle total. Ou peça para alguém que já está no portfólio da empresa na Meta conectar por você, no seu cartão no Duo, com você ao lado para ler o QR Code.</dd></div>
+    <div><dt>Aparece "limite de números atingido"</dt>
+      <dd>O portfólio ainda não é verificado e já tem 2 números. O dono da conta precisa concluir a verificação do negócio.</dd></div>
+    <div><dt>O celular não pede para ler o QR Code</dt>
+      <dd>Atualize o WhatsApp Business na loja de aplicativos e tente de novo. Confira se é o app WhatsApp Business, não o WhatsApp comum.</dd></div>
+    <div><dt>O número diz que já está ligado a outra conta</dt>
+      <dd>Faça a parte "Soltar o número de outro portfólio" e conecte de novo.</dd></div>
+    <div><dt>A Meta diz que o número "já está registrado em uma conta do WhatsApp"</dt>
+      <dd>Foi escolhida uma conta do WhatsApp que já existe. Volte e escolha criar uma nova conta, dentro do portfólio da empresa.</dd></div>
+    <div><dt>Os modelos de mensagem não aparecem para o meu número</dt>
+      <dd>Avise o suporte do Duo para copiar os modelos da empresa para a sua conta.</dd></div>
+  </dl>
+</section>
+
+<p class="rodape">Duo · CRM e Financeiro com IA · duofuturo.tech/gestao · Para guardar em PDF, abra este guia no navegador e use Imprimir › Salvar como PDF.</p>
+
+</main>
+</body>
+</html>

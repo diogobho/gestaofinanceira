@@ -18,6 +18,12 @@ export interface DashboardData {
     previsto: number
     total: number
   }
+  /** A receber de hoje em diante, sem depender do período do filtro. */
+  aReceberFuturo?: {
+    total: number
+    parcelas: number
+    porMes: { mes: string; valor: number; parcelas: number }[]
+  }
   periodo: {
     data_ini: string | null
     data_fim: string | null

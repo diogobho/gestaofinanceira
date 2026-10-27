@@ -1,6 +1,8 @@
-import { query } from '../../config/database';
+import { escopoDono, type FiltroDono } from '../../shared/escopoFinanceiro';
+import { query, pool } from '../../config/database';
 import { enviarEmailCobrancaParcela } from '../../services/email.service';
 import { configuracoesSmtpService } from '../configuracoes-smtp/configuracoes-smtp.service';
+import { instancia } from '../whatsapp/canal/instancia';
 
 export const parcelasService = {
   async listReceitas(filters: any) {
@@ -9,11 +11,8 @@ export const parcelasService = {
     let paramCount = 1;
 
     // Multi-tenancy: ADMIN vê tudo, usuário vê apenas suas parcelas
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ` AND r.usuario_id = $${paramCount}`;
-      params.push(filters.usuario_id);
-      paramCount++;
-    }
+    where += escopoDono(filters, params, 'r.usuario_id');
+    paramCount = params.length + 1;
 
     if (filters.status) {
       where += ` AND pr.status = $${paramCount}`;
@@ -27,14 +26,19 @@ export const parcelasService = {
       paramCount++;
     }
 
+    // `base=pagamento` (regime de caixa, Dashboard): o período olha o dia em que o
+    // dinheiro entrou/saiu, e só a parcela paga tem esse dia.
+    const colunaData = filters.base === 'pagamento' ? 'pr.data_pagamento' : 'pr.data_vencimento';
+    if (filters.base === 'pagamento') where += ` AND pr.status = 'PAGO'`;
+
     if (filters.data_ini) {
-      where += ` AND pr.data_vencimento >= $${paramCount}`;
+      where += ` AND ${colunaData} >= $${paramCount}`;
       params.push(filters.data_ini);
       paramCount++;
     }
 
     if (filters.data_fim) {
-      where += ` AND pr.data_vencimento <= $${paramCount}`;
+      where += ` AND ${colunaData} <= $${paramCount}`;
       params.push(filters.data_fim);
       paramCount++;
     }
@@ -56,6 +60,10 @@ export const parcelasService = {
         r.fonte as receita_fonte,
         r.cliente_id,
         c.nome as cliente_nome,
+        -- Origem para o filtro do dashboard: veio do Asaas, do Conta Azul ou foi lançada no Duo.
+        CASE WHEN EXISTS (SELECT 1 FROM asaas_cobrancas ac WHERE ac.receita_id = r.id) THEN 'asaas'
+             WHEN EXISTS (SELECT 1 FROM contaazul_lancamentos cl WHERE cl.receita_id = r.id) THEN 'contaazul'
+             ELSE 'manual' END as origem,
         (
           SELECT ne.data_envio
           FROM notificacoes_enviadas ne
@@ -80,11 +88,8 @@ export const parcelasService = {
     let paramCount = 1;
 
     // Multi-tenancy: ADMIN vê tudo, usuário vê apenas suas parcelas
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ` AND d.usuario_id = $${paramCount}`;
-      params.push(filters.usuario_id);
-      paramCount++;
-    }
+    where += escopoDono(filters, params, 'd.usuario_id');
+    paramCount = params.length + 1;
 
     if (filters.status) {
       where += ` AND pd.status = $${paramCount}`;
@@ -92,14 +97,19 @@ export const parcelasService = {
       paramCount++;
     }
 
+    // `base=pagamento` (regime de caixa, Dashboard): o período olha o dia em que o
+    // dinheiro entrou/saiu, e só a parcela paga tem esse dia.
+    const colunaData = filters.base === 'pagamento' ? 'pd.data_pagamento' : 'pd.data_vencimento';
+    if (filters.base === 'pagamento') where += ` AND pd.status = 'PAGO'`;
+
     if (filters.data_ini) {
-      where += ` AND pd.data_vencimento >= $${paramCount}`;
+      where += ` AND ${colunaData} >= $${paramCount}`;
       params.push(filters.data_ini);
       paramCount++;
     }
 
     if (filters.data_fim) {
-      where += ` AND pd.data_vencimento <= $${paramCount}`;
+      where += ` AND ${colunaData} <= $${paramCount}`;
       params.push(filters.data_fim);
       paramCount++;
     }
@@ -118,7 +128,8 @@ export const parcelasService = {
         pd.updated_at,
         d.descricao as despesa_descricao,
         d.valor as despesa_valor_total,
-        d.categoria as despesa_categoria
+        d.categoria as despesa_categoria,
+        COALESCE(d.origem, 'manual') as origem
       FROM parcelas_despesas pd
       INNER JOIN despesas d ON pd.despesa_id = d.id
       WHERE ${where}
@@ -135,11 +146,8 @@ export const parcelasService = {
     let paramCount = 2;
 
     // Multi-tenancy: apenas o dono pode atualizar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ` AND r.usuario_id = $${paramCount}`;
-      params.push(filters.usuario_id);
-      paramCount++;
-    }
+    where += escopoDono(filters, params, 'r.usuario_id');
+    paramCount = params.length + 1;
 
     // Verificar permissão primeiro
     const checkResult = await query(
@@ -197,17 +205,68 @@ export const parcelasService = {
     return result.rows[0];
   },
 
+  /**
+   * Exclui UMA parcela. As que sobram são renumeradas (1 de N…) e o lançamento passa a valer a
+   * soma delas; sobrando uma, vira à vista (`*_parcelas_minimo` exige 2+ no parcelado); sem
+   * nenhuma, o lançamento sai junto. Receita do Asaas/Conta Azul apagada assim não volta.
+   */
+  async excluirParcela(tipo: 'receitas' | 'despesas', id: string, filters?: any) {
+    const t = tipo === 'receitas'
+      ? { parcelas: 'parcelas_receitas', fk: 'receita_id', pai: 'receitas' }
+      : { parcelas: 'parcelas_despesas', fk: 'despesa_id', pai: 'despesas' };
+    const params: any[] = [id];
+    const escopo = escopoDono(filters, params, 'l.usuario_id');
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      const par = (await db.query(
+        `SELECT p.${t.fk} AS pai_id FROM ${t.parcelas} p JOIN ${t.pai} l ON l.id = p.${t.fk}
+          WHERE p.id = $1${escopo} FOR UPDATE OF p, l`, params)).rows[0];
+      if (!par) throw new Error('Parcela não encontrada ou sem permissão');
+
+      await db.query(`DELETE FROM ${t.parcelas} WHERE id = $1`, [id]);
+      const resto = (await db.query(
+        `SELECT id, valor FROM ${t.parcelas} WHERE ${t.fk} = $1 ORDER BY numero_parcela, data_vencimento`,
+        [par.pai_id])).rows;
+
+      if (resto.length === 0) {
+        await db.query(`DELETE FROM ${t.pai} WHERE id = $1`, [par.pai_id]);
+        await db.query('COMMIT');
+        return { lancamento_excluido: true };
+      }
+      for (let i = 0; i < resto.length; i++) {
+        await db.query(
+          `UPDATE ${t.parcelas} SET numero_parcela = $1, total_parcelas = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+          [i + 1, resto.length, resto[i].id]);
+      }
+      const total = resto.reduce((s: number, r: any) => s + Number(r.valor), 0);
+      const n = resto.length;
+      await db.query(
+        `UPDATE ${t.pai} SET valor = $1,
+                parcelado = $2 > 1,
+                tipo_pagamento = CASE WHEN $2 > 1 THEN tipo_pagamento ELSE 'a_vista' END,
+                numero_parcelas = CASE WHEN $2 > 1 THEN $2 END,
+                parcela_atual = CASE WHEN $2 > 1 THEN LEAST(COALESCE(parcela_atual, 1), $2) END,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = $3`, [Math.round(total * 100) / 100, n, par.pai_id]);
+      await db.query('COMMIT');
+      return { lancamento_excluido: false, parcelas_restantes: n };
+    } catch (e) {
+      await db.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      db.release();
+    }
+  },
+
   async updateParcelaDespesa(id: string, data: any, filters?: any) {
     let where = 'pd.id = $1';
     const params: any[] = [id];
     let paramCount = 2;
 
     // Multi-tenancy: apenas o dono pode atualizar
-    if (filters?.usuario_id && filters?.nivel !== 'super_admin') {
-      where += ` AND d.usuario_id = $${paramCount}`;
-      params.push(filters.usuario_id);
-      paramCount++;
-    }
+    where += escopoDono(filters, params, 'd.usuario_id');
+    paramCount = params.length + 1;
 
     // Verificar permissão primeiro
     const checkResult = await query(
@@ -265,32 +324,23 @@ export const parcelasService = {
     return result.rows[0];
   },
 
-  async enviarEmailsCobrancaManuais(parcelaIds: string[], usuarioId?: number, nivel?: string, empresaId?: number) {
+  async enviarEmailsCobrancaManuais(parcelaIds: string[], filtro: FiltroDono, empresaId?: number) {
     const resultados = {
       enviados: [] as any[],
       erros: [] as any[],
       jaEnviados: [] as any[]
     };
 
-    // Buscar configurações SMTP da empresa (se existir)
-    let smtpCredentials: any = undefined;
-    if (empresaId) {
-      const smtpConfig = await configuracoesSmtpService.getDecrypted(empresaId);
-      if (smtpConfig && smtpConfig.ativo && smtpConfig.smtp_pass) {
-        smtpCredentials = {
-          smtp_host: smtpConfig.smtp_host,
-          smtp_port: smtpConfig.smtp_port,
-          smtp_user: smtpConfig.smtp_user,
-          smtp_pass: smtpConfig.smtp_pass,
-          email_from: smtpConfig.email_from,
-          email_from_name: smtpConfig.email_from_name,
-        };
-      }
-    }
+    // Só o e-mail da própria empresa. Sem ele, cada parcela volta com o aviso.
+    const smtpCredentials = empresaId
+      ? await configuracoesSmtpService.credenciaisDaEmpresa(empresaId)
+      : null;
 
     for (const parcelaId of parcelaIds) {
       try {
         // Buscar informações da parcela, cliente e mentor
+        const paramsParcela: any[] = [parcelaId];
+        const escopo = escopoDono(filtro, paramsParcela, 'r.usuario_id');
         const parcelaQuery = await query(`
           SELECT
             pr.id,
@@ -311,9 +361,8 @@ export const parcelasService = {
           INNER JOIN receitas r ON pr.receita_id = r.id
           LEFT JOIN clientes c ON r.cliente_id = c.id
           LEFT JOIN usuarios u ON r.usuario_id = u.id
-          WHERE pr.id = $1
-            ${nivel !== 'super_admin' && usuarioId ? 'AND r.usuario_id = $2' : ''}
-        `, nivel !== 'super_admin' && usuarioId ? [parcelaId, usuarioId] : [parcelaId]);
+          WHERE pr.id = $1 ${escopo}
+        `, paramsParcela);
 
         if (parcelaQuery.rows.length === 0) {
           resultados.erros.push({
@@ -389,7 +438,7 @@ export const parcelasService = {
           descricao: parcela.descricao,
           mentorNome: parcela.mentor_nome,
           mentorEmail: parcela.mentor_email
-        }, smtpCredentials);
+        }, smtpCredentials ?? undefined);
 
         // Registrar envio no banco
         await query(`
@@ -437,7 +486,7 @@ export const parcelasService = {
     };
   },
 
-  async enviarWhatsAppCobrancaManuais(parcelaIds: string[], usuarioId?: number, nivel?: string) {
+  async enviarWhatsAppCobrancaManuais(parcelaIds: string[], filtro: FiltroDono) {
     const axios = require('axios');
     const resultados = {
       enviados: [] as any[],
@@ -448,6 +497,8 @@ export const parcelasService = {
     for (const parcelaId of parcelaIds) {
       try {
         // Buscar informações da parcela, cliente e mentor (usuário)
+        const paramsParcela: any[] = [parcelaId];
+        const escopo = escopoDono(filtro, paramsParcela, 'r.usuario_id');
         const parcelaQuery = await query(`
           SELECT
             pr.id,
@@ -469,9 +520,8 @@ export const parcelasService = {
           INNER JOIN receitas r ON pr.receita_id = r.id
           LEFT JOIN clientes c ON r.cliente_id = c.id
           INNER JOIN usuarios u ON r.usuario_id = u.id
-          WHERE pr.id = $1
-            ${nivel !== 'super_admin' && usuarioId ? 'AND r.usuario_id = $2' : ''}
-        `, nivel !== 'super_admin' && usuarioId ? [parcelaId, usuarioId] : [parcelaId]);
+          WHERE pr.id = $1 ${escopo}
+        `, paramsParcela);
 
         if (parcelaQuery.rows.length === 0) {
           resultados.erros.push({
@@ -567,8 +617,7 @@ Por favor, regularize sua situação o quanto antes.
 _Mensagem automática - Sistema DuoFuturo_`;
 
         // Enviar via WhatsApp
-        const response = await axios.post(
-          `http://localhost:${parcela.whatsapp_porta}/send`,
+        const response = await instancia(parcela.whatsapp_porta).post(`/send`,
           {
             number: parcela.cliente_telefone,
             message: mensagem

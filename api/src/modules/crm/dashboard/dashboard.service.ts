@@ -1,5 +1,29 @@
 import { query } from '../../../config/database';
 
+export type Granularidade = 'dia' | 'semana' | 'mes' | 'ano';
+
+/**
+ * Como agrupar a série temporal e qual janela usar quando o usuário não
+ * escolheu período.
+ *
+ * A janela padrão muda com a granularidade de propósito: 6 meses em `dia` são
+ * ~180 colunas num gráfico de 260px de altura — ilegível e caro de transportar.
+ * Cada granularidade abre a janela que rende um número de pontos que cabe.
+ *
+ * `date_trunc('week')` no Postgres começa a semana na SEGUNDA (ISO-8601), que é
+ * como se fala de semana comercial aqui.
+ */
+const GRANULARIDADES: Record<Granularidade, { sql: (col: string) => string; janela: string }> = {
+  dia:    { sql: (c) => `TO_CHAR(${c}, 'YYYY-MM-DD')`,                      janela: '30 days' },
+  semana: { sql: (c) => `TO_CHAR(DATE_TRUNC('week', ${c}), 'YYYY-MM-DD')`,  janela: '12 weeks' },
+  mes:    { sql: (c) => `TO_CHAR(${c}, 'YYYY-MM')`,                         janela: '6 months' },
+  ano:    { sql: (c) => `TO_CHAR(${c}, 'YYYY')`,                            janela: '5 years' },
+};
+
+export function normalizarGranularidade(valor: unknown): Granularidade {
+  return valor === 'dia' || valor === 'semana' || valor === 'ano' ? valor : 'mes';
+}
+
 export interface FunilEstagioAcumulado {
   estagio_id: number;
   estagio_nome: string;
@@ -19,6 +43,8 @@ export interface FunilDiarioEntry {
 
 export interface FunilAnalytics {
   acumulado: FunilEstagioAcumulado[];
+  /** Perda e etapas depois do ganho (Nutrição): fora da sequência do funil. */
+  laterais: Array<{ estagio_id: number; estagio_nome: string; estagio_cor: string; tipo: 'perda' | 'paralela'; leads: number }>;
   diario: FunilDiarioEntry[];
   boca_funil: number;
   taxa_conversao_geral: number;
@@ -36,6 +62,8 @@ export interface DashboardMetricas {
 
   // Por período
   leadsPorMes: Array<{ mes: string; total: number; ganhos: number; perdidos: number }>;
+  /** Em que granularidade a série `leadsPorMes` foi agrupada. */
+  granularidade: Granularidade;
   valorPorMes: Array<{ mes: string; valor: number }>;
 
   // Por estágio
@@ -60,6 +88,8 @@ export interface DashboardMetricas {
   // Tarefas
   tarefasAtrasadas: number;
   tarefasHoje: number;
+  /** true quando um período foi aplicado — a tela troca o rótulo de "hoje". */
+  periodoAtivo?: boolean;
   tarefasPendentes: number;
 
   // Performance
@@ -92,7 +122,7 @@ function buildDateFilter(
 }
 
 export const dashboardService = {
-  async getMetricas(empresaId: number, funilId?: number, dataInicio?: string, dataFim?: string, responsavelId?: number): Promise<DashboardMetricas> {
+  async getMetricas(empresaId: number, funilId?: number, dataInicio?: string, dataFim?: string, responsavelId?: number, granularidade: Granularidade = 'mes'): Promise<DashboardMetricas> {
     // paramsBase: empresa + funil + responsavel — queries SEM filtro de data
     const paramsBase: any[] = [empresaId];
     let funilFilter = '';
@@ -147,21 +177,26 @@ export const dashboardService = {
 
     const temFiltroData = Boolean(dataInicio || dataFim);
 
-    // Criações por mês (referência: l.created_at)
-    const periodoCreated = temFiltroData ? dateFilterCreated : `AND l.created_at >= NOW() - INTERVAL '6 months'`;
+    // Série temporal (referência: l.created_at). O rótulo continua saindo na
+    // chave `mes` — é o contrato que a tela e a tabela já consomem — mas o que
+    // ele contém depende da granularidade: '2026-08-25', '2026-08' ou '2026'.
+    const gran = GRANULARIDADES[granularidade];
+    const balde = gran.sql('l.created_at');
+    const periodoCreated = temFiltroData ? dateFilterCreated : `AND l.created_at >= NOW() - INTERVAL '${gran.janela}'`;
     const criadosPorMesResult = await query(
-      `SELECT TO_CHAR(l.created_at, 'YYYY-MM') as mes, COUNT(*)::int as total
+      `SELECT ${balde} as mes, COUNT(*)::int as total
        FROM leads l
        WHERE l.empresa_id = $1 ${funilFilter} ${responsavelFilter} ${periodoCreated}
-       GROUP BY TO_CHAR(l.created_at, 'YYYY-MM')`,
+       GROUP BY ${balde}`,
       params
     );
 
     // Ganhos/perdidos por mês (referência: data_ganho_perdido)
-    const periodoGP = temFiltroData ? dateFilterGP : `AND l.data_ganho_perdido >= NOW() - INTERVAL '6 months'`;
+    const baldeGP = gran.sql('l.data_ganho_perdido');
+    const periodoGP = temFiltroData ? dateFilterGP : `AND l.data_ganho_perdido >= NOW() - INTERVAL '${gran.janela}'`;
     const ganhoPorMesResult = await query(
       `SELECT
-        TO_CHAR(l.data_ganho_perdido, 'YYYY-MM') as mes,
+        ${baldeGP} as mes,
         COUNT(*) FILTER (WHERE e.is_ganho = true)::int as ganhos,
         COUNT(*) FILTER (WHERE e.is_perdido = true)::int as perdidos,
         COALESCE(SUM(l.valor_potencial) FILTER (WHERE e.is_ganho = true), 0) as valor
@@ -170,7 +205,7 @@ export const dashboardService = {
        WHERE l.empresa_id = $1 ${funilFilter} ${responsavelFilter}
          AND l.data_ganho_perdido IS NOT NULL
          ${periodoGP}
-       GROUP BY TO_CHAR(l.data_ganho_perdido, 'YYYY-MM')`,
+       GROUP BY ${baldeGP}`,
       paramsGP
     );
 
@@ -188,7 +223,40 @@ export const dashboardService = {
     }
     const leadsPorMesMerged = Array.from(mesMap.values()).sort((a, b) => a.mes.localeCompare(b.mes));
 
-    // Leads por estágio (snapshot atual — sem filtro de data)
+    /*
+      Leads por estágio. Com período, conta os leads CRIADOS no período e mostra
+      onde eles estão hoje — era um snapshot que ignorava a data e ficava
+      parado enquanto o resto da tela mudava.
+
+      O recorte de data vai no ON do LEFT JOIN, não no WHERE: no WHERE ele
+      viraria INNER e os estágios vazios sumiriam da lista, mudando o desenho do
+      funil conforme o filtro.
+    */
+    /*
+      Esta consulta monta a PRÓPRIA lista de parâmetros, do zero.
+      Ela não pode reusar `paramsBase`: aquele array carrega funil E responsável,
+      mas aqui o funil aparece numa posição diferente (`e.funil_id`, não
+      `l.funil_id`) e o responsável precisa entrar no LEFT JOIN, não no WHERE.
+      A versão antiga chumbava `$2` para o funil e recebia `paramsBase` inteiro —
+      com responsável selecionado e sem funil, sobrava um parâmetro sem
+      placeholder e o Postgres derrubava a requisição com 08P01
+      ("bind message supplies 2 parameters, but prepared statement requires 1").
+      Era 500 na tela inteira do dashboard.
+    */
+    const paramsEstagio: any[] = [empresaId];
+    let filtroFunilEstagio = '';
+    if (funilId) {
+      paramsEstagio.push(funilId);
+      filtroFunilEstagio = `AND e.funil_id = $${paramsEstagio.length}`;
+    }
+    // Responsável entra no JOIN dos leads: no WHERE ele derrubaria os estágios
+    // que não têm lead daquela pessoa, mudando o desenho do funil.
+    let filtroRespEstagio = '';
+    if (responsavelId) {
+      paramsEstagio.push(responsavelId);
+      filtroRespEstagio = `AND l.responsavel_id = $${paramsEstagio.length}`;
+    }
+    const dateFilterEstagio = buildDateFilter(paramsEstagio, dataInicio, dataFim, 'l.created_at');
     const leadsPorEstagioResult = await query(
       `SELECT
         e.nome as estagio,
@@ -198,11 +266,12 @@ export const dashboardService = {
        FROM estagios_funil e
        JOIN funis f ON e.funil_id = f.id
        LEFT JOIN leads l ON l.estagio_id = e.id AND l.arquivado = false AND l.empresa_id = $1
+            ${filtroRespEstagio} ${dateFilterEstagio}
        WHERE f.empresa_id = $1
-       ${funilId ? 'AND e.funil_id = $2' : ''}
+       ${filtroFunilEstagio}
        GROUP BY e.id, e.nome, e.cor, e.ordem
        ORDER BY e.ordem ASC`,
-      paramsBase
+      paramsEstagio
     );
 
     // Leads por temperatura (referência: l.created_at)
@@ -232,7 +301,11 @@ export const dashboardService = {
       params
     );
 
-    // Atividades recentes (últimas 10) — sem filtro de data
+    // Atividades recentes: as últimas 10 DO PERÍODO (referência: a.created_at,
+    // quando a atividade aconteceu). Antes eram sempre as 10 últimas da empresa,
+    // então a lista não mudava ao filtrar o período.
+    const paramsAtividades = [...paramsBase];
+    const dateFilterAtividade = buildDateFilter(paramsAtividades, dataInicio, dataFim, 'a.created_at');
     const atividadesResult = await query(
       `SELECT
         a.id,
@@ -244,23 +317,33 @@ export const dashboardService = {
        FROM atividades_lead a
        JOIN leads l ON a.lead_id = l.id
        WHERE l.empresa_id = $1
-       ${funilFilter} ${responsavelFilter}
+       ${funilFilter} ${responsavelFilter} ${dateFilterAtividade}
        ORDER BY a.created_at DESC
        LIMIT 10`,
-      paramsBase
+      paramsAtividades
     );
 
-    // Tarefas — sem filtro de data (sempre reflete estado atual)
+    /*
+      Tarefas. A referência é `data_vencimento` — quando a tarefa é para ser
+      feita. Sem período são os números de hoje; com período, os do período,
+      pela mesma razão do card de follow-ups: a interseção de "hoje" com um
+      intervalo que pode nem conter hoje daria zero sem explicação.
+
+      "Atrasadas" mantém o `< CURRENT_DATE` mesmo com período — atrasado é
+      relativo a hoje, não ao recorte escolhido.
+    */
+    const paramsTarefas = [...paramsBase];
+    const dateFilterTarefa = buildDateFilter(paramsTarefas, dataInicio, dataFim, 't.data_vencimento');
     const tarefasResult = await query(
       `SELECT
         COUNT(*) FILTER (WHERE t.data_vencimento < CURRENT_DATE AND t.status NOT IN ('concluida', 'cancelada')) as atrasadas,
-        COUNT(*) FILTER (WHERE t.data_vencimento::date = CURRENT_DATE AND t.status NOT IN ('concluida', 'cancelada')) as hoje,
+        COUNT(*) FILTER (WHERE ${temFiltroData ? 'TRUE' : "t.data_vencimento::date = CURRENT_DATE"} AND t.status NOT IN ('concluida', 'cancelada')) as hoje,
         COUNT(*) FILTER (WHERE t.status NOT IN ('concluida', 'cancelada')) as pendentes
        FROM tarefas_lead t
        JOIN leads l ON t.lead_id = l.id
        WHERE l.empresa_id = $1
-       ${funilFilter} ${responsavelFilter}`,
-      paramsBase
+       ${funilFilter} ${responsavelFilter} ${dateFilterTarefa}`,
+      paramsTarefas
     );
 
     const tarefas = tarefasResult.rows[0];
@@ -298,6 +381,7 @@ export const dashboardService = {
       valorGanho: parseFloat(gp.valor_ganho),
       taxaConversao: Math.round(taxaConversao * 10) / 10,
 
+      granularidade,
       leadsPorMes: leadsPorMesMerged.map(r => ({
         mes: r.mes,
         total: r.total,
@@ -330,6 +414,7 @@ export const dashboardService = {
 
       atividadesRecentes: atividadesResult.rows,
 
+      periodoAtivo: temFiltroData,
       tarefasAtrasadas: parseInt(tarefas.atrasadas),
       tarefasHoje: parseInt(tarefas.hoje),
       tarefasPendentes: parseInt(tarefas.pendentes),
@@ -356,62 +441,103 @@ export const dashboardService = {
       params.push(responsavelId);
       responsavelFilter = `AND l.responsavel_id = $${params.length}`;
     }
-    // Filtro para entradas no estágio de entrada (referência: l.created_at)
-    const dateFilterCreated = buildDateFilter(params, dataInicio, dataFim, 'l.created_at');
-    // Filtro para movimentações de estágio (referência: a.created_at — quando o evento ocorreu)
-    const dateFilterActivity = buildDateFilter(params, dataInicio, dataFim, 'a.created_at');
+    // Acumulado = funil de COORTE (30/09/2026): dos leads que ENTRARAM no funil no período
+    // (criados nele ou transferidos para ele), até onde cada um chegou — até hoje. Cada lead
+    // conta em todas as etapas até a mais avançada que tocou, então o funil sempre afunila.
+    //
+    // Antes contava passagens por etapa no período, e não afunilava: a equipe pula etapa
+    // (349 dos 745 movimentos de setembro na Escola) e volta (216), e quem ia de Entrada
+    // direto para Conexão não aparecia em Tentativa de Contato — Conexão ficava com o dobro
+    // da etapa anterior. E misturava coortes: os ganhos do mês incluíam leads de meses antes.
+    //
+    // Etapas LATERAIS ficam fora da sequência e voltam em `laterais`: a de perda e as que
+    // vêm depois da etapa de ganho (Nutrição — quem não avançou no começo do funil e recebe
+    // contato 1x por mês). O lead que foi para uma lateral conta na sequência até onde chegou.
+    //
+    // Datas em horário de Brasília: as colunas são timestamp naive guardando UTC.
+    const dataEntrada = buildDateFilter(params, dataInicio, dataFim,
+      "(c.entrou_em AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')");
 
-    // Acumulado: para cada estágio, quantos leads únicos chegaram — por data do evento
     const acumuladoResult = await query(
-      `WITH passagens AS (
-         -- Leads que entraram no estágio de entrada: data referência = created_at
-         SELECT l.id AS lead_id, l.estagio_id
+      `WITH etapas AS (
+         SELECT e.id, e.funil_id, e.nome, e.cor, e.ordem, e.is_entrada, e.is_ganho,
+                (e.is_perdido OR e.ordem > COALESCE(
+                   (SELECT MIN(g.ordem) FROM estagios_funil g WHERE g.funil_id = e.funil_id AND g.is_ganho),
+                   2147483647)) AS fora_da_sequencia,
+                e.is_perdido
+         FROM estagios_funil e JOIN funis f ON f.id = e.funil_id
+         WHERE f.empresa_id = $1 ${funilFilterEstagios}
+       ),
+       primeira AS (SELECT funil_id, MIN(ordem) AS ordem FROM etapas WHERE NOT fora_da_sequencia GROUP BY funil_id),
+       entradas AS (
+         -- Entrou no funil em que está hoje: pela transferência mais recente para ele ou, sem
+         -- ela, pela criação. Transferido conta, venha de onde vier.
+         SELECT l.id AS lead_id, l.funil_id, l.estagio_id AS estagio_atual,
+                COALESCE(tr.t, l.created_at) AS entrou_em, tr.estagio AS estagio_entrada
          FROM leads l
-         WHERE l.empresa_id = $1 ${funilFilterLeads} ${responsavelFilter} ${dateFilterCreated}
-         UNION ALL
-         -- Movimentações: data referência = quando a mudança ocorreu (a.created_at)
-         SELECT a.lead_id, (a.dados->>'estagio_novo_id')::int AS estagio_id
-         FROM atividades_lead a
-         JOIN leads l ON a.lead_id = l.id
-         WHERE l.empresa_id = $1 AND a.tipo = 'mudanca_estagio'
-           AND a.dados->>'estagio_novo_id' IS NOT NULL
-           ${funilFilterLeads} ${responsavelFilter} ${dateFilterActivity}
+         LEFT JOIN LATERAL (
+           SELECT a.created_at AS t, (a.dados->>'estagio_novo_id')::int AS estagio
+             FROM atividades_lead a
+            WHERE a.lead_id = l.id AND a.tipo = 'transferencia_funil'
+              AND (a.dados->>'funil_novo_id')::int = l.funil_id
+            ORDER BY a.created_at DESC LIMIT 1
+         ) tr ON true
+         WHERE l.empresa_id = $1 ${funilFilterLeads} ${responsavelFilter}
+       ),
+       coorte AS (SELECT * FROM entradas c WHERE true ${dataEntrada}),
+       tocadas AS (
+         SELECT lead_id, estagio_atual AS estagio_id FROM coorte
+         UNION SELECT lead_id, estagio_entrada FROM coorte WHERE estagio_entrada IS NOT NULL
+         UNION SELECT c.lead_id, (a.dados->>'estagio_novo_id')::int
+                 FROM coorte c JOIN atividades_lead a
+                   ON a.lead_id = c.lead_id AND a.tipo = 'mudanca_estagio' AND a.created_at >= c.entrou_em
+       ),
+       alcance AS (
+         SELECT c.lead_id, c.funil_id,
+                GREATEST(p.ordem, COALESCE(MAX(e.ordem) FILTER (WHERE NOT e.fora_da_sequencia), p.ordem)) AS ordem_max
+         FROM coorte c
+         JOIN primeira p ON p.funil_id = c.funil_id
+         LEFT JOIN tocadas t ON t.lead_id = c.lead_id
+         LEFT JOIN etapas e ON e.id = t.estagio_id AND e.funil_id = c.funil_id
+         GROUP BY c.lead_id, c.funil_id, p.ordem
        )
-       SELECT
-         e.id AS estagio_id,
-         e.nome AS estagio_nome,
-         e.cor AS estagio_cor,
-         e.ordem AS estagio_ordem,
-         e.is_entrada,
-         e.is_ganho,
-         COUNT(DISTINCT p.lead_id) AS leads_passaram
-       FROM estagios_funil e
-       JOIN funis f ON e.funil_id = f.id
-       LEFT JOIN passagens p ON p.estagio_id = e.id
-       WHERE f.empresa_id = $1 AND e.is_perdido = false
-       ${funilFilterEstagios}
-       GROUP BY e.id, e.nome, e.cor, e.ordem, e.is_entrada, e.is_ganho
-       ORDER BY e.ordem ASC`,
+       SELECT e.id AS estagio_id, e.nome AS estagio_nome, e.cor AS estagio_cor, e.ordem AS estagio_ordem,
+              e.funil_id, e.is_entrada, e.is_ganho, e.fora_da_sequencia, e.is_perdido,
+              CASE WHEN e.fora_da_sequencia
+                THEN (SELECT COUNT(DISTINCT t.lead_id) FROM tocadas t JOIN coorte c ON c.lead_id = t.lead_id
+                       WHERE t.estagio_id = e.id AND c.funil_id = e.funil_id)
+                ELSE (SELECT COUNT(*) FROM alcance a WHERE a.funil_id = e.funil_id AND a.ordem_max >= e.ordem)
+              END AS leads_passaram
+       FROM etapas e
+       ORDER BY e.funil_id, e.ordem`,
       params
     );
 
-    // Calcular taxas em JS
-    const estagios = acumuladoResult.rows;
-    const bocaFunil = estagios.length > 0 ? parseInt(estagios[0].leads_passaram) : 0;
-    const ganhoEstagio = estagios.find((e: any) => e.is_ganho);
-    const taxaConversaoGeral = bocaFunil > 0 && ganhoEstagio
-      ? Math.round((parseInt(ganhoEstagio.leads_passaram) / bocaFunil) * 1000) / 10
-      : 0;
+    const estagios = acumuladoResult.rows.filter((e: any) => !e.fora_da_sequencia);
+    const laterais = acumuladoResult.rows
+      .filter((e: any) => e.fora_da_sequencia)
+      .map((e: any) => ({
+        estagio_id: e.estagio_id,
+        estagio_nome: e.estagio_nome,
+        estagio_cor: e.estagio_cor,
+        tipo: (e.is_perdido ? 'perda' : 'paralela') as 'perda' | 'paralela',
+        leads: parseInt(e.leads_passaram),
+      }));
+
+    // Boca = etapa de entrada (a primeira da sequência). Com vários funis somados, cada um
+    // tem a sua — soma-se a primeira de cada.
+    const primeiraDeCada = new Map<number, any>();
+    for (const e of acumuladoResult.rows) {
+      if (!e.fora_da_sequencia && !primeiraDeCada.has(e.funil_id)) primeiraDeCada.set(e.funil_id, e);
+    }
+    const bocaFunil = [...primeiraDeCada.values()].reduce((s, e) => s + parseInt(e.leads_passaram), 0);
+    const ganhos = estagios.filter((e: any) => e.is_ganho).reduce((s: number, e: any) => s + parseInt(e.leads_passaram), 0);
+    const taxaConversaoGeral = bocaFunil > 0 ? Math.round((ganhos / bocaFunil) * 1000) / 10 : 0;
 
     const acumulado: FunilEstagioAcumulado[] = estagios.map((e: any, i: number) => {
       const leadsPassaram = parseInt(e.leads_passaram);
-      const anterior = i > 0 ? parseInt(estagios[i - 1].leads_passaram) : null;
-      const taxaEtapa = anterior !== null && anterior > 0
-        ? Math.round((leadsPassaram / anterior) * 1000) / 10
-        : null;
-      const taxaGeral = bocaFunil > 0
-        ? Math.round((leadsPassaram / bocaFunil) * 1000) / 10
-        : 100;
+      const anteriorMesmoFunil = i > 0 && estagios[i - 1].funil_id === e.funil_id ? parseInt(estagios[i - 1].leads_passaram) : null;
+      const bocaDoFunil = parseInt(primeiraDeCada.get(e.funil_id)?.leads_passaram || '0');
       return {
         estagio_id: e.estagio_id,
         estagio_nome: e.estagio_nome,
@@ -420,8 +546,10 @@ export const dashboardService = {
         is_entrada: e.is_entrada,
         is_ganho: e.is_ganho,
         leads_passaram: leadsPassaram,
-        taxa_etapa: taxaEtapa,
-        taxa_geral: taxaGeral
+        taxa_etapa: anteriorMesmoFunil !== null && anteriorMesmoFunil > 0
+          ? Math.round((leadsPassaram / anteriorMesmoFunil) * 1000) / 10
+          : null,
+        taxa_geral: bocaDoFunil > 0 ? Math.round((leadsPassaram / bocaDoFunil) * 1000) / 10 : 100,
       };
     });
 
@@ -432,28 +560,42 @@ export const dashboardService = {
     if (funilId) { paramsDiario.push(funilId); funilFilterDiario = `AND l.funil_id = $${paramsDiario.length}`; }
     let responsavelFilterDiario = '';
     if (responsavelId) { paramsDiario.push(responsavelId); responsavelFilterDiario = `AND l.responsavel_id = $${paramsDiario.length}`; }
-    paramsDiario.push(diasParam);
-    const diasIdx = `$${paramsDiario.length}`;
+    // Com período escolhido na tela, o diário segue o período; sem ele, os últimos N dias.
+    let janelaCriacao: string;
+    let janelaMovimento: string;
+    if (dataInicio || dataFim) {
+      janelaCriacao = buildDateFilter(paramsDiario, dataInicio, dataFim, "(l.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')");
+      janelaMovimento = buildDateFilter(paramsDiario, dataInicio, dataFim, "(a.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')");
+    } else {
+      paramsDiario.push(diasParam);
+      const diasIdx = `$${paramsDiario.length}`;
+      janelaCriacao = `AND l.created_at >= NOW() - (${diasIdx} || ' days')::interval`;
+      janelaMovimento = `AND a.created_at >= NOW() - (${diasIdx} || ' days')::interval`;
+    }
 
     const diarioResult = await query(
       `SELECT dia, estagio_id, estagio_nome, SUM(total)::int AS total
        FROM (
-         -- Leads criados no estágio de entrada
+         -- Leads criados: contam na ENTRADA do funil, estejam onde estiverem hoje
          SELECT
-           DATE(l.created_at) AS dia,
-           l.estagio_id,
+           DATE(l.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') AS dia,
+           e.id AS estagio_id,
            e.nome AS estagio_nome,
            COUNT(DISTINCT l.id) AS total
          FROM leads l
-         JOIN estagios_funil e ON l.estagio_id = e.id
-         WHERE l.empresa_id = $1 AND e.is_entrada = true
-           AND l.created_at >= NOW() - (${diasIdx} || ' days')::interval
+         JOIN LATERAL (
+           SELECT e0.id, e0.nome FROM estagios_funil e0
+            WHERE e0.funil_id = l.funil_id AND e0.is_entrada = true
+            ORDER BY e0.ordem LIMIT 1
+         ) e ON true
+         WHERE l.empresa_id = $1
+           ${janelaCriacao}
            ${funilFilterDiario} ${responsavelFilterDiario}
-         GROUP BY DATE(l.created_at), l.estagio_id, e.nome
+         GROUP BY 1, e.id, e.nome
          UNION ALL
          -- Movimentações para demais estágios (não entrada, não perdido)
          SELECT
-           DATE(a.created_at) AS dia,
+           DATE(a.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') AS dia,
            (a.dados->>'estagio_novo_id')::int AS estagio_id,
            e.nome AS estagio_nome,
            COUNT(DISTINCT a.lead_id) AS total
@@ -462,9 +604,9 @@ export const dashboardService = {
          JOIN estagios_funil e ON (a.dados->>'estagio_novo_id')::int = e.id
          WHERE l.empresa_id = $1 AND a.tipo = 'mudanca_estagio'
            AND e.is_entrada = false AND e.is_perdido = false
-           AND a.created_at >= NOW() - (${diasIdx} || ' days')::interval
+           ${janelaMovimento}
            ${funilFilterDiario} ${responsavelFilterDiario}
-         GROUP BY DATE(a.created_at), (a.dados->>'estagio_novo_id')::int, e.nome
+         GROUP BY 1, (a.dados->>'estagio_novo_id')::int, e.nome
        ) sub
        GROUP BY dia, estagio_id, estagio_nome
        ORDER BY dia DESC, estagio_id ASC`,
@@ -490,6 +632,7 @@ export const dashboardService = {
 
     return {
       acumulado,
+      laterais,
       diario,
       boca_funil: bocaFunil,
       taxa_conversao_geral: taxaConversaoGeral

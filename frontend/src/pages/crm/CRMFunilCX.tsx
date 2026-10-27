@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
-  RefreshCw, BarChart3, Settings, Search, Plus, LayoutList, LayoutGrid,
+  RefreshCw, BarChart3, Settings, Search, Plus, LayoutList, LayoutGrid, Workflow,
   Bell, User, Calendar, DollarSign,
-  CheckCircle2, Clock, MessageCircle, Mail, Send
+  CheckCircle2, Clock, MessageCircle, Mail, Send, Upload
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -16,13 +16,24 @@ import LeadFormModal from '@/components/crm/LeadFormModal'
 import EstagioSettingsModal from '@/components/crm/EstagioSettingsModal'
 import FunilSelector from '@/components/crm/FunilSelector'
 import FunilFormModal from '@/components/crm/FunilFormModal'
+import DeleteFunilModal from '@/components/crm/DeleteFunilModal'
+import ExcluirLeadsEmMassaModal from '@/components/crm/ExcluirLeadsEmMassaModal'
+import { useAuth } from '@/contexts/AuthContext'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
+import { isAdminEmpresa } from '@/utils/roles'
 import ConversaoGanhoModal, { type ConversaoGanhoData } from '@/components/crm/ConversaoGanhoModal'
 import ContatosWhatsAppModal from '@/components/crm/ContatosWhatsAppModal'
+import ImportLeadsModal from '@/components/crm/ImportLeadsModal'
 import { TourHelpButton } from '@/components/tour/TourHelpButton'
 import DisparoMensagemModal from '@/components/crm/DisparoMensagemModal'
 import DisparoEmailModal from '@/components/crm/DisparoEmailModal'
+import FluxoAutomacaoView from '@/components/crm/FluxoAutomacaoView'
+import { useAbaNaUrl, useFunilNaUrl } from '@/hooks/useEstadoNaUrl'
+import OrdenarCards, { ORDENS_CARDS, compararLeads } from '@/components/crm/OrdenarCards'
+import type { OrdemCards } from '@/api/crm'
 import type { Lead, EstagioFunil, Funil } from '@/types/crm'
 import type { FiltrosLead } from '@/api/crm'
+import { BotaoDoPlano } from '@/components/plano/BotaoDoPlano'
 
 // ─── Temperatura badge ─────────────────────────────────────────────────────────
 function TemperaturaBadge({ value }: { value: 'frio' | 'morno' | 'quente' }) {
@@ -39,18 +50,22 @@ function TemperaturaBadge({ value }: { value: 'frio' | 'morno' | 'quente' }) {
 interface ListViewProps {
   colunas: (EstagioFunil & { leads: Lead[] })[]
   onCardClick: (lead: Lead) => void
+  ordem?: OrdemCards
 }
 
-function CRMListView({ colunas, onCardClick }: ListViewProps) {
+function CRMListView({ colunas, onCardClick, ordem = 'manual' }: ListViewProps) {
+  const { Cliente, cliente } = useTermoCliente()
   const leads = colunas.flatMap(col =>
     col.leads.map(l => ({ ...l, estagio_nome: l.estagio_nome ?? col.nome, estagio_cor: l.estagio_cor ?? col.cor }))
   )
+  const comparar = compararLeads(ordem)
+  if (comparar) leads.sort(comparar)
 
   if (leads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-gray-400">
         <LayoutList size={40} className="mb-2 opacity-40" />
-        <p>Nenhum cliente no funil CX</p>
+        <p>Nenhum {cliente} no funil CX</p>
       </div>
     )
   }
@@ -60,7 +75,7 @@ function CRMListView({ colunas, onCardClick }: ListViewProps) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-            <th className="px-4 py-3">Cliente</th>
+            <th className="px-4 py-3">{Cliente}</th>
             <th className="px-4 py-3">Estágio</th>
             <th className="px-4 py-3">Valor</th>
             <th className="px-4 py-3">Temperatura</th>
@@ -173,15 +188,27 @@ function CRMListView({ colunas, onCardClick }: ListViewProps) {
 export default function CRMFunilCX() {
   const [filtros, setFiltros] = useState<FiltrosLead>({})
   const [searchInput, setSearchInput] = useState('')
-  const [selectedFunilId, setSelectedFunilId] = useState<number | undefined>()
-  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban')
+  // Funil e visão moram na URL: o F5 reabre no mesmo lugar.
+  const [viewMode, setViewMode] = useAbaNaUrl('visao', 'kanban', ['kanban', 'list', 'fluxo'] as const)
+  // Ordem dos cards (#59): na URL como o funil, e fora de `filtros` — limpar filtro não a desfaz.
+  const [ordem, setOrdem] = useAbaNaUrl('ordem', 'manual', ORDENS_CARDS)
+  const filtrosComOrdem = useMemo(() => (ordem === 'manual' ? filtros : { ...filtros, ordenar: ordem }), [filtros, ordem])
   const [showFunilFormModal, setShowFunilFormModal] = useState(false)
   const [editingFunil, setEditingFunil] = useState<Funil | null>(null)
+  const [deletingFunil, setDeletingFunil] = useState<Funil | null>(null)
+  // Exclusão em massa (estágio ou funil inteiro): só quem administra a conta.
+  const { user } = useAuth()
+  const { cliente, clientes } = useTermoCliente()
+  const podeExcluirEmMassa = isAdminEmpresa(user)
+  const [excluindoEmMassa, setExcluindoEmMassa] =
+    useState<{ funil: { id: number; nome: string }; estagio?: { id: number; nome: string } } | null>(null)
 
-  const { data: funisCXList = [] } = useFunisCX()
+  const { data: funisCXCarregados } = useFunisCX()
+  const funisCXList = funisCXCarregados ?? []
+  const [selectedFunilId, setSelectedFunilId] = useFunilNaUrl('cx', funisCXCarregados)
   const { data: usuariosEmpresa = [] } = useUsuariosEmpresa()
   const { funil, colunas, isLoading, isError, moverLead, refetch, loadMore, loadingMore } =
-    useKanbanCX(filtros, selectedFunilId)
+    useKanbanCX(filtrosComOrdem, selectedFunilId)
   const reorderEstagios = useReorderEstagios()
 
   // Auto-registrar webhook
@@ -206,6 +233,7 @@ export default function CRMFunilCX() {
 
   const [showLeadFormModal, setShowLeadFormModal] = useState(false)
   const [showContatosModal, setShowContatosModal] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
   const [showDisparoModal, setShowDisparoModal] = useState(false)
   const [showDisparoEmailModal, setShowDisparoEmailModal] = useState(false)
   const [showEstagioModal, setShowEstagioModal] = useState(false)
@@ -221,10 +249,12 @@ export default function CRMFunilCX() {
     lead: Lead
   } | null>(null)
 
-  const handleMoverLead = (leadId: number, novoEstagioId: number, novaOrdem: number) => {
+  const handleMoverLead = (leadId: number, novoEstagioId: number, novaOrdem: number, leadAberto?: Lead | null) => {
     const estagioDestino = colunas.find(c => c.id === novoEstagioId)
     if (estagioDestino?.is_ganho) {
-      const lead = colunas.flatMap(c => c.leads).find(l => l.id === leadId)
+      // Pelo card aberto o lead pode não estar entre os carregados (paginação,
+      // ?lead= de outro funil) — sem ele a conversão seria pulada.
+      const lead = colunas.flatMap(c => c.leads).find(l => l.id === leadId) ?? leadAberto
       if (lead) {
         setConversaoGanho({ leadId, novoEstagioId, novaOrdem, lead })
         return
@@ -321,11 +351,20 @@ export default function CRMFunilCX() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-3 py-3 md:px-6 md:py-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-3 py-2.5 md:px-6 md:py-3">
+        {/*
+          Título e barra de ações só dividem a mesma linha a partir de `xl`.
+          Em `md` elas não cabiam: o bloco do título era espremido a 68px, o
+          seletor de funil transbordava dele e ia parar por cima do botão
+          "Kanban". Em `lg` cabia sem colidir, mas a barra virava quatro linhas.
+          Empilhado, ela usa a largura inteira e fecha em duas.
+          O título não encolhe (`shrink-0`) e quem fica com a sobra é a barra,
+          que quebra em linhas por conta própria.
+        */}
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
 
           {/* Título */}
-          <div className="min-w-0">
+          <div className="min-w-0 xl:shrink-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 md:text-2xl">CRM CX</h1>
               <FunilSelector
@@ -340,6 +379,8 @@ export default function CRMFunilCX() {
                   setEditingFunil(f)
                   setShowFunilFormModal(true)
                 }}
+                onDelete={(f) => setDeletingFunil(f)}
+                onEsvaziar={podeExcluirEmMassa ? (f) => setExcluindoEmMassa({ funil: f }) : undefined}
               />
               {totalNaoLidas > 0 && (
                 <span className="flex items-center gap-1 px-2 py-1 bg-green-500 text-white text-xs font-bold rounded-full animate-pulse">
@@ -350,15 +391,26 @@ export default function CRMFunilCX() {
             </div>
             <p className="text-xs text-gray-500 md:text-sm">
               {Object.keys(filtros).length > 0 ? (
-                <span className="text-primary-600">({totalLeadsFiltrados} clientes encontrados)</span>
+                <span className="text-primary-600">({totalLeadsFiltrados} {clientes} encontrados)</span>
               ) : (
                 <span className="text-gray-400">Funil pós-venda / Customer Experience</span>
               )}
             </p>
           </div>
 
-          {/* Barra de ações — scroll horizontal no mobile */}
-          <div className="flex items-center gap-1.5 md:gap-2 overflow-x-auto pb-1 md:pb-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/*
+            Barra de ações. Ela QUEBRA em várias linhas em vez de rolar na
+            horizontal: com `overflow-x-auto` + barra de rolagem escondida por
+            CSS, tudo o que não coubesse ficava inalcançável no desktop — a
+            medição em 1600px dava 476px de conteúdo fora da tela, engolindo
+            Disparar, E-mail, Novo Lead, configurar estágio, atualizar e o botão
+            do guia. Roda do mouse não rola eixo horizontal, então não havia
+            gesto que trouxesse aquilo de volta.
+
+            No celular a quebra também é melhor que o arrasto: o arrasto lateral
+            competia com o gesto que abre a sidebar.
+          */}
+          <div className="flex flex-wrap items-center justify-start gap-1.5 md:gap-2 xl:min-w-0 xl:flex-1 xl:justify-end">
 
             {/* Stats — só desktop */}
             {stats && (
@@ -399,6 +451,18 @@ export default function CRMFunilCX() {
                 <LayoutList size={15} />
                 <span className="hidden sm:inline text-xs">Lista</span>
               </button>
+              <button
+                onClick={() => setViewMode('fluxo')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-sm transition-colors ${
+                  viewMode === 'fluxo'
+                    ? 'bg-primary-500 text-white'
+                    : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                title="Visualização Fluxo de automações"
+              >
+                <Workflow size={15} />
+                <span className="hidden sm:inline text-xs">Fluxo</span>
+              </button>
             </div>
 
             {/* Busca */}
@@ -411,6 +475,11 @@ export default function CRMFunilCX() {
                 placeholder="Buscar..."
                 className="pl-9 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 w-32 md:w-44 lg:w-52 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
               />
+            </div>
+
+            {/* Ordem dos cards */}
+            <div className="shrink-0">
+              <OrdenarCards valor={ordem} onChange={setOrdem} />
             </div>
 
             {/* Filtros */}
@@ -437,22 +506,39 @@ export default function CRMFunilCX() {
               </button>
             )}
 
-            {/* Disparo WhatsApp */}
+            {/* Importar planilha */}
             {funil && (
               <button
-                data-tour="cx-disparar"
-                onClick={() => setShowDisparoModal(true)}
-                className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border border-emerald-600 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-sm"
-                title="Disparo em massa via WhatsApp"
+                data-tour="cx-importar"
+                onClick={() => setShowImportModal(true)}
+                className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border border-amber-500 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 text-sm"
+                title={`Importar ${clientes} de CSV/Excel`}
               >
-                <Send size={15} />
-                <span className="hidden md:inline">Disparar</span>
-                {totalLeadsFiltrados > 0 && (
-                  <span className="hidden md:inline px-1 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 rounded text-xs font-bold">
-                    {totalLeadsFiltrados}
-                  </span>
-                )}
+                <Upload size={15} />
+                <span className="hidden md:inline">Importar</span>
               </button>
+            )}
+
+            {/* Disparo WhatsApp — é do Enterprise (API Oficial da Meta): num número
+                comum ele é o que mais causa bloqueio. O botão fica no lugar, apagado,
+                explicando — quem não pode precisa saber por quê. */}
+            {funil && (
+              <BotaoDoPlano capacidade="disparo_whatsapp" exigeOficial>
+                <button
+                  data-tour="cx-disparar"
+                  onClick={() => setShowDisparoModal(true)}
+                  className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border border-emerald-600 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-sm"
+                  title="Disparo em massa via WhatsApp"
+                >
+                  <Send size={15} />
+                  <span className="hidden md:inline">Disparar</span>
+                  {totalLeadsFiltrados > 0 && (
+                    <span className="hidden md:inline px-1 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 rounded text-xs font-bold">
+                      {totalLeadsFiltrados}
+                    </span>
+                  )}
+                </button>
+              </BotaoDoPlano>
             )}
 
             {/* Disparo E-mail */}
@@ -471,11 +557,12 @@ export default function CRMFunilCX() {
             {/* Novo cliente CX */}
             <button
               data-tour="cx-novo"
+              title={`Novo ${cliente}`}
               onClick={() => {
                 setSelectedEstagioId(colunas[0]?.id)
                 setShowLeadFormModal(true)
               }}
-              className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 md:px-4 md:py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 text-sm"
+              className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 md:py-1.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 text-sm"
             >
               <Plus size={16} />
               <span className="hidden sm:inline">Novo</span>
@@ -512,13 +599,20 @@ export default function CRMFunilCX() {
             onCardClick={handleCardClick}
             onAddClick={handleAddClick}
             onEditEstagio={handleEditEstagio}
+            onExcluirLeadsEstagio={podeExcluirEmMassa && funil
+              ? (e) => setExcluindoEmMassa({ funil: { id: funil.id, nome: funil.nome }, estagio: { id: e.id, nome: e.nome } })
+              : undefined}
             onLoadMore={loadMore}
             loadingMore={loadingMore}
           />
         </div>
+      ) : viewMode === 'fluxo' ? (
+        <div className="flex-1 overflow-auto p-6 bg-gray-50 dark:bg-gray-900">
+          <FluxoAutomacaoView variante="cx" funilId={funil?.id} />
+        </div>
       ) : (
         <div className="flex-1 overflow-auto p-6 bg-gray-50 dark:bg-gray-900">
-          <CRMListView colunas={colunas} onCardClick={handleCardClick} />
+          <CRMListView colunas={colunas} onCardClick={handleCardClick} ordem={ordem} />
         </div>
       )}
 
@@ -538,6 +632,7 @@ export default function CRMFunilCX() {
           <LeadDetailsModal
             lead={selectedLead}
             estagios={colunas as EstagioFunil[]}
+            onMoverEstagio={(leadId, estagioId) => handleMoverLead(leadId, estagioId, 0, selectedLead)}
             isOpen={!!selectedLead}
             onClose={() => setSelectedLead(null)}
           />
@@ -557,6 +652,12 @@ export default function CRMFunilCX() {
             isOpen={showContatosModal}
             onClose={() => setShowContatosModal(false)}
             funilId={funil.id}
+          />
+
+          <ImportLeadsModal
+            isOpen={showImportModal}
+            onClose={() => setShowImportModal(false)}
+            defaultFunilId={funil.id}
           />
 
           <DisparoMensagemModal
@@ -583,6 +684,18 @@ export default function CRMFunilCX() {
         }}
         funil={editingFunil}
         defaultTipo="cx"
+      />
+
+      <ExcluirLeadsEmMassaModal alvo={excluindoEmMassa} onClose={() => setExcluindoEmMassa(null)} />
+
+      <DeleteFunilModal
+        isOpen={!!deletingFunil}
+        onClose={() => setDeletingFunil(null)}
+        funil={deletingFunil}
+        onDeleted={(id) => {
+          // Se o funil excluído era o que estava aberto, volta para o padrão do CX.
+          if (funil?.id === id) setSelectedFunilId(undefined)
+        }}
       />
 
       <ConversaoGanhoModal

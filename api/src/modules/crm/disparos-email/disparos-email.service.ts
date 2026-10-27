@@ -1,8 +1,10 @@
 import fs from 'fs';
 import { query } from '../../../config/database';
-import { enviarEmail, EmailAnexo } from '../../../services/email.service';
+import { enviarEmail, EmailAnexo, SmtpCredentials, ERRO_SEM_SMTP } from '../../../services/email.service';
 import { configuracoesSmtpService } from '../../configuracoes-smtp/configuracoes-smtp.service';
 import { leadsService } from '../leads/leads.service';
+import { _tarefaFiltroSQL, FiltrosTarefa } from '../disparos/disparos.service';
+import { aplicarVariaveisLead } from '../_shared/agendamento';
 
 export interface IniciarDisparoEmailDto {
   lead_ids?: number[];
@@ -18,17 +20,31 @@ export interface IniciarDisparoEmailDto {
   responsavel_id?: number;
   temperatura?: string;
   origem?: string;
+  sem_tarefa?: boolean;
+  com_tarefa_hoje?: boolean;
+  com_tarefa_atrasada?: boolean;
 }
 
+// Usa o mesmo padrão de substituição do resto do CRM (follow-up, lembretes, disparo
+// de WhatsApp). Antes esta função tinha a própria lista com 6 replaces manuais, então
+// [Responsavel], [Cargo], [Titulo] e as demais saíam cruas no e-mail.
 function aplicarVariaveis(template: string, lead: Record<string, any>): string {
-  const primeiroNome = lead.nome?.split(' ')[0] || lead.nome || '';
-  return template
-    .replace(/\[Nome\]/gi, lead.nome || '')
-    .replace(/\[PrimeiroNome\]/gi, primeiroNome)
-    .replace(/\[Empresa\]/gi, lead.empresa || '')
-    .replace(/\[Origem\]/gi, lead.origem || '')
-    .replace(/\[Email\]/gi, lead.email || '')
-    .replace(/\[Telefone\]/gi, lead.telefone || '');
+  return aplicarVariaveisLead(template, lead);
+}
+
+/**
+ * Imagem do corpo do e-mail cabendo na largura de quem lê (#58). O editor marcava a imagem
+ * só com classe CSS, que Gmail e Outlook descartam: uma arte em alta resolução chegava no
+ * tamanho original, estourando o layout. Vale também para os modelos já salvos.
+ */
+export function imagensResponsivas(html: string): string {
+  return html.replace(/<img\b[^>]*>/gi, (tag) => {
+    if (/max-width/i.test(tag)) return tag;
+    const regra = 'max-width:100%;height:auto;';
+    return /\sstyle\s*=\s*"/i.test(tag)
+      ? tag.replace(/(\sstyle\s*=\s*")/i, `$1${regra}`)
+      : tag.replace(/^<img\b/i, `<img style="${regra}"`);
+  });
 }
 
 async function sleep(ms: number) {
@@ -40,7 +56,7 @@ async function _buscarLeadsPorConfig(
   config: {
     todos?: boolean; funil_id?: number; lead_ids?: number[];
     estagio_id?: number; responsavel_id?: number; temperatura?: string; origem?: string;
-  }
+  } & FiltrosTarefa
 ): Promise<any[]> {
   if (config.todos && config.funil_id) {
     const params: any[] = [empresaId, config.funil_id];
@@ -62,10 +78,16 @@ async function _buscarLeadsPorConfig(
       params.push(config.origem);
       extraWhere += ` AND l.origem = $${params.length}`;
     }
+    extraWhere += _tarefaFiltroSQL(config);
 
     const r = await query(
-      `SELECT l.id, l.nome, l.email, l.empresa, l.origem
+      // Colunas alinhadas com as variáveis de aplicarVariaveisLead — inclusive
+      // responsavel_nome, que alimenta [Responsavel]/[PrimeiroNomeResponsavel].
+      `SELECT l.id, l.nome, l.email, l.empresa, l.origem, l.telefone, l.cargo,
+              l.titulo, l.valor_potencial, l.moeda, l.cpf_cnpj, l.temperatura,
+              u.nome AS responsavel_nome
        FROM leads l
+       LEFT JOIN usuarios u ON u.id = l.responsavel_id
        WHERE l.empresa_id = $1 AND l.funil_id = $2 AND l.arquivado = false
          AND l.email IS NOT NULL AND l.email != ''
          ${extraWhere}
@@ -75,8 +97,11 @@ async function _buscarLeadsPorConfig(
     return r.rows;
   } else if (config.lead_ids?.length) {
     const r = await query(
-      `SELECT l.id, l.nome, l.email, l.empresa, l.origem
+      `SELECT l.id, l.nome, l.email, l.empresa, l.origem, l.telefone, l.cargo,
+              l.titulo, l.valor_potencial, l.moeda, l.cpf_cnpj, l.temperatura,
+              u.nome AS responsavel_nome
        FROM leads l
+       LEFT JOIN usuarios u ON u.id = l.responsavel_id
        WHERE l.id = ANY($1::int[]) AND l.empresa_id = $2 AND l.arquivado = false
          AND l.email IS NOT NULL AND l.email != ''`,
       [config.lead_ids, empresaId]
@@ -94,7 +119,7 @@ async function _processarEnviosEmail(
   assunto: string,
   template: string,
   estagioPosDeparoId: number | undefined,
-  smtp: any,
+  smtp: SmtpCredentials,
   anexos?: EmailAnexo[]
 ): Promise<void> {
   let enviados = 0;
@@ -113,20 +138,13 @@ async function _processarEnviosEmail(
     const lead = leads[i];
     try {
       const assuntoFinal = aplicarVariaveis(assunto, lead);
-      const htmlFinal = aplicarVariaveis(template, lead);
+      const htmlFinal = imagensResponsivas(aplicarVariaveis(template, lead));
 
       await enviarEmail(
         lead.email,
         assuntoFinal,
         htmlFinal,
-        smtp ? {
-          smtp_host: smtp.smtp_host,
-          smtp_port: smtp.smtp_port,
-          smtp_user: smtp.smtp_user,
-          smtp_pass: smtp.smtp_pass!,
-          email_from: smtp.email_from,
-          email_from_name: smtp.email_from_name,
-        } : undefined,
+        smtp,
         anexos
       );
 
@@ -144,25 +162,28 @@ async function _processarEnviosEmail(
         'disparo_email'
       );
 
+      // Mesmo motivo do disparo de WhatsApp: o UPDATE cru que havia aqui movia o lead
+      // sem encerrar a cadência do estágio anterior nem iniciar a do destino. Aqui era
+      // ainda mais solto — nem comparava se o estágio já era o de destino, o que o
+      // moverPorAutomacao resolve relendo o estágio atual do banco.
+      // Atenção ao configurar: um disparo de e-mail para milhares de leads passa a
+      // iniciar a cadência de TODOS eles se o estágio de destino tiver follow-up ativo.
       if (estagioPosDeparoId) {
-        await query(
-          `UPDATE leads SET estagio_id = $1, data_ultimo_contato = NOW() WHERE id = $2`,
-          [estagioPosDeparoId, lead.id]
-        );
-        await query(
-          `INSERT INTO atividades_lead (lead_id, usuario_id, empresa_id, tipo, descricao, dados)
-           VALUES ($1, $2, $3, 'mudanca_estagio', $4, $5::jsonb)`,
-          [
-            lead.id, usuarioId, empresaId,
+        try {
+          await leadsService.moverPorAutomacao(
+            lead.id, empresaId, usuarioId, estagioPosDeparoId,
             `Movido automaticamente após disparo de e-mail`,
-            JSON.stringify({
-              automatico: true,
+            {
               trigger: 'pos_disparo_email',
               disparo_id: disparoId,
-              novo_estagio_id: estagioPosDeparoId,
-            }),
-          ]
-        );
+            }
+          );
+        } catch (movErr: any) {
+          console.error(
+            `[DisparoEmail] #${disparoId} lead #${lead.id}: e-mail enviado, mas falhou ao mover ` +
+            `para o estágio pós-disparo #${estagioPosDeparoId}: ${movErr.message}`
+          );
+        }
       }
 
       enviados++;
@@ -209,7 +230,7 @@ export const disparosEmailService = {
     search?: string,
     page = 1,
     perPage = 50,
-    filtros?: { estagio_id?: number; responsavel_id?: number; temperatura?: string; origem?: string }
+    filtros?: { estagio_id?: number; responsavel_id?: number; temperatura?: string; origem?: string } & FiltrosTarefa
   ) {
     const offset = (page - 1) * perPage;
     const params: any[] = [empresaId, funilId];
@@ -235,6 +256,7 @@ export const disparosEmailService = {
       params.push(filtros.origem);
       whereExtra += ` AND l.origem = $${params.length}`;
     }
+    whereExtra += _tarefaFiltroSQL(filtros);
 
     const baseWhere = `WHERE l.empresa_id = $1 AND l.funil_id = $2 AND l.arquivado = false
       AND l.email IS NOT NULL AND l.email != ''${whereExtra}`;
@@ -265,9 +287,20 @@ export const disparosEmailService = {
       todos: dto.todos,
       funil_id: dto.funil_id,
       lead_ids: dto.lead_ids,
+      estagio_id: dto.estagio_id,
+      responsavel_id: dto.responsavel_id,
+      temperatura: dto.temperatura,
+      origem: dto.origem,
+      sem_tarefa: dto.sem_tarefa,
+      com_tarefa_hoje: dto.com_tarefa_hoje,
+      com_tarefa_atrasada: dto.com_tarefa_atrasada,
     });
 
     const agendado = dto.agendado_para && new Date(dto.agendado_para) > new Date();
+
+    // Sem o e-mail da própria empresa não há disparo — nem agendado.
+    const smtp = await configuracoesSmtpService.credenciaisDaEmpresa(empresaId);
+    if (!smtp) throw new Error(ERRO_SEM_SMTP);
 
     const total = leads.length;
 
@@ -275,6 +308,14 @@ export const disparosEmailService = {
       todos: dto.todos || false,
       funil_id: dto.funil_id || null,
       lead_ids: dto.todos ? null : (dto.lead_ids || null),
+      // Filtros do modo 'todos' — precisam persistir para o disparo agendado reaplicá-los.
+      estagio_id: dto.estagio_id || null,
+      responsavel_id: dto.responsavel_id || null,
+      temperatura: dto.temperatura || null,
+      origem: dto.origem || null,
+      sem_tarefa: dto.sem_tarefa || false,
+      com_tarefa_hoje: dto.com_tarefa_hoje || false,
+      com_tarefa_atrasada: dto.com_tarefa_atrasada || false,
     };
 
     const status = agendado ? 'agendado' : 'processando';
@@ -306,8 +347,6 @@ export const disparosEmailService = {
       );
       return disparoId;
     }
-
-    const smtp = await configuracoesSmtpService.getDecrypted(empresaId);
 
     setImmediate(async () => {
       await _processarEnviosEmail(
@@ -348,7 +387,10 @@ export const disparosEmailService = {
       return;
     }
 
-    const smtp = await configuracoesSmtpService.getDecrypted(empresaId);
+    // A configuração pode ter sido desligada depois do agendamento; o scheduler
+    // grava esta mensagem no disparo.
+    const smtp = await configuracoesSmtpService.credenciaisDaEmpresa(empresaId);
+    if (!smtp) throw new Error(ERRO_SEM_SMTP);
 
     await _processarEnviosEmail(
       disparoId, empresaId, usuarioId, leads,

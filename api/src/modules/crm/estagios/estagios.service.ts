@@ -1,11 +1,61 @@
 import { query } from '../../../config/database';
+import { normalizarTarefasEntrada, type TarefaDoEstagio } from '../leads/tarefas-estagio';
+import { extrairPassosFollowup, calcularCadencia, nomearDias } from '../_shared/agendamento';
+import { getJanelaEmpresa, conflitosDoConfig } from '../_shared/janela';
 
-export interface EstagioFollowupConfig {
-  ativo: boolean;
+/** Um toque da cadência (mensagem agendada) dentro de um estágio. */
+export interface PassoFollowupConfig {
+  base?: 'entrada' | 'anterior'; // 'entrada' = da entrada no estágio | 'anterior' = do passo anterior
   tipo: 'manual' | 'agente_ia';
   mensagem?: string;
   instrucao_ia?: string;
-  intervalo_horas: number;
+  // Mídia opcional (só tipo 'manual'): a mensagem vira a legenda do anexo.
+  media_url?: string | null;
+  media_mimetype?: string | null;
+  media_filename?: string | null;
+  // Padrão único de agendamento
+  modo?: 'dias' | 'data';        // 'dias' = após X unidade da base | 'data' = data fixa
+  atraso_dias?: number | null;   // quantidade (X) do atraso
+  atraso_unidade?: 'minuto' | 'hora' | 'dia'; // unidade do atraso (default 'dia')
+  data_fixa?: string | null;     // 'YYYY-MM-DD'
+  hora_envio?: string | null;    // 'HH:MM'
+  dias_semana?: number[] | null; // 0=Dom..6=Sáb
+  // Número oficial (Cloud API): modelo aprovado que sai NO LUGAR deste passo quando a
+  // janela de 24h do lead está fechada — ver jobs/followup/despacho.ts.
+  modelo_whatsapp?: { nome: string; idioma?: string; variaveis: string[]; cabecalho?: string | null } | null;
+}
+
+export interface EstagioFollowupConfig {
+  ativo: boolean;
+  // Cadência de vários toques. Config antiga (campos no topo) continua sendo lida
+  // como um passo único pelo backend (extrairPassosFollowup).
+  passos?: PassoFollowupConfig[];
+  // --- Campos legados (shape antigo de passo único) ---
+  tipo?: 'manual' | 'agente_ia';
+  mensagem?: string;
+  instrucao_ia?: string;
+  media_url?: string | null;
+  media_mimetype?: string | null;
+  media_filename?: string | null;
+  modo?: 'dias' | 'data';
+  atraso_dias?: number | null;
+  atraso_unidade?: 'minuto' | 'hora' | 'dia';
+  data_fixa?: string | null;
+  hora_envio?: string | null;
+  dias_semana?: number[] | null;
+}
+
+export interface MarcoReuniaoLembrete {
+  marco: string;               // id estável: lembrete_24h, lembrete_1h, noshow_d0…
+  grupo?: string;              // 'lembrete' | 'noshow'
+  offset_min: number;          // <0 antes da reunião, >=0 depois (no-show)
+  tolerancia_min?: number;
+  mensagem: string;
+}
+
+export interface EstagioReuniaoLembretes {
+  ativo: boolean;
+  marcos: MarcoReuniaoLembrete[];
 }
 
 export interface EstagioFunil {
@@ -19,10 +69,15 @@ export interface EstagioFunil {
   is_entrada: boolean;
   is_ganho: boolean;
   is_perdido: boolean;
-  agente_ia_ativo?: boolean;
-  instrucoes_agente_ia?: string;
   estagio_apos_resposta_id?: number | null;
+  estagio_apos_envio_id?: number | null;
   followup_config?: EstagioFollowupConfig | null;
+  auto_criar_lead?: boolean;
+  auto_criar_lead_usuarios?: number[] | null;
+  agente_ia_ativo?: boolean;
+  instrucoes_agente_ia?: string | null;
+  reuniao_lembretes?: EstagioReuniaoLembretes | null;
+  tarefas_entrada?: TarefaDoEstagio[];
   created_at: Date;
   updated_at: Date;
 }
@@ -45,10 +100,15 @@ export interface UpdateEstagioDto {
   is_entrada?: boolean;
   is_ganho?: boolean;
   is_perdido?: boolean;
-  agente_ia_ativo?: boolean;
-  instrucoes_agente_ia?: string;
   estagio_apos_resposta_id?: number | null;
+  estagio_apos_envio_id?: number | null;
   followup_config?: EstagioFollowupConfig | null;
+  auto_criar_lead?: boolean;
+  auto_criar_lead_usuarios?: number[] | null;
+  agente_ia_ativo?: boolean;
+  instrucoes_agente_ia?: string | null;
+  reuniao_lembretes?: EstagioReuniaoLembretes | null;
+  tarefas_entrada?: TarefaDoEstagio[] | null;
 }
 
 export const estagiosService = {
@@ -174,21 +234,65 @@ export const estagiosService = {
       fields.push(`is_perdido = $${paramCount++}`);
       values.push(data.is_perdido);
     }
-    if (data.agente_ia_ativo !== undefined) {
-      fields.push(`agente_ia_ativo = $${paramCount++}`);
-      values.push(data.agente_ia_ativo);
-    }
-    if (data.instrucoes_agente_ia !== undefined) {
-      fields.push(`instrucoes_agente_ia = $${paramCount++}`);
-      values.push(data.instrucoes_agente_ia || null);
-    }
     if (data.estagio_apos_resposta_id !== undefined) {
       fields.push(`estagio_apos_resposta_id = $${paramCount++}`);
       values.push(data.estagio_apos_resposta_id || null);
     }
+    if (data.estagio_apos_envio_id !== undefined) {
+      fields.push(`estagio_apos_envio_id = $${paramCount++}`);
+      values.push(data.estagio_apos_envio_id || null);
+    }
     if (data.followup_config !== undefined) {
+      // Conflito de dias é recusado AQUI, no momento em que o usuário salva a cadência.
+      // Um passo restrito a um dia que a janela da empresa não permite nunca poderia
+      // ser enviado; antes o sistema trocava silenciosamente pelos dias da janela e
+      // mandava a mensagem num dia que ninguém autorizou.
+      if (data.followup_config && (data.followup_config as any).ativo) {
+        const janela = await getJanelaEmpresa(empresaId);
+        const conflitos = conflitosDoConfig(data.followup_config, janela);
+        if (conflitos.length > 0) {
+          const lista = conflitos.map((c) => `passo ${c.passo} (${c.dias_passo})`).join('; ');
+          const err: any = new Error(
+            `Conflito de configuração: ${lista} não tem nenhum dia em comum com a janela de ` +
+            `envio da empresa (${nomearDias(janela.dias)}). Ajuste os dias do passo ou a ` +
+            `janela de envio em Agendamentos → Horário de envio.`
+          );
+          err.status = 400;
+          err.codigo = 'conflito_janela';
+          err.conflitos = conflitos;
+          throw err;
+        }
+      }
       fields.push(`followup_config = $${paramCount++}`);
       values.push(data.followup_config ? JSON.stringify(data.followup_config) : null);
+    }
+    if (data.auto_criar_lead !== undefined) {
+      fields.push(`auto_criar_lead = $${paramCount++}`);
+      values.push(!!data.auto_criar_lead);
+    }
+    if (data.auto_criar_lead_usuarios !== undefined) {
+      fields.push(`auto_criar_lead_usuarios = $${paramCount++}`);
+      // Array vazio → NULL (= todos os números da empresa)
+      const arr = data.auto_criar_lead_usuarios;
+      values.push(arr && arr.length ? arr : null);
+    }
+    if (data.agente_ia_ativo !== undefined) {
+      fields.push(`agente_ia_ativo = $${paramCount++}`);
+      values.push(!!data.agente_ia_ativo);
+    }
+    if (data.instrucoes_agente_ia !== undefined) {
+      // Texto vazio → NULL: o prompt trata ausência de instrução como "sem orientação".
+      fields.push(`instrucoes_agente_ia = $${paramCount++}`);
+      const txt = String(data.instrucoes_agente_ia ?? '').trim();
+      values.push(txt || null);
+    }
+    if (data.reuniao_lembretes !== undefined) {
+      fields.push(`reuniao_lembretes = $${paramCount++}`);
+      values.push(data.reuniao_lembretes ? JSON.stringify(data.reuniao_lembretes) : null);
+    }
+    if (data.tarefas_entrada !== undefined) {
+      fields.push(`tarefas_entrada = $${paramCount++}`);
+      values.push(JSON.stringify(normalizarTarefasEntrada(data.tarefas_entrada)));
     }
 
     if (fields.length === 0) return estagio;
@@ -202,9 +306,6 @@ export const estagiosService = {
       values
     );
 
-    if (data.agente_ia_ativo !== undefined || data.instrucoes_agente_ia !== undefined) {
-      await sincronizarAutomacaoAgenteEstagio(id, empresaId);
-    }
     if (data.followup_config !== undefined) {
       await sincronizarAutomacaoFollowupEstagio(id, empresaId, data.followup_config ?? null);
     }
@@ -253,47 +354,6 @@ export const estagiosService = {
   }
 };
 
-// ============================================================================
-// Sincronização com tabela unificada `automacoes`
-// ============================================================================
-async function sincronizarAutomacaoAgenteEstagio(estagioId: number, empresaId: number): Promise<void> {
-  const ctx = await query(
-    `SELECT ef.nome, ef.agente_ia_ativo, ef.instrucoes_agente_ia, ef.estagio_apos_resposta_id, f.usuario_id
-     FROM estagios_funil ef
-     JOIN funis f ON f.id = ef.funil_id
-     WHERE ef.id = $1 AND f.empresa_id = $2`,
-    [estagioId, empresaId]
-  );
-  if (!ctx.rows[0]) return;
-
-  const { nome, agente_ia_ativo, instrucoes_agente_ia, estagio_apos_resposta_id, usuario_id } = ctx.rows[0];
-
-  const existente = await query(
-    `SELECT id FROM automacoes
-     WHERE estagio_id = $1 AND tipo_acao = 'ativar_agente_estagio' AND empresa_id = $2`,
-    [estagioId, empresaId]
-  );
-
-  const config = JSON.stringify({
-    instrucoes: instrucoes_agente_ia ?? '',
-    estagio_apos_resposta_id
-  });
-
-  if (existente.rows[0]) {
-    await query(
-      `UPDATE automacoes SET ativa = $1, config = $2 WHERE id = $3`,
-      [!!agente_ia_ativo, config, existente.rows[0].id]
-    );
-  } else if (agente_ia_ativo) {
-    await query(
-      `INSERT INTO automacoes (
-         empresa_id, usuario_id, nome, descricao, tipo_acao,
-         estagio_id, ativa, config
-       ) VALUES ($1, $2, $3, $4, 'ativar_agente_estagio', $5, true, $6)`,
-      [empresaId, usuario_id, `Agente IA — ${nome}`, 'Agente IA ativo para leads neste estágio', estagioId, config]
-    );
-  }
-}
 
 async function sincronizarAutomacaoFollowupEstagio(
   estagioId: number,
@@ -348,31 +408,96 @@ async function sincronizarAutomacaoFollowupEstagio(
     );
   }
 
-  // Criar follow-up retroativo para leads já no estágio sem follow-up de estágio pendente
+  // Criar a cadência retroativa para leads já no estágio sem follow-up de estágio pendente.
+  // Os instantes são calculados uma vez (base = agora) e aplicados a todos os leads elegíveis.
   if (ativa) {
-    await query(
-      `INSERT INTO followups_agendados
-         (lead_id, usuario_id, empresa_id, agendado_para, tipo, mensagem, instrucao_ia,
-          origem, hora_inicio, hora_fim, dias_semana)
-       SELECT l.id, l.usuario_id, $1, NOW(), $2, $3, $4, 'estagio', $5, $6, $7
+    const passos = extrairPassosFollowup(followupConfig);
+    if (passos.length === 0) return;
+
+    // Leads elegíveis capturados ANTES de inserir, para que todos os passos apliquem
+    // ao mesmo conjunto (o guard NOT EXISTS deixaria de valer após o 1º insert).
+    // O 2º NOT EXISTS evita re-disparar para quem já recebeu a cadência deste estágio:
+    // exclui leads com follow-up de estágio ENVIADO desde que entraram no estágio atual
+    // (última mudança de estágio/funil registrada; fallback = criação do lead).
+    const elegiveis = await query(
+      `SELECT l.id, l.usuario_id
        FROM leads l
-       WHERE l.estagio_id = $8
-         AND l.empresa_id = $1
+       WHERE l.estagio_id = $1
+         AND l.empresa_id = $2
          AND l.arquivado = false
          AND NOT EXISTS (
            SELECT 1 FROM followups_agendados fa
            WHERE fa.lead_id = l.id AND fa.origem = 'estagio' AND fa.status = 'pendente'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM followups_agendados fa2
+           WHERE fa2.lead_id = l.id AND fa2.origem = 'estagio' AND fa2.status = 'enviado'
+             AND COALESCE(fa2.enviado_at, fa2.updated_at) >= COALESCE(
+               (SELECT MAX(a.created_at) FROM atividades_lead a
+                WHERE a.lead_id = l.id
+                  AND a.tipo IN ('mudanca_estagio', 'transferencia_funil', 'transferencia_automatica')),
+               l.created_at
+             )
          )`,
-      [
-        empresaId,
-        followupConfig.tipo || 'agente_ia',
-        followupConfig.tipo === 'manual' ? (followupConfig.mensagem || null) : null,
-        followupConfig.tipo === 'agente_ia' ? (followupConfig.instrucao_ia || null) : null,
-        followupConfig.hora_inicio || null,
-        followupConfig.tipo === 'agente_ia' ? (followupConfig.hora_fim || null) : null,
-        followupConfig.dias_semana?.length ? followupConfig.dias_semana : null,
-        estagioId
-      ]
+      [estagioId, empresaId]
+    );
+    if (elegiveis.rows.length === 0) return;
+    const leadIds = elegiveis.rows.map((r: any) => r.id);
+
+    const cadencia = calcularCadencia(
+      passos.map((p: any) => ({
+        modo: p.modo || 'dias',
+        atrasoDias: p.atraso_dias,
+        atrasoUnidade: p.atraso_unidade,
+        dataFixa: p.data_fixa,
+        horaEnvio: p.hora_envio,
+        diasSemana: p.dias_semana,
+        base: p.base,
+      }))
+    );
+
+    for (let i = 0; i < passos.length; i++) {
+      const p = passos[i];
+      const ehManual = (p.tipo || 'agente_ia') === 'manual';
+      await query(
+        `INSERT INTO followups_agendados
+           (lead_id, usuario_id, empresa_id, agendado_para, tipo, mensagem, instrucao_ia,
+            media_url, media_mimetype, media_filename,
+            origem, modo, atraso_dias, atraso_unidade, data_fixa, hora_envio, dias_semana,
+            passo_ordem, mover_apos_envio)
+         SELECT l.id, l.usuario_id, $1, $2, $3, $4, $5, $6, $7, $8, 'estagio', $9, $10, $11, $12, $13, $14, $15, $16
+         FROM leads l
+         WHERE l.id = ANY($17::int[])`,
+        [
+          empresaId,
+          cadencia[i].agendadoPara,
+          p.tipo || 'agente_ia',
+          ehManual ? (p.mensagem || null) : null,
+          !ehManual ? (p.instrucao_ia || null) : null,
+          ehManual ? (p.media_url || null) : null,
+          ehManual ? (p.media_mimetype || null) : null,
+          ehManual ? (p.media_filename || null) : null,
+          p.modo || 'dias',
+          p.atraso_dias ?? null,
+          p.atraso_unidade || 'dia',
+          p.data_fixa || null,
+          p.hora_envio || null,
+          p.dias_semana?.length ? p.dias_semana : null,
+          i,
+          i === passos.length - 1,
+          leadIds,
+        ]
+      );
+    }
+  } else {
+    // Pausado (ativo:false, mas com passos preservados): cancela os follow-ups de
+    // estágio ainda pendentes deste estágio, para nada disparar enquanto pausado.
+    // Ao reativar, a cadência é recriada retroativamente (bloco acima).
+    await query(
+      `UPDATE followups_agendados SET status = 'cancelado', updated_at = NOW()
+       WHERE origem = 'estagio' AND status = 'pendente'
+         AND lead_id IN (SELECT id FROM leads WHERE estagio_id = $1 AND empresa_id = $2)`,
+      [estagioId, empresaId]
     );
   }
 }

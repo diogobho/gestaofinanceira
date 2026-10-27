@@ -1,0 +1,342 @@
+<title>Plano Comercial Gestão Financeira</title>
+<style>
+  :root {
+    --font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Times New Roman', serif;
+    --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-data: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+    --ink: #13264C;
+    --body-c: #2C3550;
+    --muted: #6B7489;
+    --ground: #F7F8FB;
+    --surface: #FFFFFF;
+    --surface-alt: #F0F2F7;
+    --rule: #DDE1EA;
+    --rule-strong: #C3CAD8;
+    --accent: #A8842F;
+    --accent-soft: #D2B773;
+    --accent-wash: #FBF6E9;
+    --positive: #0E9F72;
+    --risk: #A8462A;
+    --risk-wash: #FBEFEA;
+
+    --measure: 62ch;
+    --s1: 0.35rem;
+    --s2: 0.7rem;
+    --s3: 1.1rem;
+    --s4: 1.8rem;
+    --s5: 2.8rem;
+    --s6: 4rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #EEF1F7; --body-c: #C6CEDD; --muted: #8B94A8;
+      --ground: #0C1730; --surface: #14213C; --surface-alt: #1A2A4A;
+      --rule: #27385C; --rule-strong: #3A4E76;
+      --accent: #D2B773; --accent-soft: #A8842F; --accent-wash: #1E2743;
+      --positive: #34D399;
+      --risk: #E5906F; --risk-wash: #2E1D17;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ink: #EEF1F7; --body-c: #C6CEDD; --muted: #8B94A8;
+    --ground: #0C1730; --surface: #14213C; --surface-alt: #1A2A4A;
+    --rule: #27385C; --rule-strong: #3A4E76;
+    --accent: #D2B773; --accent-soft: #A8842F; --accent-wash: #1E2743;
+    --positive: #34D399;
+    --risk: #E5906F; --risk-wash: #2E1D17;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--body-c);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 900px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .prose { max-width: var(--measure); }
+
+  h1, h2 { font-family: var(--font-display); color: var(--ink); text-wrap: balance; margin: 0; font-weight: 600; }
+  h1 { font-size: clamp(2rem, 5vw, 2.9rem); line-height: 1.08; letter-spacing: -0.01em; }
+  h2 { font-size: clamp(1.35rem, 3vw, 1.7rem); line-height: 1.2; }
+  h3 { font-family: var(--font-body); font-size: 0.97rem; font-weight: 650; color: var(--ink); margin: 0; text-wrap: balance; }
+  p { margin: 0; }
+  strong { color: var(--ink); font-weight: 650; }
+
+  .eyebrow {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--accent); margin: 0;
+  }
+  .lede { font-size: 1.12rem; }
+
+  .stack { display: flex; flex-direction: column; }
+  .stack-2 > * + * { margin-top: var(--s2); }
+  .stack-3 > * + * { margin-top: var(--s3); }
+  .stack-4 > * + * { margin-top: var(--s4); }
+
+  .masthead { border-bottom: 3px solid var(--ink); padding-bottom: var(--s3); }
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); align-items: center;
+    font-size: 0.78rem; color: var(--muted); font-family: var(--font-data);
+  }
+
+  section { margin-top: var(--s5); }
+  .sec-head { border-top: 1px solid var(--rule-strong); padding-top: var(--s3); margin-bottom: var(--s3); }
+
+  .kpis {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+  }
+  .kpi { background: var(--surface); padding: var(--s3); }
+  .kpi dt {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 var(--s2);
+  }
+  .kpi dd {
+    margin: 0; font-family: var(--font-display); font-size: 2rem;
+    line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums;
+  }
+  .kpi .note { display: block; margin-top: var(--s2); font-size: 0.76rem; color: var(--muted); }
+  .kpi-accent dd { color: var(--accent); }
+  .kpi-pos dd { color: var(--positive); }
+
+  .scroller { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 460px; font-size: 0.92rem; }
+  caption {
+    caption-side: bottom; text-align: left; padding: var(--s2) var(--s3);
+    font-size: 0.78rem; color: var(--muted); border-top: 1px solid var(--rule);
+  }
+  th, td { padding: 0.6rem var(--s3); text-align: left; border-bottom: 1px solid var(--rule); }
+  thead th {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--muted); background: var(--surface-alt);
+    border-bottom: 1px solid var(--rule-strong); white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-family: var(--font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tot td { font-weight: 700; color: var(--ink); background: var(--accent-wash); border-top: 2px solid var(--accent-soft); }
+  .row-ink td { color: var(--ink); font-weight: 600; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--s3); }
+  .card { background: var(--surface); border: 1px solid var(--rule); border-top: 3px solid var(--accent-soft); padding: var(--s3); }
+  .card-risk { border-top-color: var(--risk); }
+  .card p { font-size: 0.89rem; margin-top: var(--s2); }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-wash); padding: var(--s3); }
+  .callout-risk { border-left-color: var(--risk); background: var(--risk-wash); }
+  .callout p, .callout li { font-size: 0.92rem; }
+
+  ol.decisions { margin: var(--s2) 0 0; padding-left: 1.3rem; }
+  ol.decisions li { margin-bottom: var(--s3); }
+  ol.decisions li:last-child { margin-bottom: 0; }
+  ol.decisions li::marker { color: var(--accent); font-weight: 700; font-family: var(--font-data); }
+
+  ul.clean { margin: var(--s2) 0 0; padding-left: 1.1rem; }
+  ul.clean li { margin-bottom: var(--s2); }
+  ul.clean li:last-child { margin-bottom: 0; }
+
+  .footnote { font-size: 0.82rem; color: var(--muted); }
+
+  @media (max-width: 620px) {
+    body { font-size: 16px; }
+    .wrap { padding: var(--s4) var(--s3) var(--s5); }
+    .kpi dd { font-size: 1.7rem; }
+  }
+  @media print { body { background: #fff; } section { break-inside: avoid; } }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead stack stack-3">
+    <p class="eyebrow">DuoFuturo &middot; Plano Comercial</p>
+    <h1>Vender o Gestão Financeira para a base do Instituto</h1>
+    <p class="lede prose">Temos 708 clientes reais já dentro do nosso CRM. Não é prospecção fria — é base ativa, com relação estabelecida. A meta é converter 170 delas em assinantes até dezembro.</p>
+    <div class="meta-row">
+      <span>12 de agosto de 2026</span><span>&middot;</span>
+      <span>Horizonte: ago a dez</span>
+    </div>
+  </header>
+
+  <!-- ═══ OS QUATRO NÚMEROS ═══ -->
+  <section>
+    <dl class="kpis">
+      <div class="kpi">
+        <dt>Base para vender</dt><dd>708</dd>
+        <span class="note">Clientes do Instituto, já no CRM</span>
+      </div>
+      <div class="kpi kpi-accent">
+        <dt>Receita mensal em dez</dt><dd>R$ 40 mil</dd>
+        <span class="note">170 assinaturas</span>
+      </div>
+      <div class="kpi kpi-pos">
+        <dt>Margem</dt><dd>82%</dd>
+        <span class="note">De cada R$ 100, sobram R$ 82</span>
+      </div>
+      <div class="kpi kpi-pos">
+        <dt>Investimento se paga</dt><dd>Fev 2027</dd>
+        <span class="note">R$ 144 mil investidos</span>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ═══ A BASE ═══ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Onde vamos vender</p>
+      <h2>A base é cliente, não lead</h2>
+    </div>
+
+    <div class="stack stack-3">
+      <p class="prose">Essas pessoas já compraram do Instituto e já confiam na marca. Não precisamos construir confiança — precisamos apresentar a ferramenta. E fazemos isso <strong>usando o próprio CRM</strong>: a cliente vê o sistema funcionando na conversa em que está sendo convidada a assiná-lo.</p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Base</th><th class="num">Clientes</th><th>A dor que abre a conversa</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Leadership Club</strong></td>
+              <td class="num">160</td>
+              <td>Já tem equipe. Atendimento se atropela, falta processo.</td>
+            </tr>
+            <tr>
+              <td><strong>Escola</strong></td>
+              <td class="num">548</td>
+              <td>Operação em formação. Não sabe se o mês fechou no lucro.</td>
+            </tr>
+            <tr class="tot"><td>Total</td><td class="num">708</td><td>Meta de 170 assinaturas = 1 em cada 4 clientes</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="prose footnote">Outros funis de CX somam 1.185 clientes. Ficam como expansão para 2027 — e como plano B se a penetração de 24% não se sustentar.</p>
+    </div>
+  </section>
+
+  <!-- ═══ A META ═══ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">O caminho até dezembro</p>
+      <h2>A meta, mês a mês</h2>
+    </div>
+
+    <div class="stack stack-4">
+      <p class="prose">O motor é simples e tem só duas peças: <strong>30 conversas por semana</strong> e <strong>1 em cada 3 virando assinatura</strong>. Todo o resto da projeção sai daí.</p>
+
+      <div class="scroller">
+        <table>
+          <caption>Preço médio de R$ 263 por conta. Considera 5% de cancelamento por mês e 3 semanas úteis em dezembro.</caption>
+          <thead>
+            <tr><th>Mês</th><th class="num">Novas</th><th class="num">Total de clientes</th><th class="num">Receita no mês</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Agosto <span class="footnote">— piloto</span></td><td class="num">20</td><td class="num">21</td><td class="num">R$ 5 mil</td></tr>
+            <tr><td>Setembro <span class="footnote">— regime</span></td><td class="num">40</td><td class="num">59</td><td class="num">R$ 16 mil</td></tr>
+            <tr><td>Outubro</td><td class="num">40</td><td class="num">96</td><td class="num">R$ 25 mil</td></tr>
+            <tr><td>Novembro</td><td class="num">40</td><td class="num">131</td><td class="num">R$ 34 mil</td></tr>
+            <tr class="row-ink"><td><strong>Dezembro</strong></td><td class="num">30</td><td class="num">154</td><td class="num">R$ 40 mil</td></tr>
+            <tr class="tot"><td>Resultado do período</td><td class="num">170</td><td class="num">—</td><td class="num">R$ 121 mil</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <h3>Receita anualizada de saída</h3>
+          <p>Dezembro rodando a R$ 40 mil/mês significa entrar em 2027 com <strong>R$ 490 mil por ano</strong> de receita recorrente.</p>
+        </div>
+        <div class="card">
+          <h3>O que sobra no caixa</h3>
+          <p>Custa R$ 48 por mês servir uma cliente. De agosto a dezembro sobram <strong>R$ 99 mil</strong> — 70% do que investimos.</p>
+        </div>
+        <div class="card">
+          <h3>Preço de fundadora</h3>
+          <p>R$ 219 e R$ 397 por mês, mais R$ 100 por usuária extra. Quem assina em 2026 <strong>mantém o preço por 12 meses</strong>; em janeiro sobe 13%.</p>
+        </div>
+      </div>
+
+      <div class="callout prose">
+        <p><strong>Se a conversão não for de 1 em 3.</strong> A 1 em 7, chegamos a R$ 18 mil/mês e R$ 223 mil por ano — metade do plano, ainda lucrativo. A 2 em 5, chegamos a R$ 49 mil/mês. A planilha anexa recalcula tudo isso mudando uma célula.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ DECISÕES ═══ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">O que preciso de você</p>
+      <h2>Três decisões</h2>
+    </div>
+
+    <div class="callout prose">
+      <ol class="decisions">
+        <li><strong>Quem faz as 30 conversas por semana.</strong> Isso é trabalho de alguém dedicado. Se custar R$ 5 mil/mês entre salário e comissão, o retorno vai de fevereiro para abril de 2027 — segue saudável, mas precisa entrar no orçamento agora.</li>
+        <li><strong>Se lançamos o serviço com consultor.</strong> R$ 1.490/mês com acompanhamento humano em cima do sistema. Um consultor atende 15 clientes, e 10 delas já seriam R$ 15 mil/mês a mais. A pergunta é quem consulta: se for você, compete com o seu tempo de CEO.</li>
+        <li><strong>Se podemos falar com a base nos grupos.</strong> Minha recomendação: nos grupos entra só conteúdo, uma dor por semana com a tela resolvendo. Venda acontece na conversa individual. Transformar grupo em vitrine queima a comunidade.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ═══ RISCOS ═══ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">O que pode não acontecer</p>
+      <h2>Os três riscos que importam</h2>
+    </div>
+
+    <div class="cards">
+      <div class="card card-risk">
+        <h3>A conversão não se sustentar</h3>
+        <p>É o risco de maior impacto: corta a receita anual pela metade.</p>
+        <p class="footnote"><strong>O que fazemos:</strong> cadastro feito junto com a cliente na chamada, não teste sozinha. Recalibramos a meta em setembro com dado nosso.</p>
+      </div>
+      <div class="card card-risk">
+        <h3>O atendimento virar gargalo</h3>
+        <p>154 clientes novas sem onboarding e suporte prontos trocam receita por cancelamento.</p>
+        <p class="footnote"><strong>O que fazemos:</strong> número de suporte dedicado, 8 vídeos curtos e IA respondendo 24/7 — tudo no ar antes de setembro.</p>
+      </div>
+      <div class="card card-risk">
+        <h3>O cancelamento ser maior que 5%</h3>
+        <p>Não temos histórico. Os 5% são estimativa informada, não medição.</p>
+        <p class="footnote"><strong>O que fazemos:</strong> primeira medição real em setembro, quando a safra de agosto completa 30 dias.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ PLACAR ═══ -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Como acompanhamos</p>
+      <h2>Placar de sexta-feira</h2>
+    </div>
+
+    <div class="stack stack-3">
+      <p class="prose">Reunião de 30 minutos toda sexta, com três números que saem do próprio CRM — sem planilha paralela.</p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Indicador</th><th class="num">Meta na semana</th><th>O que revela</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Conversas iniciadas</td><td class="num">30</td><td>Se o ritmo está sendo cumprido</td></tr>
+            <tr><td>Diagnósticos feitos</td><td class="num">15</td><td>Se a dor está sendo nomeada de um jeito que gera reunião</td></tr>
+            <tr class="row-ink"><td>Assinaturas fechadas</td><td class="num">10</td><td>Se oferta e preço estão certos</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="prose footnote">Números de produção de 12/08/2026. Premissas a confirmar antes de virar meta contratada: cancelamento mensal, horas reais de desenvolvimento e custo da operação comercial. O detalhamento completo de custo por componente, investimento e unit economics está no plano longo.</p>
+    </div>
+  </section>
+
+</div>

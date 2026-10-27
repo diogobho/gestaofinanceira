@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { contatosService } from './contatos.service';
 import { leadsService } from '../leads/leads.service';
 import { AuthRequest } from '../../../middlewares/auth.middleware';
+import { garantirLeadDaEmpresa, ErroEscopo } from '../_shared/escopo-empresa';
 
 export const contatosController = {
   async list(req: AuthRequest, res: Response, next: NextFunction) {
@@ -76,12 +77,22 @@ export const contatosController = {
       const { id } = req.params;
       const { mensagem, lead_id } = req.body;
 
+      // O lead vem do corpo: tem de ser desta conta, ou a mensagem ficaria ligada ao
+      // card de outra empresa.
+      if (lead_id) {
+        try { await garantirLeadDaEmpresa(lead_id, empresaId); }
+        catch (e) { if (e instanceof ErroEscopo) return res.status(e.status).json({ message: e.message }); throw e; }
+      }
+
       if (!mensagem) {
         return res.status(400).json({ message: 'mensagem é obrigatória' });
       }
 
+      // Com lead no contexto, quem fala é o WhatsApp do responsável do card.
+      const remetenteId = await contatosService.resolverRemetenteDoLead(lead_id, empresaId, usuarioId);
+
       const resultado = await contatosService.enviarMensagem(
-        usuarioId,
+        remetenteId,
         empresaId,
         parseInt(id),
         mensagem,
@@ -136,14 +147,26 @@ export const contatosController = {
       const empresaId = req.user!.empresa_id;
       const { id } = req.params;
       const { caption, lead_id } = req.body;
+
+      // O lead vem do corpo: tem de ser desta conta, ou a mensagem ficaria ligada ao
+      // card de outra empresa.
+      if (lead_id) {
+        try { await garantirLeadDaEmpresa(lead_id, empresaId); }
+        catch (e) { if (e instanceof ErroEscopo) return res.status(e.status).json({ message: e.message }); throw e; }
+      }
       const file = (req as any).file;
 
       if (!file) {
         return res.status(400).json({ message: 'Arquivo obrigatorio' });
       }
 
+      // Com lead no contexto, quem fala é o WhatsApp do responsável do card.
+      const remetenteId = await contatosService.resolverRemetenteDoLead(
+        lead_id ? parseInt(lead_id) : undefined, empresaId, usuarioId
+      );
+
       const resultado = await contatosService.enviarMedia(
-        usuarioId,
+        remetenteId,
         empresaId,
         parseInt(id),
         file.path,
@@ -191,6 +214,13 @@ export const contatosController = {
       const { id } = req.params;
       const { lead_id } = req.body;
 
+      // O lead vem do corpo: tem de ser desta conta, ou a mensagem ficaria ligada ao
+      // card de outra empresa.
+      if (lead_id) {
+        try { await garantirLeadDaEmpresa(lead_id, empresaId); }
+        catch (e) { if (e instanceof ErroEscopo) return res.status(e.status).json({ message: e.message }); throw e; }
+      }
+
       await contatosService.marcarLido(
         parseInt(id),
         empresaId,
@@ -230,7 +260,7 @@ export const contatosController = {
     try {
       const usuarioId = req.user!.userId;
       const { groupId } = req.params;
-      const data = await contatosService.getParticipantesGrupo(usuarioId, groupId);
+      const data = await contatosService.getParticipantesGrupo(usuarioId, req.user!.empresa_id, groupId);
       res.json({ success: true, ...data });
     } catch (error: any) {
       if (error.message.includes('não configurado')) {
@@ -262,7 +292,7 @@ export const contatosController = {
 
       res.json({ success: true, ...resultado });
     } catch (error: any) {
-      if (error.message.includes('não configurado') || error.message.includes('não possui estágio')) {
+      if (/não configurado|não possui estágio|não encontrado|não pertence/.test(error.message)) {
         return res.status(400).json({ message: error.message });
       }
       next(error);

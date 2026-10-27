@@ -9,6 +9,7 @@ import { User, Mail, Building, Shield, Lock, Save } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUserPhoto } from '@/hooks/useUserPhoto'
 import { authApi } from '@/api'
+import { rotuloTipo } from '@/utils/roles'
 
 const profileSchema = z.object({
   nome: z.string().min(3, 'Nome deve ter no mínimo 3 caracteres'),
@@ -37,6 +38,7 @@ export const UserProfile: React.FC = () => {
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(userPhoto)
 
   const empresaNome = user?.empresa?.nome || ''
+
 
   const {
     register: registerProfile,
@@ -97,7 +99,7 @@ export const UserProfile: React.FC = () => {
   }
 
   const getNivelLabel = (nivel?: string) => {
-    if ((user as any)?.tipo_usuario === 'master') return 'Master'
+    if ((user as any)?.tipo_usuario) return rotuloTipo(user as any)
     const labels: Record<string, string> = {
       super_admin: 'Super Administrador',
       admin_empresa: 'Administrador da Empresa',
@@ -220,6 +222,7 @@ export const UserProfile: React.FC = () => {
             </div>
           </form>
         </Card>
+
 
         {/* Alterar Senha */}
         <Card title="Alterar Senha">

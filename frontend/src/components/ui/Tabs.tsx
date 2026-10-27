@@ -5,6 +5,12 @@ export interface TabItem {
   label: string
   icon?: ReactNode
   badge?: string | number
+  /**
+   * Âncora do tutorial (`[data-tour="..."]`). Fica no TabItem porque o botão da aba é
+   * renderizado aqui dentro: sem isto, um passo de tour que precise apontar para uma
+   * aba teria de mirar o container e contar posição, que quebra ao reordenar as abas.
+   */
+  dataTour?: string
 }
 
 interface TabsProps {
@@ -24,6 +30,7 @@ export function Tabs({ tabs, active, onChange, className = '' }: TabsProps) {
             <button
               key={tab.key}
               type="button"
+              data-tour={tab.dataTour}
               onClick={() => onChange(tab.key)}
               className={`
                 group inline-flex items-center gap-2 whitespace-nowrap

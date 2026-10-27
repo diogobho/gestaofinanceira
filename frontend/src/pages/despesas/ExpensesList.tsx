@@ -3,12 +3,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Header } from '@/components/layout'
 import { Button, MetricCard, Card, Modal, ModalFooter, Input, Select, Spinner, Badge, Textarea, MobileCard, MobileCardHeader, MobileCardRow, MobileCardActions } from '@/components/ui'
-import { Plus, Edit, Trash2, CreditCard, Calendar, Filter, X, Landmark, AlertTriangle, TrendingDown, DollarSign, CheckCircle, Clock } from 'lucide-react'
+import { Plus, Edit, Trash2, CreditCard, Calendar, Filter, X, Landmark, Link2, AlertTriangle, TrendingDown, DollarSign, CheckCircle, Clock } from 'lucide-react'
 import { expensesApi, categoriasDespesasApi } from '@/api'
 import { pluggyApi } from '@/api/pluggy'
 import { PluggyConnect } from 'react-pluggy-connect'
 import { PluggyConnectionsModal } from './PluggyConnectionsModal'
+import { ContaAzulConexaoModal, useRetornoContaAzul } from '../receitas/ContaAzulConexaoModal'
+import { DicaVideo } from '@/tutoriais/DicaVideo'
+import { useAuth } from '@/contexts/AuthContext'
+import { podeUsarContaAzul } from '@/utils/roles'
 import type { Expense, CreateExpenseRequest, CreateCategoriaRequest } from '@/types'
+import { formatDate as formatDateUtil } from '@/utils/format'
 
 export const ExpensesList: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -22,6 +27,10 @@ export const ExpensesList: React.FC = () => {
   const [pluggyToken, setPluggyToken] = useState('')
   const [pluggyIncludeSandbox, setPluggyIncludeSandbox] = useState(false)
   const [isConexoesOpen, setIsConexoesOpen] = useState(false)
+  const [isContaAzulOpen, setIsContaAzulOpen] = useState(false)
+  const { user } = useAuth()
+  const mostrarContaAzul = podeUsarContaAzul(user as any)
+  useRetornoContaAzul(() => setIsContaAzulOpen(true))
 
   // Filtros
   const [filters, setFilters] = useState({
@@ -211,13 +220,13 @@ export const ExpensesList: React.FC = () => {
     }).format(value)
   }
 
-  const formatDate = (date: Date | string) => {
-    return new Date(date).toLocaleDateString('pt-BR')
-  }
+  // Delegar ao util: datas puras (DATE) não podem ser convertidas pelo fuso local,
+  // senão exibem o dia anterior no Brasil (UTC-3).
+  const formatDate = (date: Date | string) => formatDateUtil(date)
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-full min-h-[60vh]">
         <Spinner size="lg" />
       </div>
     )
@@ -244,6 +253,14 @@ export const ExpensesList: React.FC = () => {
               <Landmark className="w-4 h-4 mr-2" />
               Conectar banco
             </Button>
+            {mostrarContaAzul && (
+              <DicaVideo video="contaazul-receitas">
+              <Button variant="secondary" onClick={() => setIsContaAzulOpen(true)}>
+                <Link2 className="w-4 h-4 mr-2" aria-hidden />
+                Conta Azul
+              </Button>
+              </DicaVideo>
+            )}
             <Button data-tour="despesas-nova" variant="primary" onClick={handleOpenModal}>
               <Plus className="w-4 h-4 mr-2" />
               Nova Despesa
@@ -616,7 +633,23 @@ export const ExpensesList: React.FC = () => {
             )}
           </div>
 
-          <ModalFooter>
+          <ModalFooter className="flex-wrap">
+            {editingItem && (
+              <Button
+                type="button"
+                variant="outline"
+                className="mr-auto text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+                onClick={() => {
+                  const id = editingItem.id
+                  setIsModalOpen(false)
+                  setEditingItem(null)
+                  handleDelete(id)
+                }}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Excluir despesa
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -745,6 +778,7 @@ export const ExpensesList: React.FC = () => {
       )}
 
       <PluggyConnectionsModal isOpen={isConexoesOpen} onClose={() => setIsConexoesOpen(false)} />
+      <ContaAzulConexaoModal isOpen={isContaAzulOpen} onClose={() => setIsContaAzulOpen(false)} voltarPara="despesas" />
     </div>
   )
 }

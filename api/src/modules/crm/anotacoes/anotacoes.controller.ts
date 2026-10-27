@@ -10,7 +10,7 @@ export const anotacoesController = {
       const anotacoes = await anotacoesService.listByLead(leadId, empresaId);
       res.json(anotacoes);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -27,7 +27,7 @@ export const anotacoesController = {
 
       res.json(anotacao);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -35,12 +35,15 @@ export const anotacoesController = {
     try {
       const empresaId = (req as any).user.empresa_id;
       const usuarioId = (req as any).user.id;
-      const data: CreateAnotacaoDto = req.body;
+      // `origem` NUNCA vem do cliente: a rota é a interface, e tudo que entra por ela é
+      // anotação de gente. Aceitar do body deixaria forjar "evento do sistema" — que o
+      // prompt do agente trata como registro confiável.
+      const data: CreateAnotacaoDto = { ...req.body, origem: 'usuario' };
 
       const anotacao = await anotacoesService.create(empresaId, usuarioId, data);
       res.status(201).json(anotacao);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -58,7 +61,7 @@ export const anotacoesController = {
 
       res.json(anotacao);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   },
 
@@ -75,7 +78,7 @@ export const anotacoesController = {
 
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: error.message });
     }
   }
 };

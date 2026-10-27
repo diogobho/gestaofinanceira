@@ -51,6 +51,13 @@ backups/
 *.sql
 *.dump
 
+# ...MENOS as migrations: elas são CÓDIGO, não dado.
+# O `*.sql` acima existe para nenhum dump com dado de cliente entrar no repo por
+# acidente, e isso continua valendo. Só que ele pegava as migrations junto, e o
+# efeito era o esquema do banco inteiro existindo apenas em disco: 72 migrations,
+# nenhuma versionada, nenhuma forma de saber em que estado um checkout está.
+!api/migrations/*.sql
+
 # Credenciais / segredos
 CREDENCIAIS.md
 *.pem
@@ -61,3 +68,46 @@ CREDENCIAIS.md
 
 # PM2 ecosystem (contém segredos de produção — só no servidor)
 ecosystem.config.js
+
+# Backups de .env (DATABASE_URL, JWT secrets) — as regras acima não pegam .env.bak.*
+.env.bak*
+*.env.bak*
+
+# Relatórios e extrações com dados pessoais de clientes (LGPD) — nunca versionar
+relatorios/
+api/relatorios/
+
+# Prints colados na documentação — 10 MB de PNG que o sistema não lê.
+# O texto em Markdown vai versionado; a imagem que o ilustra, não: print de tela
+# envelhece mais rápido que o texto e infla o repositório para sempre (git guarda
+# cada versão do binário inteiro).
+docs/images/
+# ...menos as 8 telas que o README exibe: elas JÁ estão versionadas, e regra de
+# ignore não desrastreia nada — sem estas linhas ficariam oito arquivos sob uma
+# pasta ignorada, que é o pior dos dois mundos.
+!docs/images/agente-ia.png
+!docs/images/clientes.png
+!docs/images/crm-dashboard.png
+!docs/images/crm-funil.png
+!docs/images/dashboard.png
+!docs/images/parcelas.png
+!docs/images/receitas.png
+!docs/images/whatsapp.png
+docs/bug/
+docs/joao/
+docs/assets/
+docs/*.pdf
+docs/*.xlsx
+
+# Extrações usadas por script de correção: têm telefone e id de mensagem de
+# cliente (LGPD). O SCRIPT é versionado; os dados dele ficam só no servidor.
+api/scripts/dados/
+api/scripts/*.csv
+
+# NÃO ignorar frontend/public/{avatar,signature} nem src/assets: são 190 KB de
+# SVG/PNG que a aplicação carrega em tela. Sem eles o Duo e a assinatura somem.
+
+# Downloads de navegador e rascunhos parados na árvore: uma página salva de 700 KB
+# não é fonte, e o .bak é a versão anterior de um arquivo que já está versionado.
+/processo_comercial_completo*.html
+*.bak.html

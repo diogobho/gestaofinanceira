@@ -39,12 +39,22 @@ export const tagsService = {
     return result.rows[0] || null;
   },
 
-  async create(empresaId: number, data: CreateTagDto): Promise<Tag> {
+  // Tag é da EMPRESA: o nome se repete no time inteiro, sem caixa. Criar uma que já
+  // existe devolve a existente — quem digita "Workshop" no card de um lead e o colega
+  // no de outro estão falando da mesma tag. `usuario_id` é só quem criou (NOT NULL).
+  async create(empresaId: number, usuarioId: number, data: CreateTagDto): Promise<Tag> {
+    const nome = String(data.nome || '').replace(/\s+/g, ' ').trim().slice(0, 50);
+    const existente = await query(
+      `SELECT * FROM tags WHERE empresa_id = $1 AND lower(nome) = lower($2) LIMIT 1`,
+      [empresaId, nome]
+    );
+    if (existente.rows[0]) return existente.rows[0];
+    const cor = /^#[0-9a-f]{6}$/i.test(data.cor || '') ? data.cor : '#3B82F6';
     const result = await query(
-      `INSERT INTO tags (empresa_id, nome, cor)
-       VALUES ($1, $2, $3)
+      `INSERT INTO tags (empresa_id, usuario_id, nome, cor)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [empresaId, data.nome, data.cor || '#3B82F6']
+      [empresaId, usuarioId, nome, cor]
     );
     return result.rows[0];
   },

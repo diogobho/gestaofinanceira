@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react'
 import {
   TrendingUp,
-  TrendingDown,
   Users,
   DollarSign,
   Target,
@@ -14,27 +13,49 @@ import {
   BarChart3,
   Thermometer,
   Globe,
-  Bell
+  Bell,
+  XCircle
 } from 'lucide-react'
 import { useCRMDashboard, useFunis, useCRMFunilAnalytics, useFollowupMetricas, useUsuariosEmpresa } from '@/hooks/useCRM'
 import { Link } from 'react-router-dom'
 import { TourHelpButton } from '@/components/tour/TourHelpButton'
 import type { FunilAnalytics } from '@/types/crm'
-import { DateRangePresets } from '@/components/ui/DateRangePresets'
+import { useNumeroNaUrl } from '@/hooks/useEstadoNaUrl'
+import { BarraFiltros } from '@/pages/dashboard/visaogeral/BarraFiltros'
+import { ATALHOS_CRM, periodoAnterior, usePeriodoNaUrl } from '@/pages/dashboard/visaogeral/periodo'
+import { CartaoIndicador } from '@/pages/dashboard/visaogeral/CartaoIndicador'
+import { CaixaResumo } from '@/pages/dashboard/visaogeral/ResumoEscrito'
+import { TooltipGrafico } from '@/pages/dashboard/visaogeral/graficoUi'
+import { formatDate } from '@/utils'
+import ProdutividadeFunil from './ProdutividadeFunil'
+import type { Granularidade } from '@/api/crm'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from 'recharts'
+// A paleta do dashboard do Conta Azul é a única do projeto que passou pelo
+// validador contra as superfícies reais — reusar em vez de escolher hex novo.
+import { usePaletaViz } from '@/pages/dashboard/contaazul/paleta'
+
+/** Uma linha de `leadsPorMes` do endpoint /crm/dashboard. */
+interface LeadsPorMes { mes: string; total: number; ganhos: number; perdidos: number }
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 
+/**
+ * Rótulo de um período da série temporal, na tabela.
+ *
+ * Desde que o agrupamento virou configurável, a chave `mes` pode ser
+ * '2026-08-25' (dia/semana), '2026-08' (mês) ou '2026' (ano) — a versão antiga
+ * assumia sempre `YYYY-MM` e imprimia "undefined/26" no agrupamento anual.
+ * A forma é deduzida do próprio valor, então tabela e gráfico nunca divergem.
+ */
 const formatMonth = (mes: string) => {
-  const [year, month] = mes.split('-')
+  const partes = String(mes).split('-')
   const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-  return `${months[parseInt(month) - 1]}/${year.slice(2)}`
-}
-
-const temperaturaColors: Record<string, string> = {
-  frio: 'bg-blue-100 text-blue-700',
-  morno: 'bg-yellow-100 text-yellow-700',
-  quente: 'bg-red-100 text-red-700'
+  if (partes.length === 1) return partes[0]                                  // 2026
+  const [ano, mesNum, dia] = partes
+  const nome = months[parseInt(mesNum) - 1] ?? mesNum
+  if (partes.length === 2) return `${nome}/${ano.slice(2)}`                  // Ago/26
+  return `${dia}/${mesNum}/${ano.slice(2)}`                                  // 25/08/26
 }
 
 const temperaturaLabels: Record<string, string> = {
@@ -56,23 +77,18 @@ const origemLabels: Record<string, string> = {
   desconhecido: 'Desconhecido'
 }
 
-const origemColors: Record<string, string> = {
-  manual: 'bg-gray-100 text-gray-600',
-  whatsapp: 'bg-green-100 text-green-600',
-  importacao: 'bg-blue-100 text-blue-600',
-  indicacao: 'bg-primary-100 text-primary-600',
-  networking: 'bg-primary-100 text-primary-600',
-  parceria: 'bg-pink-100 text-pink-600',
-  instagram: 'bg-fuchsia-100 text-fuchsia-600',
-  lancamento: 'bg-orange-100 text-orange-600',
-  forms: 'bg-teal-100 text-teal-600',
-  desconhecido: 'bg-gray-100 text-gray-500'
-}
-
 // Agrupa estágios de mesmo nome (case-insensitive) somando leads_passaram
 // Usado quando "Todos os Funis" está selecionado
 function agruparFunilPorNome(data: FunilAnalytics): FunilAnalytics {
   const { acumulado, diario } = data
+  // Laterais (perda, nutrição) somam pelo nome, como as etapas
+  const lateraisPorNome = new Map<string, NonNullable<FunilAnalytics['laterais']>[number]>()
+  for (const l of data.laterais || []) {
+    const k = l.estagio_nome.toLowerCase().trim()
+    const atual = lateraisPorNome.get(k)
+    lateraisPorNome.set(k, atual ? { ...atual, leads: atual.leads + l.leads } : { ...l })
+  }
+  data = { ...data, laterais: [...lateraisPorNome.values()] }
   if (acumulado.length === 0) return data
 
   // Agrupa acumulado por nome normalizado
@@ -138,6 +154,7 @@ function agruparFunilPorNome(data: FunilAnalytics): FunilAnalytics {
   })
 
   return {
+    laterais: data.laterais,
     acumulado: agrupado,
     diario: diarioAgrupado,
     boca_funil: bocaFunil,
@@ -146,10 +163,10 @@ function agruparFunilPorNome(data: FunilAnalytics): FunilAnalytics {
 }
 
 function FunilAcumulado({ data }: { data: FunilAnalytics }) {
-  const { acumulado, boca_funil, taxa_conversao_geral } = data
+  const { acumulado, boca_funil, taxa_conversao_geral, laterais = [] } = data
 
   if (acumulado.length === 0) {
-    return <p className="text-center text-gray-400 py-6 text-sm">Nenhum estagio configurado</p>
+    return <p className="text-center text-gray-400 py-6 text-sm">Nenhum estágio configurado</p>
   }
 
   return (
@@ -217,12 +234,25 @@ function FunilAcumulado({ data }: { data: FunilAnalytics }) {
         )
       })}
 
+      {/* Fora da sequência: perda e etapas depois do ganho (ex.: Nutrição) */}
+      {laterais.length > 0 && (
+        <div className="mt-2 pt-2 border-t flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+          <span className="text-gray-400">Fora da sequência:</span>
+          {laterais.map(l => (
+            <span key={l.estagio_id} className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: l.estagio_cor || '#6B7280' }} />
+              {l.estagio_nome}: <strong className="text-gray-700">{l.leads}</strong>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Rodapé com totais */}
       {boca_funil > 0 && (
         <div className="mt-3 pt-3 border-t flex items-center justify-between text-xs text-gray-500">
           <span>Boca do funil: <strong className="text-gray-700">{boca_funil}</strong> leads</span>
           <span>
-            Conversao geral:{' '}
+            Conversão geral:{' '}
             <strong className={taxa_conversao_geral >= 10 ? 'text-green-600' : taxa_conversao_geral >= 5 ? 'text-amber-600' : 'text-red-500'}>
               {taxa_conversao_geral}%
             </strong>
@@ -233,11 +263,160 @@ function FunilAcumulado({ data }: { data: FunilAnalytics }) {
   )
 }
 
+/**
+ * Evolução mensal do funil — criados, ganhos e perdidos.
+ *
+ * Escolha da forma: são três séries sobre o tempo, mas a base costuma ter poucos
+ * meses (e a conta nova tem UM). Linha com um ponto não desenha nada; barra
+ * agrupada lê bem com um mês e continua legível com doze.
+ *
+ * As cores saem de `paleta.ts`, que passou no validador contra as superfícies
+ * reais do app — este trio (azul/verde/laranja) é exatamente o conjunto de 3
+ * que foi aprovado, com ΔE 9,2 no pior par sob deuteranopia. Não trocar hex sem
+ * rodar o validador de novo.
+ *
+ * A tabela logo abaixo permanece de propósito: é ela que atende quem não
+ * distingue as cores e quem precisa do número exato.
+ */
+const ROTULO_EVOLUCAO: Record<Granularidade, string> = {
+  dia: 'Evolução diária',
+  semana: 'Evolução semanal',
+  mes: 'Evolução mensal',
+  ano: 'Evolução anual',
+}
+
+const OPCOES_GRANULARIDADE: { valor: Granularidade; rotulo: string }[] = [
+  { valor: 'dia', rotulo: 'Dia' },
+  { valor: 'semana', rotulo: 'Semana' },
+  { valor: 'mes', rotulo: 'Mês' },
+  { valor: 'ano', rotulo: 'Ano' },
+]
+
+const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+
+/**
+ * Rótulo do eixo por granularidade. O backend devolve sempre na chave `mes`,
+ * mas o conteúdo muda: '2026-08-25' (dia e semana), '2026-08' (mês) ou '2026'.
+ * A semana mostra o dia em que ela começa — `DATE_TRUNC('week')` no Postgres
+ * começa na segunda.
+ */
+function rotuloPeriodo(valor: string, g: Granularidade): string {
+  const [ano, mes, dia] = String(valor).split('-')
+  const mesCurto = MESES_CURTOS[Number(mes) - 1] ?? mes
+  if (g === 'ano') return ano
+  if (g === 'mes') return `${mesCurto}/${ano.slice(2)}`
+  if (g === 'semana') return `${dia}/${mes}`
+  return `${dia}/${mes}`
+}
+
+function GraficoEvolucaoMensal({
+  dados,
+  granularidade,
+  onGranularidade,
+}: {
+  dados: LeadsPorMes[]
+  granularidade: Granularidade
+  onGranularidade: (g: Granularidade) => void
+}) {
+  const paleta = usePaletaViz()
+
+  const series = [
+    { chave: 'total' as const, nome: 'Criados', cor: paleta.saldo },
+    { chave: 'ganhos' as const, nome: 'Ganhos', cor: paleta.receber },
+    { chave: 'perdidos' as const, nome: 'Perdidos', cor: paleta.pagar },
+  ]
+
+  const dadosGrafico = dados.map(d => ({ ...d, rotulo: rotuloPeriodo(d.mes, granularidade) }))
+
+  return (
+    <div className="mb-5">
+      {/* Seletor de agrupamento. Mesmo padrão do seletor de fidelidade dos
+          planos: abas segmentadas, 2x2 no celular para o alvo de toque não
+          encolher demais. */}
+      <div className="mb-3 flex justify-end">
+        <div className="inline-grid grid-cols-4 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-700" role="tablist" aria-label="Agrupar por">
+          {OPCOES_GRANULARIDADE.map(o => (
+            <button
+              key={o.valor}
+              type="button"
+              role="tab"
+              aria-selected={granularidade === o.valor}
+              onClick={() => onGranularidade(o.valor)}
+              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                granularidade === o.valor
+                  ? 'bg-white text-primary-700 shadow-sm dark:bg-gray-800 dark:text-primary-300'
+                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-300'
+              }`}
+            >
+              {o.rotulo}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {dados.length === 0 ? (
+        /* Mesma altura do gráfico: se o vazio fosse mais curto, o card encolheria
+           ao trocar de agrupamento e o navegador puxaria o scroll junto. */
+        <div className="flex items-center justify-center text-center" style={{ height: 260 }}>
+          <p className="max-w-xs text-sm text-gray-400">
+            Sem movimentação no período com este agrupamento.
+            <span className="mt-1 block text-xs text-gray-300">
+              Tente um agrupamento maior ou amplie o período acima.
+            </span>
+          </p>
+        </div>
+      ) : (
+      <div style={{ height: 260 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={dadosGrafico} margin={{ top: 18, right: 8, left: -18, bottom: 0 }} barGap={2}>
+          {/* Grade recessiva: só horizontal, para o olho comparar altura. */}
+          <CartesianGrid strokeDasharray="3 3" stroke={paleta.grid} vertical={false} />
+          <XAxis dataKey="rotulo" tick={{ fontSize: 11, fill: paleta.eixo }} tickLine={false} axisLine={false} />
+          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: paleta.eixo }} tickLine={false} axisLine={false} width={38} />
+          <Tooltip
+            cursor={{ fill: paleta.grid, opacity: 0.45 }}
+            content={(p: any) => (
+              <TooltipGrafico {...p} paleta={paleta} formatar={(v) => `${v} lead${v === 1 ? '' : 's'}`} />
+            )}
+          />
+          {/* O texto da legenda usa cor de TEXTO, não a cor da série — quem
+              carrega a identidade é a bolinha ao lado. Colorir a palavra deixa
+              o rótulo com contraste ruim e some para quem não distingue a cor. */}
+          <Legend
+            wrapperStyle={{ fontSize: 12 }}
+            iconType="circle"
+            iconSize={8}
+            formatter={(valor: any) => <span style={{ color: paleta.eixo }}>{valor}</span>}
+          />
+          {series.map(s => (
+            <Bar key={s.chave} dataKey={s.chave} name={s.nome} fill={s.cor} radius={[4, 4, 0, 0]} maxBarSize={38}>
+              {/* Rótulo direto: com o aviso de contraste da paleta, o número
+                  visível é o alívio exigido — a cor nunca responde sozinha. */}
+              {/* Rótulo só até 8 colunas: com mais, os números se atropelam e a
+                  tabela abaixo já dá o valor exato. */}
+              {dadosGrafico.length <= 8 && (
+              <LabelList
+                dataKey={s.chave}
+                position="top"
+                style={{ fontSize: 10, fill: paleta.eixo, fontWeight: 600 }}
+                formatter={(v: any) => (Number(v) > 0 ? v : '')}
+              />
+              )}
+            </Bar>
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+      </div>
+      )}
+    </div>
+  )
+}
+
 function FunilDiario({ data }: { data: FunilAnalytics }) {
   const { acumulado, diario } = data
 
   if (diario.length === 0) {
-    return <p className="text-center text-gray-400 py-6 text-sm">Sem movimentacoes no periodo</p>
+    return <p className="text-center text-gray-400 py-6 text-sm">Sem movimentações no período</p>
   }
 
   const totaisPorEstagio = acumulado.map(e =>
@@ -315,14 +494,67 @@ function FunilDiario({ data }: { data: FunilAnalytics }) {
   )
 }
 
+/**
+ * Barras horizontais em HTML (não recharts): o teclado e o leitor de tela
+ * alcançam, o nome longo trunca com o inteiro no `title`, e cada linha diz o
+ * número e a parte em texto — a cor nunca responde sozinha.
+ */
+function BarrasHorizontais({
+  itens,
+  vazio,
+}: {
+  itens: { chave: string; rotulo: string; valor: number; detalhe?: string; cor: string }[]
+  vazio: string
+}) {
+  const total = itens.reduce((s, i) => s + i.valor, 0)
+  const maior = Math.max(1, ...itens.map((i) => i.valor))
+  if (itens.length === 0 || total === 0) {
+    return <p className="py-6 text-center text-sm text-gray-400">{vazio}</p>
+  }
+  return (
+    <ul className="space-y-2.5">
+      {itens.map((i) => {
+        const pct = Math.round((i.valor / total) * 100)
+        return (
+          <li key={i.chave}>
+            <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
+              <span className="truncate text-gray-700 dark:text-gray-200" title={i.rotulo}>{i.rotulo}</span>
+              <span className="shrink-0 tabular-nums text-gray-500 dark:text-gray-400">
+                <strong className="font-semibold text-gray-800 dark:text-gray-100">{i.valor}</strong> · {pct}%
+                {i.detalhe && <span className="ml-1 hidden sm:inline">· {i.detalhe}</span>}
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700" aria-hidden>
+              <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${Math.max(2, (i.valor / maior) * 100)}%`, background: i.cor }} />
+            </div>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`
+
+/** Variação em texto para o resumo: ", 12% a mais que no período anterior". */
+const variacaoTexto = (atual: number, anterior: number | undefined) => {
+  if (anterior === undefined || anterior <= 0) return ''
+  const pct = ((atual - anterior) / anterior) * 100
+  if (Math.abs(pct) < 0.5) return ', praticamente igual ao período anterior'
+  const n = Math.abs(pct).toLocaleString('pt-BR', { maximumFractionDigits: Math.abs(pct) < 10 ? 1 : 0 })
+  return `, ${n}% ${pct > 0 ? 'a mais' : 'a menos'} que no período anterior`
+}
+
 export default function CRMDashboard() {
-  const [selectedFunilId, setSelectedFunilId] = useState<number | undefined>(undefined)
-  const [selectedResponsavelId, setSelectedResponsavelId] = useState<number | undefined>(undefined)
+  // Funil, proprietário e período moram na URL: o F5 e o link reabrem no mesmo recorte.
+  const [selectedFunilId, setSelectedFunilId] = useNumeroNaUrl('funil')
+  const [selectedResponsavelId, setSelectedResponsavelId] = useNumeroNaUrl('responsavel')
+  const periodo = usePeriodoNaUrl('tudo')
+  const dataInicio = periodo.de ?? ''
+  const dataFim = periodo.ate ?? ''
+
   const [visaoFunil, setVisaoFunil] = useState<'acumulado' | 'diario'>('acumulado')
   const [diasDiario, setDiasDiario] = useState(30)
-
-  const [dataInicio, setDataInicio] = useState<string>('')
-  const [dataFim, setDataFim] = useState<string>('')
 
   const dateFilters = useMemo(
     () => ({
@@ -333,16 +565,31 @@ export default function CRMDashboard() {
     [dataInicio, dataFim, selectedResponsavelId]
   )
 
+  // Período anterior do mesmo tamanho, só para a comparação dos cartões.
+  const anterior = useMemo(
+    () => (periodo.comparar ? periodoAnterior({ de: periodo.de, ate: periodo.ate }) : null),
+    [periodo.comparar, periodo.de, periodo.ate]
+  )
+  const filtrosAnteriores = useMemo(
+    () => ({ data_inicio: anterior?.de, data_fim: anterior?.ate, responsavel_id: selectedResponsavelId }),
+    [anterior, selectedResponsavelId]
+  )
+
   const { data: funis } = useFunis()
   const { data: usuarios } = useUsuariosEmpresa()
-  const { data: metricas, isLoading, refetch } = useCRMDashboard(selectedFunilId, dateFilters)
+  /* Granularidade da série temporal. Fica aqui, e não dentro do gráfico, porque
+     quem refaz a consulta é o hook — agregar dia/semana/mês/ano no cliente
+     exigiria baixar lead a lead. */
+  const [granularidade, setGranularidade] = useState<Granularidade>('mes')
+  const { data: metricas, isLoading, isFetching, refetch } = useCRMDashboard(selectedFunilId, dateFilters, granularidade)
+  // Sem período (Tudo), não há anterior: a consulta não roda.
+  const { data: metricasAnteriores } = useCRMDashboard(selectedFunilId, filtrosAnteriores, granularidade, {
+    comparacao: true,
+    enabled: !!anterior,
+  })
+  const ant = anterior && metricasAnteriores ? metricasAnteriores : null
   const { data: funilAnalyticsRaw, isLoading: isLoadingFunil } = useCRMFunilAnalytics(selectedFunilId, diasDiario, dateFilters)
-  const { data: followupMetricas } = useFollowupMetricas()
-
-  const limparFiltroData = () => {
-    setDataInicio('')
-    setDataFim('')
-  }
+  const { data: followupMetricas } = useFollowupMetricas(selectedFunilId, dateFilters)
 
   // Quando "Todos os Funis", agrupa estágios de mesmo nome somando os leads
   const funilAnalytics = useMemo(() => {
@@ -350,6 +597,8 @@ export default function CRMDashboard() {
     if (selectedFunilId) return funilAnalyticsRaw
     return agruparFunilPorNome(funilAnalyticsRaw)
   }, [funilAnalyticsRaw, selectedFunilId])
+
+  const paleta = usePaletaViz()
 
   if (isLoading) {
     return (
@@ -362,414 +611,417 @@ export default function CRMDashboard() {
   if (!metricas) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
-        Nenhum dado disponivel
+        Nenhum dado disponível
       </div>
     )
   }
 
+  const textoPeriodo = periodo.de && periodo.ate ? `${formatDate(periodo.de)} a ${formatDate(periodo.ate)}` : 'todo o histórico'
+  const anteriorTexto = anterior ? `${formatDate(anterior.de!)} a ${formatDate(anterior.ate!)}` : undefined
+  const nomeFunil = funis?.find((f) => f.id === selectedFunilId)?.nome
+  const nomeResp = usuarios?.find((u) => u.id === selectedResponsavelId)?.nome
+  const recorte = [nomeFunil && `funil ${nomeFunil}`, nomeResp && `de ${nomeResp}`].filter(Boolean).join(', ')
+
+  // O dashboard em frases: o leitor de tela lê o parágrafo, não o gráfico.
+  const frases: string[] = []
+  {
+    const quando = /^\d/.test(textoPeriodo) ? `De ${textoPeriodo}` : `Em ${textoPeriodo}`
+    frases.push(
+      `${quando}${recorte ? ` (${recorte})` : ''}, entraram ${plural(metricas.totalLeads, 'lead novo', 'leads novos')}${variacaoTexto(metricas.totalLeads, ant?.totalLeads)}.`
+    )
+    frases.push(
+      metricas.leadsGanhos > 0
+        ? `Foram ${plural(metricas.leadsGanhos, 'venda', 'vendas')}${metricas.valorGanho > 0 ? `, somando ${formatCurrency(metricas.valorGanho)}` : ''}, e ${plural(metricas.leadsPerdidos, 'perda', 'perdas')}.`
+        : metricas.leadsPerdidos > 0
+          ? `Nenhuma venda registrada no período, e ${plural(metricas.leadsPerdidos, 'perda', 'perdas')}.`
+          : 'Nenhuma venda nem perda registrada no período.'
+    )
+    if (metricas.totalLeads > 0) frases.push(`A taxa de conversão foi de ${metricas.taxaConversao.toLocaleString('pt-BR')}%.`)
+    if (metricas.tempoMedioConversao) frases.push(`Do cadastro à venda, a média foi de ${metricas.tempoMedioConversao.toLocaleString('pt-BR')} dias.`)
+    const atencao: string[] = []
+    if (metricas.tarefasAtrasadas > 0) atencao.push(plural(metricas.tarefasAtrasadas, 'tarefa atrasada', 'tarefas atrasadas'))
+    if (metricas.leadsSemContato7Dias > 0) atencao.push(`${plural(metricas.leadsSemContato7Dias, 'lead', 'leads')} sem contato há 7 dias`)
+    if (atencao.length) frases.push(`Pede atenção: ${atencao.join(' e ')}.`)
+  }
+
+  const serie = (chave: 'total' | 'ganhos' | 'perdidos') => metricas.leadsPorMes.map((m) => m[chave])
+  const formatarPct = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
+  const formatarDias = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dias`
+
+  const seletor = 'min-w-0 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-800 focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+
+  const totalOrigem = metricas.leadsPorOrigem.reduce((acc, o) => acc + o.total, 0)
+  const corTemperatura: Record<string, string> = { frio: paleta.saldo, morno: paleta.aVencer, quente: paleta.atrasado }
+
   return (
-    <div className="p-6 space-y-6 overflow-auto h-full bg-gray-50">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="ml-10 md:ml-0">
-          <h1 className="text-2xl font-bold text-gray-800">Dashboard CRM</h1>
-          <p className="text-sm text-gray-500">Visão geral do funil de vendas</p>
+    // Sem altura nem rolagem própria: quem rola é a área principal do Layout, e a
+    // barra de filtros gruda no topo dela. Duas áreas rolando uma dentro da outra
+    // cortavam a página e deixavam a barra presa na área que não rola.
+    <div className="min-h-full bg-gray-50 dark:bg-gray-900">
+      {/* Cabeçalho */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-4 sm:px-6 dark:border-gray-700 dark:bg-gray-800">
+        <div>
+          <h1 className="text-xl font-bold text-gray-800 sm:text-2xl dark:text-gray-100">Dashboard CRM</h1>
+          <p className="text-xs text-gray-500 sm:text-sm dark:text-gray-400">Visão geral do funil de vendas</p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <select
-            data-tour="cdash-funil"
-            value={selectedFunilId || ''}
-            onChange={(e) => setSelectedFunilId(e.target.value ? parseInt(e.target.value) : undefined)}
-            className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
-          >
-            <option value="">Todos os Funis</option>
-            {funis?.map(f => (
-              <option key={f.id} value={f.id}>{f.nome}</option>
-            ))}
-          </select>
-
-          <select
-            value={selectedResponsavelId || ''}
-            onChange={(e) => setSelectedResponsavelId(e.target.value ? parseInt(e.target.value) : undefined)}
-            className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
-          >
-            <option value="">Todos os Proprietários</option>
-            {usuarios?.map(u => (
-              <option key={u.id} value={u.id}>{u.nome}</option>
-            ))}
-          </select>
-
+        <div className="flex items-center gap-2">
           <button
             onClick={() => refetch()}
-            className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
             title="Atualizar"
+            aria-label="Atualizar os números"
           >
-            <RefreshCw size={18} />
+            <RefreshCw size={18} className={isFetching ? 'animate-spin' : ''} />
           </button>
-
           <Link
             to="/crm"
             data-tour="cdash-kanban"
-            className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+            className="rounded-lg bg-primary-500 px-4 py-2 text-sm text-white hover:bg-primary-600"
           >
             Ver Kanban
           </Link>
-
           <TourHelpButton tourId="crm-dashboard" label="" />
         </div>
       </div>
 
-      {/* Filtro por período */}
-      <div data-tour="cdash-periodo">
-      <DateRangePresets
-        dataInicio={dataInicio}
-        dataFim={dataFim}
-        onChange={(inicio, fim) => {
-          setDataInicio(inicio)
-          setDataFim(fim)
-        }}
-        onClear={limparFiltroData}
-        label="Período de análise"
-        referenceLabel="data do evento (cadastro, ganho ou movimentação)"
+      {/* Filtros presos no topo: funil, proprietário, período e comparação */}
+      <BarraFiltros
+        periodo={periodo}
+        atalhos={ATALHOS_CRM}
+        mostrarBase={false}
+        basePersonalizado="mes"
+        anteriorTexto={anteriorTexto}
+        referencia="pela data do evento (cadastro, venda ou movimentação)"
+        data-tour="cdash-periodo"
+        extra={
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+            <select
+              data-tour="cdash-funil"
+              aria-label="Funil"
+              value={selectedFunilId || ''}
+              onChange={(e) => setSelectedFunilId(e.target.value ? parseInt(e.target.value) : undefined)}
+              className={seletor}
+            >
+              <option value="">Todos os funis</option>
+              {funis?.map((f) => (
+                <option key={f.id} value={f.id}>{f.nome}</option>
+              ))}
+            </select>
+            <select
+              aria-label="Proprietário"
+              value={selectedResponsavelId || ''}
+              onChange={(e) => setSelectedResponsavelId(e.target.value ? parseInt(e.target.value) : undefined)}
+              className={seletor}
+            >
+              <option value="">Todos os proprietários</option>
+              {usuarios?.map((u) => (
+                <option key={u.id} value={u.id}>{u.nome}</option>
+              ))}
+            </select>
+          </div>
+        }
       />
-      </div>
 
-      {/* KPIs Principais */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-tour="cdash-kpis">
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Leads Ativos</p>
-              <p className="text-2xl font-bold text-gray-800">{metricas.leadsAtivos}</p>
-            </div>
-            <div className="p-3 bg-primary-100 rounded-full">
-              <Users size={24} className="text-primary-600" />
-            </div>
-          </div>
-          <p className="text-xs text-gray-400 mt-2">
-            {metricas.totalLeads} leads no total
-          </p>
+      <div className="space-y-6 p-4 sm:p-6">
+        <CaixaResumo frases={frases} />
+
+        {/* Seis números, cada um com a comparação ao período anterior */}
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3" data-tour="cdash-kpis">
+          <CartaoIndicador
+            titulo="Leads novos"
+            valor={String(metricas.totalLeads)}
+            detalhe={`${metricas.leadsAtivos} ativos (não arquivados)`}
+            comparacao={ant && { atual: metricas.totalLeads, anterior: ant.totalLeads, bomQuandoSobe: true, formatar: String }}
+            tendencia={{ valores: serie('total'), cor: paleta.saldo }}
+            icone={<Users className="h-5 w-5" />}
+            corIcone="bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
+          />
+          <CartaoIndicador
+            titulo="Vendas"
+            valor={String(metricas.leadsGanhos)}
+            corValor="text-emerald-700 dark:text-emerald-400"
+            detalhe={`${formatCurrency(metricas.valorGanho)} em vendas`}
+            comparacao={ant && { atual: metricas.leadsGanhos, anterior: ant.leadsGanhos, bomQuandoSobe: true, formatar: String }}
+            tendencia={{ valores: serie('ganhos'), cor: paleta.receber }}
+            icone={<CheckCircle className="h-5 w-5" />}
+            corIcone="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+          />
+          <CartaoIndicador
+            titulo="Taxa de conversão"
+            valor={formatarPct(metricas.taxaConversao)}
+            detalhe="Vendas sobre leads novos do período"
+            comparacao={ant && { atual: metricas.taxaConversao, anterior: ant.taxaConversao, bomQuandoSobe: true, modo: 'diferenca', formatar: formatarPct, anteriorVazio: ant.totalLeads === 0 }}
+            icone={<Target className="h-5 w-5" />}
+            corIcone="bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
+          />
+          <CartaoIndicador
+            titulo="Perdas"
+            valor={String(metricas.leadsPerdidos)}
+            corValor={metricas.leadsPerdidos > 0 ? 'text-red-700 dark:text-red-400' : undefined}
+            detalhe="Leads que foram para a etapa de perda"
+            comparacao={ant && { atual: metricas.leadsPerdidos, anterior: ant.leadsPerdidos, bomQuandoSobe: false, formatar: String }}
+            tendencia={{ valores: serie('perdidos'), cor: paleta.pagar }}
+            icone={<XCircle className="h-5 w-5" />}
+            corIcone="bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+          />
+          <CartaoIndicador
+            titulo="Valor em pipeline"
+            valor={formatCurrency(metricas.valorTotal)}
+            detalhe="Soma do valor dos leads ativos"
+            comparacao={ant && { atual: metricas.valorTotal, anterior: ant.valorTotal, bomQuandoSobe: true }}
+            icone={<DollarSign className="h-5 w-5" />}
+            corIcone="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+          />
+          <CartaoIndicador
+            titulo="Tempo até a venda"
+            valor={metricas.tempoMedioConversao ? formatarDias(metricas.tempoMedioConversao) : '—'}
+            detalhe="Média do cadastro à venda"
+            comparacao={
+              ant?.tempoMedioConversao && metricas.tempoMedioConversao
+                ? { atual: metricas.tempoMedioConversao, anterior: ant.tempoMedioConversao, bomQuandoSobe: false, formatar: formatarDias }
+                : null
+            }
+            icone={<Clock className="h-5 w-5" />}
+            corIcone="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+          />
         </div>
 
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Valor em Pipeline</p>
-              <p className="text-2xl font-bold text-gray-800">{formatCurrency(metricas.valorTotal)}</p>
-            </div>
-            <div className="p-3 bg-green-100 rounded-full">
-              <DollarSign size={24} className="text-green-600" />
-            </div>
+        {/* O que pede ação agora */}
+        <section aria-labelledby="atencao-titulo" className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <h2 id="atencao-titulo" className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100">
+            <AlertTriangle size={16} className="text-amber-500" aria-hidden />
+            Pede atenção
+          </h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {[
+              { rotulo: 'Tarefas atrasadas', valor: metricas.tarefasAtrasadas, icone: <AlertTriangle size={18} />, cor: 'text-red-600 dark:text-red-400', fundo: 'bg-red-50 dark:bg-red-900/20' },
+              { rotulo: metricas.periodoAtivo ? 'Tarefas no período' : 'Tarefas para hoje', valor: metricas.tarefasHoje, icone: <Calendar size={18} />, cor: 'text-amber-600 dark:text-amber-400', fundo: 'bg-amber-50 dark:bg-amber-900/20' },
+              { rotulo: 'Sem contato há 7 dias', valor: metricas.leadsSemContato7Dias, icone: <Clock size={18} />, cor: 'text-blue-600 dark:text-blue-400', fundo: 'bg-blue-50 dark:bg-blue-900/20' },
+            ].map((a) => (
+              <div key={a.rotulo} className={`flex items-center gap-3 rounded-lg p-3 ${a.fundo}`}>
+                <span className={a.cor} aria-hidden>{a.icone}</span>
+                <span className="flex-1 text-sm text-gray-700 dark:text-gray-200">{a.rotulo}</span>
+                <span className={`text-2xl font-bold tabular-nums ${a.valor > 0 ? a.cor : 'text-gray-400'}`}>{a.valor}</span>
+              </div>
+            ))}
           </div>
-          <p className="text-xs text-gray-400 mt-2">
-            {formatCurrency(metricas.valorGanho)} ganhos
-          </p>
-        </div>
 
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Taxa de Conversão</p>
-              <p className="text-2xl font-bold text-gray-800">{metricas.taxaConversao}%</p>
+          {followupMetricas && (
+            <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-700" data-tour="cdash-followups">
+              <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+                <Bell size={16} className="text-orange-500" aria-hidden />
+                Follow-ups automáticos
+              </h3>
+              <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {[
+                  { rotulo: 'Pendentes', valor: followupMetricas.total_pendentes, cor: 'text-orange-600 dark:text-orange-400' },
+                  { rotulo: 'Atrasados', valor: followupMetricas.total_atrasados, cor: followupMetricas.total_atrasados > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400' },
+                  { rotulo: followupMetricas.periodo_ativo ? 'No período' : 'Para hoje', valor: followupMetricas.pendentes_hoje, cor: 'text-amber-600 dark:text-amber-400' },
+                  { rotulo: followupMetricas.periodo_ativo ? 'Enviados' : 'Enviados hoje', valor: followupMetricas.enviados_hoje, cor: 'text-emerald-600 dark:text-emerald-400' },
+                  { rotulo: 'Falharam', valor: followupMetricas.total_falhados, cor: followupMetricas.total_falhados > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400' },
+                ].map((f) => (
+                  <div key={f.rotulo} className="rounded-lg bg-gray-50 p-2.5 text-center dark:bg-gray-900/40">
+                    <dd className={`text-xl font-bold tabular-nums ${f.cor}`}>{f.valor}</dd>
+                    <dt className="text-xs text-gray-500 dark:text-gray-400">{f.rotulo}</dt>
+                  </div>
+                ))}
+              </dl>
             </div>
-            <div className="p-3 bg-primary-100 rounded-full">
-              <Target size={24} className="text-primary-600" />
-            </div>
-          </div>
-          <div className="flex items-center gap-2 mt-2 text-xs">
-            <span className="text-green-600 flex items-center">
-              <TrendingUp size={12} /> {metricas.leadsGanhos} ganhos
-            </span>
-            <span className="text-red-600 flex items-center">
-              <TrendingDown size={12} /> {metricas.leadsPerdidos} perdidos
-            </span>
-          </div>
-        </div>
+          )}
+        </section>
 
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between">
+        <ProdutividadeFunil funilId={selectedFunilId} filtros={dateFilters} />
+
+        {/* Funil de Vendas */}
+        <div className="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800" data-tour="cdash-funil-grafico">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-sm text-gray-500">Tempo Medio</p>
-              <p className="text-2xl font-bold text-gray-800">
-                {metricas.tempoMedioConversao ? `${metricas.tempoMedioConversao} dias` : '-'}
+              <h3 className="flex items-center gap-2 font-medium text-gray-800">
+                <BarChart3 size={18} className="text-gray-400" />
+                Funil de Vendas
+              </h3>
+              <p className="mt-0.5 text-xs text-gray-500">
+                {visaoFunil === 'acumulado'
+                  ? 'Leads que entraram no período (criados ou transferidos) e até onde cada um chegou, até hoje'
+                  : 'Entradas em cada etapa, dia a dia'}
               </p>
             </div>
-            <div className="p-3 bg-amber-100 rounded-full">
-              <Clock size={24} className="text-amber-600" />
-            </div>
-          </div>
-          <p className="text-xs text-gray-400 mt-2">
-            Para conversao em venda
-          </p>
-        </div>
-      </div>
-
-      {/* Segunda linha - Alertas e Tarefas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-red-50 border border-red-200 p-4 rounded-lg">
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={20} className="text-red-500" />
-            <span className="font-medium text-red-700">Tarefas Atrasadas</span>
-          </div>
-          <p className="text-3xl font-bold text-red-700 mt-2">{metricas.tarefasAtrasadas}</p>
-        </div>
-
-        <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
-          <div className="flex items-center gap-2">
-            <Calendar size={20} className="text-amber-500" />
-            <span className="font-medium text-amber-700">Tarefas para Hoje</span>
-          </div>
-          <p className="text-3xl font-bold text-amber-700 mt-2">{metricas.tarefasHoje}</p>
-        </div>
-
-        <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
-          <div className="flex items-center gap-2">
-            <Clock size={20} className="text-blue-500" />
-            <span className="font-medium text-blue-700">Sem Contato (7 dias)</span>
-          </div>
-          <p className="text-3xl font-bold text-blue-700 mt-2">{metricas.leadsSemContato7Dias}</p>
-        </div>
-      </div>
-
-      {/* Follow-ups widget */}
-      {followupMetricas && (
-        <div className="bg-white rounded-lg shadow-sm p-4" data-tour="cdash-followups">
-          <div className="flex items-center gap-2 mb-3">
-            <Bell size={18} className="text-orange-500" />
-            <h3 className="font-medium text-gray-800">Follow-ups</h3>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-orange-600">{followupMetricas.total_pendentes}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Pendentes</p>
-            </div>
-            <div className="text-center">
-              <p className={`text-2xl font-bold ${followupMetricas.total_atrasados > 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                {followupMetricas.total_atrasados}
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">Atrasados</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-amber-600">{followupMetricas.pendentes_hoje}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Para hoje</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-green-600">{followupMetricas.enviados_hoje}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Enviados hoje</p>
-            </div>
-            <div className="text-center">
-              <p className={`text-2xl font-bold ${followupMetricas.total_falhados > 0 ? 'text-red-500' : 'text-gray-400'}`}>
-                {followupMetricas.total_falhados}
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">Falhados</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Funil de Vendas */}
-      <div className="bg-white p-4 rounded-lg shadow-sm" data-tour="cdash-funil-grafico">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-medium text-gray-800 flex items-center gap-2">
-            <BarChart3 size={18} className="text-gray-400" />
-            Funil de Vendas
-          </h3>
-          <div className="flex items-center gap-2">
-            {/* Toggle Acumulado / Diário */}
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
-              <button
-                onClick={() => setVisaoFunil('acumulado')}
-                className={`px-3 py-1 text-xs rounded-md transition-all ${
-                  visaoFunil === 'acumulado'
-                    ? 'bg-white shadow text-primary-600 font-medium'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Acumulado
-              </button>
-              <button
-                onClick={() => setVisaoFunil('diario')}
-                className={`px-3 py-1 text-xs rounded-md transition-all ${
-                  visaoFunil === 'diario'
-                    ? 'bg-white shadow text-primary-600 font-medium'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Diario
-              </button>
-            </div>
-
-            {/* Seletor de período - só no Diário */}
-            {visaoFunil === 'diario' && (
-              <div className="flex bg-gray-100 rounded-lg p-0.5">
-                {[7, 14, 30].map(d => (
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-700" role="group" aria-label="Visão do funil">
+                {(['acumulado', 'diario'] as const).map((v) => (
                   <button
-                    key={d}
-                    onClick={() => setDiasDiario(d)}
-                    className={`px-2 py-1 text-xs rounded-md transition-all ${
-                      diasDiario === d
-                        ? 'bg-white shadow text-primary-600 font-medium'
-                        : 'text-gray-500 hover:text-gray-700'
+                    key={v}
+                    type="button"
+                    aria-pressed={visaoFunil === v}
+                    onClick={() => setVisaoFunil(v)}
+                    className={`rounded-md px-3 py-1 text-xs transition-all ${
+                      visaoFunil === v
+                        ? 'bg-white font-medium text-primary-600 shadow dark:bg-gray-800 dark:text-primary-300'
+                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-300'
                     }`}
                   >
-                    {d}d
+                    {v === 'acumulado' ? 'Acumulado' : 'Diário'}
                   </button>
                 ))}
               </div>
-            )}
-          </div>
-        </div>
 
-        {isLoadingFunil ? (
-          <div className="flex items-center justify-center py-8">
-            <RefreshCw className="animate-spin text-primary-400" size={20} />
+              {/* Só no Diário e sem data escolhida (com data, o diário segue o período) */}
+              {visaoFunil === 'diario' && !dataInicio && !dataFim && (
+                <div className="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-700">
+                  {[7, 14, 30].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      aria-pressed={diasDiario === d}
+                      onClick={() => setDiasDiario(d)}
+                      className={`rounded-md px-2 py-1 text-xs transition-all ${
+                        diasDiario === d
+                          ? 'bg-white font-medium text-primary-600 shadow dark:bg-gray-800 dark:text-primary-300'
+                          : 'text-gray-500 hover:text-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      {d}d
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        ) : !funilAnalytics ? (
-          <p className="text-center text-gray-400 py-6 text-sm">Nenhum dado disponivel</p>
-        ) : visaoFunil === 'acumulado' ? (
-          <FunilAcumulado data={funilAnalytics} />
-        ) : (
-          <FunilDiario data={funilAnalytics} />
-        )}
-      </div>
 
-      {/* Graficos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Leads por Temperatura */}
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <h3 className="font-medium text-gray-800 mb-4 flex items-center gap-2">
-            <Thermometer size={18} className="text-gray-400" />
-            Leads por Temperatura
-          </h3>
-          <div className="grid grid-cols-3 gap-4">
-            {metricas.leadsPorTemperatura.map((item) => (
-              <div
-                key={item.temperatura}
-                className={`p-4 rounded-lg text-center ${temperaturaColors[item.temperatura] || 'bg-gray-100'}`}
-              >
-                <p className="text-2xl font-bold">{item.total}</p>
-                <p className="text-sm font-medium">{temperaturaLabels[item.temperatura] || item.temperatura}</p>
-                <p className="text-xs mt-1 opacity-70">{formatCurrency(item.valor)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Leads por Origem */}
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <h3 className="font-medium text-gray-800 mb-4 flex items-center gap-2">
-            <Globe size={18} className="text-gray-400" />
-            Leads por Origem
-          </h3>
-          {metricas.leadsPorOrigem.length === 0 ? (
-            <p className="text-center text-gray-400 py-4 text-sm">Nenhum dado de origem disponivel</p>
+          {isLoadingFunil ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="animate-spin text-primary-400" size={20} />
+            </div>
+          ) : !funilAnalytics ? (
+            <p className="py-6 text-center text-sm text-gray-400">Nenhum dado disponível</p>
+          ) : visaoFunil === 'acumulado' ? (
+            <FunilAcumulado data={funilAnalytics} />
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {metricas.leadsPorOrigem.map((item) => {
-                const totalOrigem = metricas.leadsPorOrigem.reduce((acc, o) => acc + o.total, 0)
-                const pct = totalOrigem > 0 ? Math.round((item.total / totalOrigem) * 100) : 0
-                return (
-                  <div
-                    key={item.origem}
-                    className={`p-3 rounded-lg text-center ${origemColors[item.origem] || 'bg-gray-100 text-gray-600'}`}
-                  >
-                    <p className="text-2xl font-bold">{item.total}</p>
-                    <p className="text-sm font-medium">{origemLabels[item.origem] || item.origem}</p>
-                    <p className="text-xs mt-1 opacity-70">{pct}%</p>
-                  </div>
-                )
-              })}
+            <FunilDiario data={funilAnalytics} />
+          )}
+        </div>
+
+        {/* Temperatura e origem: barras horizontais com número e parte escritos */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800">
+            <h3 className="mb-4 flex items-center gap-2 font-medium text-gray-800">
+              <Thermometer size={18} className="text-gray-400" />
+              Leads por temperatura
+            </h3>
+            <BarrasHorizontais
+              vazio="Nenhum lead com temperatura no período"
+              itens={metricas.leadsPorTemperatura.map((t) => ({
+                chave: t.temperatura,
+                rotulo: temperaturaLabels[t.temperatura] || t.temperatura,
+                valor: t.total,
+                detalhe: t.valor > 0 ? formatCurrency(t.valor) : undefined,
+                cor: corTemperatura[t.temperatura] ?? paleta.perdido,
+              }))}
+            />
+          </div>
+
+          <div className="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800">
+            <h3 className="mb-4 flex items-center gap-2 font-medium text-gray-800">
+              <Globe size={18} className="text-gray-400" />
+              Leads por origem
+              {totalOrigem > 0 && <span className="text-xs font-normal text-gray-400">· {totalOrigem} no total</span>}
+            </h3>
+            {/* Uma cor só: aqui a cor não identifica nada, o comprimento é que compara. */}
+            <BarrasHorizontais
+              vazio="Nenhum dado de origem no período"
+              itens={[...metricas.leadsPorOrigem]
+                .sort((a, b) => b.total - a.total)
+                .map((o) => ({
+                  chave: o.origem,
+                  rotulo: origemLabels[o.origem] || o.origem,
+                  valor: o.total,
+                  cor: paleta.saldo,
+                }))}
+            />
+          </div>
+        </div>
+
+        {/* Evolução — o card fica SEMPRE montado: o seletor de agrupamento mora
+            dentro dele, e um agrupamento sem dados não pode sumir com o seletor. */}
+        <div className="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800">
+          <h3 className="mb-1 flex items-center gap-2 font-medium text-gray-800">
+            <TrendingUp size={18} className="text-gray-400" />
+            {ROTULO_EVOLUCAO[granularidade]}
+          </h3>
+          <p className="mb-4 text-xs text-gray-400">
+            Criados: data de cadastro · Ganhos/Perdidos/Valor: data em que o evento ocorreu
+          </p>
+
+          <GraficoEvolucaoMensal
+            dados={metricas.leadsPorMes}
+            granularidade={granularidade}
+            onGranularidade={setGranularidade}
+          />
+
+          {metricas.leadsPorMes.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <caption className="sr-only">Leads criados, ganhos e perdidos por período</caption>
+                <thead>
+                  <tr className="border-b dark:border-gray-700">
+                    <th scope="col" className="px-3 py-2 text-left font-medium text-gray-600">{granularidade === 'ano' ? 'Ano' : granularidade === 'mes' ? 'Mês' : 'Período'}</th>
+                    <th scope="col" className="px-3 py-2 text-center font-medium text-gray-600">Criados</th>
+                    <th scope="col" className="px-3 py-2 text-center font-medium text-gray-600">Ganhos</th>
+                    <th scope="col" className="px-3 py-2 text-center font-medium text-gray-600">Perdidos</th>
+                    <th scope="col" className="px-3 py-2 text-right font-medium text-gray-600">Valor Ganho</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metricas.leadsPorMes.map((mes) => {
+                    const valorMes = metricas.valorPorMes.find((v) => v.mes === mes.mes)
+                    return (
+                      <tr key={mes.mes} className="border-b hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/40">
+                        <th scope="row" className="px-3 py-2 text-left font-medium">{formatMonth(mes.mes)}</th>
+                        <td className="px-3 py-2 text-center tabular-nums">{mes.total || '-'}</td>
+                        <td className="px-3 py-2 text-center tabular-nums">{mes.ganhos || '-'}</td>
+                        <td className="px-3 py-2 text-center tabular-nums">{mes.perdidos || '-'}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{valorMes?.valor ? formatCurrency(valorMes.valor) : '-'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 bg-gray-50 font-semibold dark:border-gray-700 dark:bg-gray-900/40">
+                    <th scope="row" className="px-3 py-2 text-left text-gray-700">Total</th>
+                    <td className="px-3 py-2 text-center tabular-nums text-gray-700">{metricas.leadsPorMes.reduce((s, m) => s + m.total, 0)}</td>
+                    <td className="px-3 py-2 text-center tabular-nums text-gray-700">{metricas.leadsPorMes.reduce((s, m) => s + m.ganhos, 0)}</td>
+                    <td className="px-3 py-2 text-center tabular-nums text-gray-700">{metricas.leadsPorMes.reduce((s, m) => s + m.perdidos, 0)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-700">{formatCurrency(metricas.valorPorMes.reduce((s, m) => s + m.valor, 0))}</td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           )}
         </div>
-      </div>
 
-      {/* Evolucao Mensal */}
-      {metricas.leadsPorMes.length > 0 && (
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <h3 className="font-medium text-gray-800 mb-1 flex items-center gap-2">
-            <TrendingUp size={18} className="text-gray-400" />
-            Evolucao Mensal
-          </h3>
-          <p className="text-xs text-gray-400 mb-4">
-            Criados: data de cadastro · Ganhos/Perdidos/Valor: data em que o evento ocorreu
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 px-3 font-medium text-gray-600">Mes</th>
-                  <th className="text-center py-2 px-3 font-medium text-gray-600">Criados</th>
-                  <th className="text-center py-2 px-3 font-medium text-green-600">Ganhos</th>
-                  <th className="text-center py-2 px-3 font-medium text-red-600">Perdidos</th>
-                  <th className="text-right py-2 px-3 font-medium text-gray-600">Valor Ganho</th>
-                </tr>
-              </thead>
-              <tbody>
-                {metricas.leadsPorMes.map((mes) => {
-                  const valorMes = metricas.valorPorMes.find(v => v.mes === mes.mes)
-                  return (
-                    <tr key={mes.mes} className="border-b hover:bg-gray-50">
-                      <td className="py-2 px-3 font-medium">{formatMonth(mes.mes)}</td>
-                      <td className="py-2 px-3 text-center">{mes.total || '-'}</td>
-                      <td className="py-2 px-3 text-center text-green-600">{mes.ganhos || '-'}</td>
-                      <td className="py-2 px-3 text-center text-red-600">{mes.perdidos || '-'}</td>
-                      <td className="py-2 px-3 text-right">{valorMes?.valor ? formatCurrency(valorMes.valor) : '-'}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 bg-gray-50 font-semibold">
-                  <td className="py-2 px-3 text-gray-700">Total</td>
-                  <td className="py-2 px-3 text-center text-gray-700">
-                    {metricas.leadsPorMes.reduce((s, m) => s + m.total, 0)}
-                  </td>
-                  <td className="py-2 px-3 text-center text-green-700">
-                    {metricas.leadsPorMes.reduce((s, m) => s + m.ganhos, 0)}
-                  </td>
-                  <td className="py-2 px-3 text-center text-red-700">
-                    {metricas.leadsPorMes.reduce((s, m) => s + m.perdidos, 0)}
-                  </td>
-                  <td className="py-2 px-3 text-right text-gray-700">
-                    {formatCurrency(metricas.valorPorMes.reduce((s, m) => s + m.valor, 0))}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Atividades Recentes */}
-      {metricas.atividadesRecentes.length > 0 && (
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <h3 className="font-medium text-gray-800 mb-4 flex items-center gap-2">
-            <Activity size={18} className="text-gray-400" />
-            Atividades Recentes
-          </h3>
-          <div className="space-y-3">
-            {metricas.atividadesRecentes.map((ativ) => (
-              <div key={ativ.id} className="flex items-start gap-3 text-sm">
-                <div className="p-2 bg-gray-100 rounded-full">
-                  <CheckCircle size={14} className="text-gray-500" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-gray-800">
+        {/* Atividades recentes do período */}
+        {metricas.atividadesRecentes.length > 0 && (
+          <div className="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800">
+            <h3 className="mb-4 flex items-center gap-2 font-medium text-gray-800">
+              <Activity size={18} className="text-gray-400" />
+              Atividades recentes
+            </h3>
+            <ol className="relative space-y-4 border-l border-gray-200 pl-5 dark:border-gray-700">
+              {metricas.atividadesRecentes.map((ativ) => (
+                <li key={ativ.id} className="text-sm">
+                  <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border-2 border-white bg-primary-500 dark:border-gray-800" aria-hidden />
+                  <p className="text-gray-800 dark:text-gray-100">
                     <span className="font-medium">{ativ.lead_nome}</span>
-                    {' - '}
+                    {' — '}
                     {ativ.descricao}
                   </p>
-                  <p className="text-xs text-gray-400">
-                    {new Date(ativ.created_at).toLocaleString('pt-BR')}
-                  </p>
-                </div>
-              </div>
-            ))}
+                  <p className="text-xs text-gray-400">{new Date(ativ.created_at).toLocaleString('pt-BR')}</p>
+                </li>
+              ))}
+            </ol>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

@@ -1,6 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
-import { leadsService, FiltrosLead } from './leads.service';
+import { leadsService, FiltrosLead, normalizarOrdem } from './leads.service';
+
+/** `?tags=12,25` → [12, 25]. Só inteiros positivos; o resto é ignorado. */
+export function lerTagIds(valor: unknown): number[] | undefined {
+  const ids = String(Array.isArray(valor) ? valor.join(',') : valor ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter((x) => /^\d{1,9}$/.test(x))
+    .map(Number)
+    .filter((n) => n > 0);
+  return ids.length ? [...new Set(ids)].slice(0, 50) : undefined;
+}
 import { contatosService } from '../contatos/contatos.service';
+import { isAdminEmpresa } from '../../../shared/roles';
+
+/** funil_id obrigatório, estagio_id opcional (sem ele = funil inteiro). */
+export function lerAlvoEmMassa(fonte: any): { funilId: number; estagioId?: number } | null {
+  const funilId = Number(fonte?.funil_id);
+  const estagioId = fonte?.estagio_id != null && fonte.estagio_id !== '' ? Number(fonte.estagio_id) : undefined;
+  if (!Number.isInteger(funilId) || funilId <= 0) return null;
+  if (estagioId !== undefined && (!Number.isInteger(estagioId) || estagioId <= 0)) return null;
+  return { funilId, estagioId };
+}
 
 export const leadsController = {
   async listByFunil(req: Request, res: Response, next: NextFunction) {
@@ -13,12 +34,14 @@ export const leadsController = {
         responsavel_id,
         temperatura,
         origem,
+        tags,
         com_tarefa_atrasada,
         com_tarefa_hoje,
         sem_tarefa,
         aguardando_resposta,
         com_mensagens_nao_lidas,
-        search
+        search,
+        ordenar
       } = req.query;
 
       const filtros: FiltrosLead = {
@@ -27,12 +50,14 @@ export const leadsController = {
         responsavel_id: responsavel_id ? parseInt(responsavel_id as string) : undefined,
         temperatura: temperatura as string,
         origem: origem ? (origem as string).trim() : undefined,
+        tag_ids: lerTagIds(tags),
         com_tarefa_atrasada: com_tarefa_atrasada === 'true',
         com_tarefa_hoje: com_tarefa_hoje === 'true',
         sem_tarefa: sem_tarefa === 'true',
         aguardando_resposta: aguardando_resposta === 'true' ? true : (aguardando_resposta === 'false' ? false : undefined),
         com_mensagens_nao_lidas: com_mensagens_nao_lidas === 'true',
-        search: search ? (search as string).trim() : undefined
+        search: search ? (search as string).trim() : undefined,
+        ordenar: normalizarOrdem(ordenar)
       };
 
       const leads = await leadsService.listByFunil(parseInt(funilId), empresaId, filtros);
@@ -54,10 +79,10 @@ export const leadsController = {
       const empresaId = (req as any).user.empresa_id;
       const { estagioId } = req.params;
       const {
-        arquivados, responsavel_id, temperatura, origem,
+        arquivados, responsavel_id, temperatura, origem, tags,
         com_tarefa_atrasada, com_tarefa_hoje, sem_tarefa,
         aguardando_resposta, com_mensagens_nao_lidas,
-        com_telefone, sem_nome_real, search,
+        com_telefone, sem_nome_real, search, ordenar,
         limit: limitQ, offset: offsetQ
       } = req.query;
 
@@ -66,6 +91,7 @@ export const leadsController = {
         responsavel_id: responsavel_id ? parseInt(responsavel_id as string) : undefined,
         temperatura: temperatura as string,
         origem: origem ? (origem as string).trim() : undefined,
+        tag_ids: lerTagIds(tags),
         com_tarefa_atrasada: com_tarefa_atrasada === 'true',
         com_tarefa_hoje: com_tarefa_hoje === 'true',
         sem_tarefa: sem_tarefa === 'true',
@@ -73,7 +99,8 @@ export const leadsController = {
         com_mensagens_nao_lidas: com_mensagens_nao_lidas === 'true',
         com_telefone: com_telefone === 'true',
         sem_nome_real: sem_nome_real === 'true',
-        search: search ? (search as string).trim() : undefined
+        search: search ? (search as string).trim() : undefined,
+        ordenar: normalizarOrdem(ordenar)
       };
 
       const limit = limitQ ? parseInt(limitQ as string) : 100;
@@ -196,7 +223,8 @@ export const leadsController = {
       const {
         responsavel_id, nome, telefone, email, empresa, cargo, titulo, cpf_cnpj,
         valor_potencial, temperatura, probabilidade,
-        data_previsao_fechamento, notas, arquivado, origem
+        data_previsao_fechamento, notas, arquivado, origem,
+        negocio, objetivo, desafio, duvida
       } = req.body;
 
       const lead = await leadsService.update(parseInt(id), empresaId, usuarioId, {
@@ -214,7 +242,11 @@ export const leadsController = {
         data_previsao_fechamento,
         notas,
         arquivado,
-        origem
+        origem,
+        negocio,
+        objetivo,
+        desafio,
+        duvida
       });
 
       if (!lead) {
@@ -304,7 +336,8 @@ export const leadsController = {
 
       res.json(lead);
     } catch (error: any) {
-      if (['Lead já está neste funil', 'Funil não encontrado', 'Funil destino não possui estágios'].includes(error.message)) {
+      if (['Lead já está neste funil', 'Funil não encontrado', 'Funil destino não possui estágios'].includes(error.message)
+        || /^Já existe um lead/.test(error.message || '')) {
         return res.status(400).json({ message: error.message });
       }
       next(error);
@@ -322,6 +355,38 @@ export const leadsController = {
       }
 
       res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /leads/excluir-em-massa?funil_id=&estagio_id= → quantos sairiam (para a confirmação)
+  async previaExclusaoEmMassa(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!isAdminEmpresa(user)) return res.status(403).json({ message: 'Só quem administra a conta pode excluir leads em massa' });
+      const alvo = lerAlvoEmMassa(req.query);
+      if (!alvo) return res.status(400).json({ message: 'Informe o funil' });
+      const r = await leadsService.alvoExclusaoEmMassa(user.empresa_id, alvo.funilId, alvo.estagioId);
+      if (!r) return res.status(404).json({ message: 'Funil ou estágio não encontrado' });
+      res.json(r);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /leads/excluir-em-massa { funil_id, estagio_id? }
+  async excluirEmMassa(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!isAdminEmpresa(user)) return res.status(403).json({ message: 'Só quem administra a conta pode excluir leads em massa' });
+      const alvo = lerAlvoEmMassa(req.body);
+      if (!alvo) return res.status(400).json({ message: 'Informe o funil' });
+      const r = await leadsService.excluirEmMassa(user.empresa_id, alvo.funilId, alvo.estagioId);
+      if (!r) return res.status(404).json({ message: 'Funil ou estágio não encontrado' });
+      console.log(`[leads] exclusão em massa: empresa ${user.empresa_id}, usuário ${user.id}, funil ${alvo.funilId}` +
+        `${alvo.estagioId ? `, estágio ${alvo.estagioId}` : ''} → ${r.excluidos} leads`);
+      res.json(r);
     } catch (error) {
       next(error);
     }
@@ -389,10 +454,10 @@ export const leadsController = {
         return res.status(400).json({ message: 'tag_id é obrigatório' });
       }
 
-      await leadsService.addTag(parseInt(id), tag_id, empresaId, usuarioId);
+      await leadsService.addTag(parseInt(id), Number(tag_id), empresaId, usuarioId);
       res.json({ success: true });
     } catch (error: any) {
-      if (error.message === 'Lead não encontrado') {
+      if (error.message === 'Lead não encontrado' || error.message === 'Tag não encontrada') {
         return res.status(404).json({ message: error.message });
       }
       next(error);
@@ -445,6 +510,8 @@ export const leadsController = {
       const empresaId = (req as any).user.empresa_id;
       const { id } = req.params;
       const { mensagem } = req.body;
+      // id do WhatsApp da mensagem respondida (#188); o service confere que é desta conversa
+      const respostaA = typeof req.body.resposta_a === 'string' ? req.body.resposta_a.slice(0, 100) : null;
 
       if (!mensagem) {
         return res.status(400).json({ message: 'mensagem é obrigatória' });
@@ -455,6 +522,9 @@ export const leadsController = {
         return res.status(404).json({ message: 'Lead não encontrado' });
       }
 
+      // A mensagem sai pelo WhatsApp do responsável do card (ver resolverRemetente).
+      const remetenteId = await contatosService.resolverRemetente(lead.responsavel_id, usuarioId);
+
       // Se o lead não tem contato vinculado, criar/encontrar pelo telefone
       let contatoId = lead.contato_whatsapp_id;
       if (!contatoId) {
@@ -462,7 +532,7 @@ export const leadsController = {
           return res.status(400).json({ message: 'Lead não possui telefone nem contato WhatsApp vinculado' });
         }
 
-        const contato = await contatosService.findOrCreateByNumero(lead.telefone, usuarioId, empresaId);
+        const contato = await contatosService.findOrCreateByNumero(lead.telefone, remetenteId, empresaId);
         contatoId = contato.id;
 
         // Vincular contato ao lead
@@ -473,25 +543,25 @@ export const leadsController = {
         );
       }
 
+      contatoId = await contatosService.contatoDoRemetente(parseInt(id), contatoId!, remetenteId, empresaId);
+
       const resultado = await contatosService.enviarMensagem(
-        usuarioId,
+        remetenteId,
         empresaId,
         contatoId,
         mensagem,
-        parseInt(id)
+        parseInt(id),
+        'manual',
+        respostaA
       );
 
       if (!resultado.success) {
         return res.status(400).json({ message: resultado.error });
       }
 
-      // Transferir propriedade do lead se o executor for diferente do dono atual
-      await leadsService.transferirPropriedadeSeDiferente(
-        parseInt(id),
-        usuarioId,
-        empresaId,
-        'mensagem_individual'
-      );
+      // Nada de transferir a propriedade do card por ter mandado mensagem: isso
+      // desfazia a troca manual de responsável (quem respondia virava dono) e
+      // agora o envio já sai pelo número do responsável de qualquer forma.
 
       // Registrar atividade
       await leadsService.registrarAtividade(
@@ -506,6 +576,67 @@ export const leadsController = {
       res.json({ ...resultado, contato_whatsapp_id: contatoId });
     } catch (error: any) {
       if (error.message.includes('não encontrado') || error.message.includes('não configurado') || error.message.includes('invalido')) {
+        return res.status(400).json({ message: error.message });
+      }
+      next(error);
+    }
+  },
+
+  // Enviar MODELO aprovado pelo número oficial (fora da janela de 24h é o único jeito)
+  async enviarModeloWhatsApp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const usuarioId = (req as any).user.id;
+      const empresaId = (req as any).user.empresa_id;
+      const leadId = parseInt(req.params.id);
+      const { nome, idioma, valores } = req.body ?? {};
+
+      if (!nome || typeof nome !== 'string') {
+        return res.status(400).json({ message: 'Escolha o modelo' });
+      }
+      const corpo = Array.isArray(valores?.corpo) ? valores.corpo.map((v: any) => String(v ?? '')) : [];
+      const cabecalho = valores?.cabecalho != null ? String(valores.cabecalho) : null;
+
+      const lead = await leadsService.getById(leadId, empresaId);
+      if (!lead) return res.status(404).json({ message: 'Lead não encontrado' });
+
+      const remetenteId = await contatosService.resolverRemetente(lead.responsavel_id, usuarioId);
+      let contatoId = lead.contato_whatsapp_id;
+      if (!contatoId) {
+        if (!lead.telefone) {
+          return res.status(400).json({ message: 'Lead não possui telefone nem contato WhatsApp vinculado' });
+        }
+        const contato = await contatosService.findOrCreateByNumero(lead.telefone, remetenteId, empresaId);
+        contatoId = contato.id;
+        const { query } = require('../../../config/database');
+        await query(`UPDATE leads SET contato_whatsapp_id = $1 WHERE id = $2 AND empresa_id = $3`, [
+          contatoId,
+          leadId,
+          empresaId,
+        ]);
+      }
+
+      contatoId = await contatosService.contatoDoRemetente(leadId, contatoId!, remetenteId, empresaId);
+
+      const resultado = await contatosService.enviarModeloWhatsApp(
+        remetenteId,
+        empresaId,
+        contatoId!,
+        { nome, idioma: idioma ? String(idioma) : undefined, valores: { corpo, cabecalho } },
+        leadId
+      );
+      if (!resultado.success) return res.status(400).json({ message: resultado.error });
+
+      await leadsService.registrarAtividade(
+        leadId,
+        usuarioId,
+        empresaId,
+        'mensagem_enviada',
+        `Modelo "${nome}" enviado pelo WhatsApp oficial`,
+        { modelo: nome, messageId: resultado.messageId }
+      );
+      res.json({ ...resultado, contato_whatsapp_id: contatoId });
+    } catch (error: any) {
+      if (/não encontrado|não configurado|invalido/i.test(error.message || '')) {
         return res.status(400).json({ message: error.message });
       }
       next(error);
@@ -530,6 +661,9 @@ export const leadsController = {
         return res.status(404).json({ message: 'Lead não encontrado' });
       }
 
+      // Mídia também sai pelo WhatsApp do responsável do card.
+      const remetenteId = await contatosService.resolverRemetente(lead.responsavel_id, usuarioId);
+
       // Se o lead não tem contato vinculado, criar/encontrar pelo telefone
       let contatoId = lead.contato_whatsapp_id;
       if (!contatoId) {
@@ -537,7 +671,7 @@ export const leadsController = {
           return res.status(400).json({ message: 'Lead não possui telefone nem contato WhatsApp vinculado' });
         }
 
-        const contato = await contatosService.findOrCreateByNumero(lead.telefone, usuarioId, empresaId);
+        const contato = await contatosService.findOrCreateByNumero(lead.telefone, remetenteId, empresaId);
         contatoId = contato.id;
 
         // Vincular contato ao lead
@@ -548,8 +682,10 @@ export const leadsController = {
         );
       }
 
+      contatoId = await contatosService.contatoDoRemetente(parseInt(id), contatoId!, remetenteId, empresaId);
+
       const resultado = await contatosService.enviarMedia(
-        usuarioId,
+        remetenteId,
         empresaId,
         contatoId,
         file.path,
@@ -590,6 +726,36 @@ export const leadsController = {
   },
 
   // Obter historico de mensagens WhatsApp pelo lead
+  // Reagir a uma mensagem da conversa do card (#188). emoji vazio remove a reação.
+  async reagirMensagemWhatsApp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const usuarioId = (req as any).user.id;
+      const empresaId = (req as any).user.empresa_id;
+      const leadId = parseInt(req.params.id);
+      const historicoId = parseInt(req.params.mensagemId);
+      const emoji = typeof req.body.emoji === 'string' ? req.body.emoji.trim() : '';
+      if (!historicoId) return res.status(400).json({ message: 'Mensagem inválida' });
+      if (emoji.length > 16 || /[A-Za-z0-9<>]/.test(emoji)) {
+        return res.status(400).json({ message: 'Reação inválida' });
+      }
+
+      const lead = await leadsService.getById(leadId, empresaId);
+      if (!lead) return res.status(404).json({ message: 'Lead não encontrado' });
+      if (!lead.contato_whatsapp_id) return res.status(400).json({ message: 'Lead sem conversa no WhatsApp' });
+
+      // Mesmo chip do envio manual: o do responsável do card.
+      const remetenteId = await contatosService.resolverRemetente(lead.responsavel_id, usuarioId);
+      const resultado = await contatosService.reagir(remetenteId, empresaId, lead.contato_whatsapp_id, historicoId, emoji);
+      if (!resultado.success) return res.status(400).json({ message: resultado.error });
+      res.json({ success: true, emoji: emoji || null });
+    } catch (error: any) {
+      if (error.message?.includes('não encontrado') || error.message?.includes('não configurado')) {
+        return res.status(400).json({ message: error.message });
+      }
+      next(error);
+    }
+  },
+
   async getHistoricoWhatsApp(req: Request, res: Response, next: NextFunction) {
     try {
       const empresaId = (req as any).user.empresa_id;
@@ -605,7 +771,7 @@ export const leadsController = {
         return res.json([]);
       }
 
-      const mensagens = await contatosService.getHistoricoMensagens(
+      const mensagens = await contatosService.getHistoricoDoNumero(
         lead.contato_whatsapp_id,
         empresaId,
         limit ? parseInt(limit as string) : 50

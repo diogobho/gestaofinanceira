@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Droppable } from '@hello-pangea/dnd'
-import { Plus, MoreVertical, Settings, Bot, GripVertical, ChevronDown, Loader2, Bell } from 'lucide-react'
+import { Plus, MoreVertical, Settings, GripVertical, ChevronDown, Loader2, Bell, Bot, Trash2 } from 'lucide-react'
 import type { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd'
 import KanbanCard from './KanbanCard'
-import { useAgenteIAToggleEstagio } from '@/hooks/useCRM'
 import type { EstagioFunil, Lead } from '@/types/crm'
 
 interface KanbanColumnProps {
@@ -13,6 +12,7 @@ interface KanbanColumnProps {
   onCardClick?: (lead: Lead) => void
   onAddClick?: (estagioId: number) => void
   onEditEstagio?: (estagio: EstagioFunil) => void
+  onExcluirLeads?: (estagio: EstagioFunil) => void
   onLoadMore?: () => void
   isLoadingMore?: boolean
   totalNoEstagio?: number
@@ -25,14 +25,16 @@ export default function KanbanColumn({
   onCardClick,
   onAddClick,
   onEditEstagio,
+  onExcluirLeads,
   onLoadMore,
   isLoadingMore,
   totalNoEstagio,
 }: KanbanColumnProps) {
   const [showMenu, setShowMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
-  const toggleEstagio = useAgenteIAToggleEstagio()
-  const valorTotal = estagio.leads.reduce((acc, lead) => acc + (lead.valor_potencial || 0), 0)
+  // numeric do pg chega como STRING: somar sem Number() emendava texto ("09700.000.00")
+  // e o total da coluna sumia sempre que dois leads tinham valor.
+  const valorTotal = estagio.leads.reduce((acc, lead) => acc + (Number(lead.valor_potencial) || 0), 0)
 
   // Fechar menu ao clicar fora
   useEffect(() => {
@@ -52,7 +54,7 @@ export default function KanbanColumn({
       }`}
     >
       {/* Header da coluna */}
-      <div className="p-3 border-b border-gray-200">
+      <div className="px-3 py-2 border-b border-gray-200">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* Grip handle para arrastar a coluna */}
@@ -74,16 +76,16 @@ export default function KanbanColumn({
             </span>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
+            {/* Badge agente IA reativo ativo no estágio */}
+            {estagio.agente_ia_ativo && (
+              <span title="Agente de IA reativo ativo neste estágio" className="flex items-center">
+                <Bot size={14} className="text-emerald-500" />
+              </span>
+            )}
             {/* Badge follow-up configurado no estágio */}
             {estagio.followup_config?.ativo && (
               <span title="Follow-up automático ativo neste estágio" className="flex items-center">
                 <Bell size={13} className="text-orange-500" />
-              </span>
-            )}
-            {/* Badge do Agente IA por coluna */}
-            {estagio.agente_ia_ativo && (
-              <span title="Agente IA ativo para este estágio" className="flex items-center">
-                <Bot size={14} className="text-primary-500" />
               </span>
             )}
             <div className="relative" ref={menuRef}>
@@ -105,18 +107,18 @@ export default function KanbanColumn({
                     <Settings size={14} />
                     Configurar estágio
                   </button>
-                  <button
-                    onClick={() => {
-                      toggleEstagio.mutate({ estagioId: estagio.id, ativo: !estagio.agente_ia_ativo })
-                      setShowMenu(false)
-                    }}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
-                  >
-                    <Bot size={14} className={estagio.agente_ia_ativo ? 'text-primary-600' : 'text-gray-400'} />
-                    <span className={estagio.agente_ia_ativo ? 'text-primary-700' : 'text-gray-700'}>
-                      {estagio.agente_ia_ativo ? 'Desativar IA neste estágio' : 'Ativar IA neste estágio'}
-                    </span>
-                  </button>
+                  {onExcluirLeads && (
+                    <button
+                      onClick={() => {
+                        onExcluirLeads(estagio)
+                        setShowMenu(false)
+                      }}
+                      className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    >
+                      <Trash2 size={14} />
+                      Excluir leads deste estágio
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -138,7 +140,7 @@ export default function KanbanColumn({
             ref={provided.innerRef}
             {...provided.droppableProps}
             className={`
-              flex-1 p-2 min-h-[200px] overflow-y-auto
+              flex-1 px-2 py-1.5 min-h-[200px] overflow-y-auto
               ${snapshot.isDraggingOver ? 'bg-primary-50' : ''}
             `}
           >

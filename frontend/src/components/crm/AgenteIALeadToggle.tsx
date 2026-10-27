@@ -12,61 +12,42 @@ export default function AgenteIALeadToggle({ leadId }: Props) {
   if (isLoading) return null
 
   const ativo = status?.ativo ?? false
-  const fonte = status?.fonte
-  const temOverride = fonte === 'lead'
 
   const handleToggle = () => {
-    if (temOverride) {
-      // Tem override individual → remover e voltar a herdar do estágio
-      toggleLead.mutate({ leadId, ativo: null })
-    } else if (ativo) {
-      // Ativo via estágio → desativar explicitamente para este lead
-      toggleLead.mutate({ leadId, ativo: false })
-    } else {
-      // Inativo sem override → ativar explicitamente para este lead
-      toggleLead.mutate({ leadId, ativo: true })
-    }
+    toggleLead.mutate({ leadId, ativo: !ativo })
   }
 
-  const titulo = temOverride
-    ? 'Configuração individual — clique para restaurar padrão do estágio'
-    : ativo
-      ? 'IA ativa pelo estágio — clique para desativar neste lead'
-      : 'IA inativa — clique para ativar neste lead'
+  const titulo = ativo
+    ? 'IA ativa — clique para desativar neste lead'
+    : 'IA inativa — clique para ativar neste lead'
 
   return (
     <button
       onClick={handleToggle}
       disabled={toggleLead.isPending}
       title={titulo}
-      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-50 ${
+      role="switch"
+      aria-checked={ativo}
+      className={`flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-full text-xs font-semibold transition-all disabled:opacity-50 border ${
         ativo
-          ? 'bg-primary-100 text-primary-700 hover:bg-primary-200 border border-primary-300'
-          : temOverride
-            ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-300'
-            : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-200'
+          ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/50'
+          : 'bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200'
       }`}
     >
-      <Bot size={13} className={
-        ativo ? 'text-primary-600' : temOverride ? 'text-amber-500' : 'text-gray-400'
-      } />
-      {ativo ? (
-        <span>
-          IA ativa
-          {fonte === 'estagio' && <span className="ml-1 opacity-60">(estágio)</span>}
-          {fonte === 'lead' && <span className="ml-1 opacity-60">(individual)</span>}
-        </span>
-      ) : temOverride ? (
-        <span>IA desativada <span className="opacity-60">(individual)</span></span>
-      ) : (
-        <span>IA inativa</span>
-      )}
-      {ativo && (
-        <span className="relative flex h-2 w-2 ml-0.5">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-400 opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-primary-500" />
-        </span>
-      )}
+      <Bot size={14} className={ativo ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'} />
+      <span>{ativo ? 'IA ativa' : 'IA inativa'}</span>
+      {/* Mini switch: deixa claro que o chip é um liga/desliga, não só um rótulo */}
+      <span
+        className={`relative w-8 h-4 rounded-full transition-colors shrink-0 ${
+          ativo ? 'bg-emerald-500 dark:bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full shadow transition-transform bg-white dark:bg-white ${
+            ativo ? 'translate-x-4' : 'translate-x-0'
+          }`}
+        />
+      </span>
     </button>
   )
 }

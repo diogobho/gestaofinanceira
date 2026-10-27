@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken, JwtPayload } from '../config/jwt';
+import { isAdminEmpresa } from '../shared/roles';
 
 export interface AuthRequest extends Request {
   user?: JwtPayload;
@@ -16,6 +17,34 @@ export const authRequired = (req: AuthRequest, res: Response, next: NextFunction
     req.user = payload;
     next();
   } catch (error: any) {
+    return res.status(401).json({ code: 'INVALID_TOKEN', message: 'Token inválido ou expirado' });
+  }
+};
+
+/**
+ * Autentica aceitando o token no header (XHR) OU em `?t=` (query).
+ *
+ * Existe para UM caso: recurso carregado por tag nativa do navegador — `<img>`,
+ * `<audio>`, `<video>`, ou um link que abre em nova aba. Essas requisições não
+ * passam pelo axios e não mandam `Authorization`, e o JWT deste app vive no
+ * localStorage, não em cookie: não há nada que o navegador anexe sozinho.
+ *
+ * Use SÓ em rota de download de arquivo. Para API normal, `authRequired` — token em
+ * query aparece no access log, e não há motivo para pagar isso onde o header serve.
+ *
+ * Dívida conhecida: o passo seguinte é URL assinada de curta duração (HMAC +
+ * expiração), que tira o token da query de vez.
+ */
+export const authRequiredOuTokenNaQuery = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.headers.authorization) return authRequired(req, res, next);
+  const t = (req.query as any)?.t;
+  if (typeof t !== 'string' || !t) {
+    return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Token não fornecido' });
+  }
+  try {
+    req.user = verifyAccessToken(t);
+    return next();
+  } catch {
     return res.status(401).json({ code: 'INVALID_TOKEN', message: 'Token inválido ou expirado' });
   }
 };
@@ -43,22 +72,18 @@ export const adminOnly = (req: AuthRequest, res: Response, next: NextFunction) =
   }
 };
 
-// Middleware para verificar se o usuário é MASTER na empresa (ou super_admin)
+// Middleware para verificar se o usuário administra a empresa — master, creator
+// (o dono, que fica acima do master) ou super_admin.
 export const masterOnly = (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.user) {
       return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Usuário não autenticado' });
     }
 
-    // Admin (super_admin) tem acesso total
-    if (req.user.nivel === 'super_admin') {
-      return next();
-    }
-
-    if (req.user.tipo_usuario !== 'master') {
+    if (!isAdminEmpresa(req.user)) {
       return res.status(403).json({
         code: 'FORBIDDEN',
-        message: 'Acesso negado. Apenas usuários master podem acessar este recurso.'
+        message: 'Acesso negado. Apenas usuários master ou creator podem acessar este recurso.'
       });
     }
 

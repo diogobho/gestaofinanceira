@@ -26,6 +26,18 @@ export interface TourStep {
   papeis?: TourRole[]
   /** Abrir a sidebar (mobile) antes de destacar este passo. */
   requerSidebar?: boolean
+  /**
+   * Passo INTERATIVO: esconde o botão "Próximo" e avança quando o usuário
+   * CLICA no elemento destacado (o clique real acontece — ex.: abre um modal).
+   */
+  avancarAoClicar?: boolean
+  /**
+   * Ao SAIR deste passo (Próximo/Concluir), clica neste seletor antes de
+   * avançar — usado para fechar um modal aberto durante o tour.
+   */
+  cliqueAoSair?: string
+  /** Esconde o botão "Anterior" (ex.: 1º passo dentro de um modal). */
+  semVoltar?: boolean
 }
 
 /** Um tour é uma coleção nomeada de passos. */

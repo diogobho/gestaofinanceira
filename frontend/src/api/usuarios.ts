@@ -13,7 +13,7 @@ export interface UsuarioEmpresa {
   nome: string
   email: string
   empresa_id: number
-  tipo_usuario: 'master' | 'comum'
+  tipo_usuario: 'master' | 'comum' | 'creator'
   ativo: boolean
 }
 

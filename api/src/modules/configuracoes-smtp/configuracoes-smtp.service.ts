@@ -1,6 +1,7 @@
 import { query } from '../../config/database';
 import { encrypt, decrypt } from '../../utils/crypto';
 import nodemailer from 'nodemailer';
+import type { SmtpCredentials } from '../../services/email.service';
 
 export interface SmtpConfig {
   id?: number;
@@ -39,6 +40,23 @@ export const configuracoesSmtpService = {
     return {
       ...row,
       smtp_pass: row.smtp_pass_enc ? decrypt(row.smtp_pass_enc) : undefined,
+    };
+  },
+
+  /**
+   * Credenciais de envio da PRÓPRIA empresa — só se a configuração estiver ativa e
+   * completa. Sem isso, null: quem chama recusa o envio (não há SMTP de reserva).
+   */
+  async credenciaisDaEmpresa(empresa_id: number): Promise<SmtpCredentials | null> {
+    const cfg = await this.getDecrypted(empresa_id);
+    if (!cfg?.ativo || !cfg.smtp_pass || !cfg.smtp_user || !cfg.smtp_host) return null;
+    return {
+      smtp_host: cfg.smtp_host,
+      smtp_port: Number(cfg.smtp_port),
+      smtp_user: cfg.smtp_user,
+      smtp_pass: cfg.smtp_pass,
+      email_from: cfg.email_from,
+      email_from_name: cfg.email_from_name,
     };
   },
 

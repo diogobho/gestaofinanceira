@@ -96,7 +96,8 @@ também disponível no WhatsApp.
 | Banco de dados | PostgreSQL — `gestao_financeira` |
 | Frontend (Nginx) | `/gestao/` → `frontend/dist/` |
 | API (Nginx) | `/api/gestao/` → `localhost:4100/api/` |
-| Domínios | `duofuturo.mooo.com`, `duofuturo.tech` (e `www`), `gestao.duofuturo.tech` |
+| URL canônica | `https://duofuturo.tech/gestao/` |
+| Domínios | Só `duofuturo.tech` (e `www`). `duofuturo.mooo.com` e `gestao.duofuturo.tech` são legados e redirecionam (301) para a URL canônica |
 
 > O frontend é um SPA estático servido pelo Nginx a partir de `frontend/dist/`.
 > A API roda em cluster no PM2 e expõe os endpoints sob `/api`.

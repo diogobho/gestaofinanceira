@@ -262,7 +262,7 @@ PLUGGY_BASE_URL=https://api.pluggy.ai
 ```
 > **Nunca commitar.** Adicionar ao `CREDENCIAIS.md`.
 
-**Nginx:** a rota `/api/gestao/pluggy/webhook` já cai no proxy existente (`/api/gestao/` → `:4100/api/`). Confirmar que o webhook é acessível via HTTPS público (`https://duofuturo.mooo.com/...`), exigência da Pluggy.
+**Nginx:** a rota `/api/gestao/pluggy/webhook` já cai no proxy existente (`/api/gestao/` → `:4100/api/`). Confirmar que o webhook é acessível via HTTPS público (`https://duofuturo.tech/...`), exigência da Pluggy.
 
 ### 5.3 Frontend
 
@@ -311,7 +311,7 @@ PLUGGY_BASE_URL=https://api.pluggy.ai
 
 | Item | Valor |
 |------|-------|
-| Webhook URL | `https://duofuturo.mooo.com/api/gestao/pluggy/webhook` |
+| Webhook URL | `https://duofuturo.tech/api/gestao/pluggy/webhook` |
 | Stack (technologies) | Web: **React**, **JavaScript** · Backend: **Node.js** |
 
 > **Atenção:** o webhook foi salvo sem testar para não iniciar a contagem dos 20 dias gratuitos. O endpoint `/api/gestao/pluggy/webhook` ainda não existe — deve ser implementado antes de ativar o trial e clicar em "Test Webhook".

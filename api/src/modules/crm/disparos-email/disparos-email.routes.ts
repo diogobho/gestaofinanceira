@@ -35,7 +35,7 @@ const uploadImage = multer({
 
 router.post('/email-images', uploadImage.single('imagem'), (req: Request, res: Response) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhuma imagem enviada' });
-  const url = `https://duofuturo.mooo.com/api/gestao/uploads/email-images/${req.file.filename}`;
+  const url = `https://duofuturo.tech/api/gestao/uploads/email-images/${req.file.filename}`;
   return res.json({ url });
 });
 

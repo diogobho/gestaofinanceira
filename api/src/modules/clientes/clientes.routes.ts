@@ -1,8 +1,23 @@
 import { Router } from 'express';
 import { clientesController } from './clientes.controller';
 import { authRequired } from '../../middlewares/auth.middleware';
+import multer from 'multer';
 
 const router = Router();
+
+// Importar clientes de planilha: mesmo upload da importação de leads (CSV/Excel, 10 MB).
+const upload = multer({
+  dest: '/tmp/crm-imports/',
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /\.(csv|xlsx|xls)$/i.test(file.originalname) || ['text/csv', 'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'].includes(file.mimetype);
+    if (ok) cb(null, true);
+    else cb(new Error('Tipo de arquivo não permitido. Use CSV ou Excel (.xlsx, .xls)'));
+  },
+});
+router.post('/importacao/preview', authRequired, upload.single('file'), clientesController.importacaoPreview);
+router.post('/importacao/importar', authRequired, upload.single('file'), clientesController.importar);
 
 /**
  * @swagger

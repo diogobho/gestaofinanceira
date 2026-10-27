@@ -7,6 +7,8 @@ import { Plus, Edit, Trash2, Video, MapPin, Calendar as CalendarIcon, List } fro
 import { sessionsApi, clientsApi } from '@/api'
 import { useAuth } from '@/contexts/AuthContext'
 import type { Session, CreateSessionRequest } from '@/types'
+import { formatDate as formatDateUtil } from '@/utils/format'
+import { useTermoCliente } from '@/hooks/useTermoCliente'
 
 export const SessionsList: React.FC = () => {
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
@@ -15,6 +17,7 @@ export const SessionsList: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  const { Cliente } = useTermoCliente()
   const { user } = useAuth()
 
   // Fetch sessions list
@@ -75,16 +78,21 @@ export const SessionsList: React.FC = () => {
     e.preventDefault()
     if (createMutation.isPending || updateMutation.isPending) return
     const formData = new FormData(e.currentTarget)
+    // Só Cliente, Data e Horário são realmente obrigatórios: cliente_id é NOT NULL no
+    // banco e sem data/hora não existe agenda. Todo o resto ganha um padrão sensato,
+    // para marcar uma sessão preenchendo três campos.
+    const tipoSessao = (formData.get('tipo_sessao') as string) || 'MENTORIA'
+    const tituloInformado = ((formData.get('titulo') as string) || '').trim()
     const data: any = {
       cliente_id: formData.get('cliente_id') as string,
       mentor_id: user?.id || '',
-      tipo_sessao: formData.get('tipo_sessao') as string,
+      tipo_sessao: tipoSessao,
       data: formData.get('data') as string,
       horario: formData.get('horario') as string,
-      duracao_minutos: parseInt(formData.get('duracao_minutos') as string),
-      modalidade: formData.get('modalidade') as string,
-      titulo: formData.get('titulo') as string,
-      descricao: formData.get('descricao') as string,
+      duracao_minutos: parseInt(formData.get('duracao_minutos') as string) || 60,
+      modalidade: (formData.get('modalidade') as string) || 'ONLINE',
+      titulo: tituloInformado || (tipoSessao.charAt(0) + tipoSessao.slice(1).toLowerCase()),
+      descricao: (formData.get('descricao') as string) || undefined,
       plataforma: formData.get('plataforma') as string || undefined,
       link_sessao: formData.get('link_sessao') as string || undefined,
       notas_internas: formData.get('notas_internas') as string || undefined,
@@ -118,9 +126,9 @@ export const SessionsList: React.FC = () => {
     setIsModalOpen(true)
   }
 
-  const formatDate = (date: Date | string) => {
-    return new Date(date).toLocaleDateString('pt-BR')
-  }
+  // Delegar ao util: datas puras (DATE) não podem ser convertidas pelo fuso local,
+  // senão exibem o dia anterior no Brasil (UTC-3).
+  const formatDate = (date: Date | string) => formatDateUtil(date)
 
   const formatDateTime = (date: Date | string, horario: string) => {
     return `${formatDate(date)} às ${horario.substring(0, 5)}`
@@ -128,7 +136,7 @@ export const SessionsList: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-full min-h-[60vh]">
         <Spinner size="lg" />
       </div>
     )
@@ -141,7 +149,7 @@ export const SessionsList: React.FC = () => {
   // Prepare calendar events
   const calendarEvents = sessions?.map(session => ({
     id: session.id,
-    title: `${session.titulo} - ${clients?.find(c => String(c.id) === String(session.cliente_id))?.nome || 'Cliente'}`,
+    title: `${session.titulo} - ${clients?.find(c => String(c.id) === String(session.cliente_id))?.nome || Cliente}`,
     date: session.data,
     time: session.horario.substring(0, 5),
     color: session.tipo_sessao === 'MENTORIA' ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-primary-500 text-white hover:bg-primary-600',
@@ -238,7 +246,7 @@ export const SessionsList: React.FC = () => {
                   badge={<Badge variant="default">{session.tipo_sessao}</Badge>}
                 />
                 <MobileCardRow
-                  label="Cliente"
+                  label={Cliente}
                   value={clients?.find(c => String(c.id) === String(session.cliente_id))?.nome || '-'}
                 />
                 <MobileCardRow
@@ -278,7 +286,7 @@ export const SessionsList: React.FC = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data/Hora</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Título</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{Cliente}</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Modalidade</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duração</th>
@@ -365,7 +373,7 @@ export const SessionsList: React.FC = () => {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cliente *
+                {Cliente} *
               </label>
               <Select name="cliente_id" defaultValue={editingItem?.cliente_id} required>
                 <option value="">Selecione...</option>
@@ -380,10 +388,9 @@ export const SessionsList: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tipo de Sessão *
+                  Tipo de Sessão
                 </label>
-                <Select name="tipo_sessao" defaultValue={editingItem?.tipo_sessao} required>
-                  <option value="">Selecione...</option>
+                <Select name="tipo_sessao" defaultValue={editingItem?.tipo_sessao || 'MENTORIA'}>
                   <option value="MENTORIA">MENTORIA</option>
                   <option value="COACHING">COACHING</option>
                 </Select>
@@ -391,10 +398,9 @@ export const SessionsList: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Modalidade *
+                  Modalidade
                 </label>
-                <Select name="modalidade" defaultValue={editingItem?.modalidade} required>
-                  <option value="">Selecione...</option>
+                <Select name="modalidade" defaultValue={editingItem?.modalidade || 'ONLINE'}>
                   <option value="ONLINE">ONLINE</option>
                   <option value="PRESENCIAL">PRESENCIAL</option>
                 </Select>
@@ -429,7 +435,7 @@ export const SessionsList: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Duração (minutos) *
+                Duração (minutos)
               </label>
               <Input
                 type="number"
@@ -437,32 +443,30 @@ export const SessionsList: React.FC = () => {
                 defaultValue={editingItem?.duracao_minutos || 60}
                 min="15"
                 step="15"
-                required
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Título *
+                Título
               </label>
               <Input
                 type="text"
                 name="titulo"
                 defaultValue={editingItem?.titulo}
-                placeholder="Ex: Sessão de Planejamento Estratégico"
-                required
+                placeholder="Em branco, usa o tipo da sessão"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Descrição *
+                Descrição
               </label>
               <Textarea
                 name="descricao"
                 defaultValue={editingItem?.descricao}
                 rows={3}
-                required
+                placeholder="Opcional — pauta ou observação da sessão"
               />
             </div>
 

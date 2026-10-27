@@ -7,7 +7,7 @@ export interface JwtPayload {
   email: string;
   nivel: 'super_admin' | 'admin_empresa' | 'usuario';
   empresa_id: number;
-  tipo_usuario: 'master' | 'comum';
+  tipo_usuario: 'master' | 'comum' | 'creator';
   permissoes?: Record<string, boolean>;
 }
 

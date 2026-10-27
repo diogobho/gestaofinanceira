@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { Check, Zap, Crown, Star, Loader2, CreditCard, Lock } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { assinaturasApi, Plano, Assinatura } from '@/api/assinaturas'
-import { useNavigate } from 'react-router-dom'
+import { assinaturasApi, Plano, Assinatura, cicloDe, cicloReferencia, ciclosDisponiveis, calcularCobranca, calcularParcelamento, economiaAnual, ROTULO_CICLO, COMPROMISSO_CICLO } from '@/api/assinaturas'
+import type { Ciclo } from '@/api/assinaturas'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -25,14 +25,21 @@ function formatExpiry(value: string) {
 }
 
 export const Planos: React.FC = () => {
-  const navigate = useNavigate()
+  // Carga completa, não navigate: o Layout lê a assinatura uma vez por carga, e quem
+  // estava bloqueado e acabou de pagar com cartão ficaria preso na Minha Conta até o F5.
+  const irParaMinhaConta = () => { window.location.assign('/gestao/minha-conta') }
   const { user } = useAuth()
   const [planos, setPlanos] = useState<Plano[]>([])
   const [assinatura, setAssinatura] = useState<Assinatura | null>(null)
   const [loading, setLoading] = useState(true)
   const [assinando, setAssinando] = useState<number | null>(null)
+  // Quantidade de usuários escolhida em cada plano customizável (chave = plano.id).
+  const [usuariosPorPlano, setUsuariosPorPlano] = useState<Record<number, number>>({})
   const [billingType, setBillingType] = useState<'BOLETO' | 'PIX' | 'CREDIT_CARD'>('PIX')
   const [cpfCnpj, setCpfCnpj] = useState('')
+  // Parcelas no cartão: só em ciclo de vários meses, até uma por mês do ciclo.
+  const [parcelasEscolhidas, setParcelas] = useState(1)
+  const [jurosAoMes, setJurosAoMes] = useState(0)
 
   // Credit card fields
   const [cardHolder, setCardHolder] = useState('')
@@ -55,7 +62,29 @@ export const Planos: React.FC = () => {
       setPlanos(p)
       setAssinatura(a)
     }).finally(() => setLoading(false))
+    assinaturasApi.getJurosParcelamento().then(setJurosAoMes).catch(() => {})
   }, [])
+
+  const qtdDe = (plano: Plano) => usuariosPorPlano[plano.id] ?? plano.usuarios_base ?? 1
+
+  // Um compromisso só para a tela toda: ele muda o preço dos três cards ao mesmo
+  // tempo, e escolher dentro de cada card faria o cliente decidir três vezes.
+  // Mesma referência da landing e do cadastro: o plano em destaque.
+  const planoReferencia = planos.find(p => p.destaque) || planos[0]
+  // Os compromissos vêm da API (só os à venda). Sem escolha, vale o primeiro —
+  // o de menor prazo; escolha que saiu da lista também cai nele.
+  const CICLOS = ciclosDisponiveis(planoReferencia)
+  const [cicloEscolhido, setCiclo] = useState<Ciclo | null>(null)
+  const ciclo: Ciclo = cicloEscolhido && CICLOS.includes(cicloEscolhido) ? cicloEscolhido : (CICLOS[0] ?? 'semestral')
+  const mesesDoCiclo = planoReferencia ? cicloDe(planoReferencia, ciclo).meses : 1
+  const podeParcelar = billingType === 'CREDIT_CARD' && mesesDoCiclo > 1
+  // Trocar de ciclo ou de forma de pagamento não pode deixar uma escolha impossível.
+  const parcelas = podeParcelar ? Math.min(parcelasEscolhidas, mesesDoCiclo) : 1
+  const descontoDoCiclo = (c: Ciclo) => {
+    if (!planoReferencia) return 0
+    const alvo = cicloDe(planoReferencia, c)
+    return Math.round((1 - Number(alvo.preco_mensal) / Number(cicloReferencia(planoReferencia).preco_mensal)) * 100)
+  }
 
   const handleAssinar = async (plano: Plano) => {
     if (!cpfCnpj) {
@@ -105,6 +134,9 @@ export const Planos: React.FC = () => {
         cpf_cnpj: cpfCnpj,
         credit_card: creditCard,
         credit_card_holder_info: creditCardHolderInfo,
+        usuarios: qtdDe(plano),
+        ciclo,
+        parcelas: parcelas > 1 ? parcelas : undefined,
       })
 
       if (billingType === 'PIX' && (resultado.pixQrCodeImage || resultado.pixQrCode)) {
@@ -116,10 +148,10 @@ export const Planos: React.FC = () => {
       } else if (resultado.paymentUrl) {
         toast.success(`Plano ${plano.nome} ativado! Abrindo página de pagamento...`)
         setTimeout(() => window.open(resultado.paymentUrl, '_blank'), 800)
-        navigate('/minha-conta')
+        irParaMinhaConta()
       } else {
         toast.success(`Plano ${plano.nome} ativado com sucesso!`)
-        navigate('/minha-conta')
+        irParaMinhaConta()
       }
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Erro ao assinar plano')
@@ -289,6 +321,27 @@ export const Planos: React.FC = () => {
             </div>
           )}
 
+          {podeParcelar && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parcelas no cartão</label>
+              <select
+                value={parcelas}
+                onChange={e => setParcelas(Number(e.target.value))}
+                className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                {Array.from({ length: mesesDoCiclo }, (_, i) => i + 1).map(n => (
+                  <option key={n} value={n}>{n === 1 ? 'À vista (1x, sem juros)' : `${n}x com juros`}</option>
+                ))}
+              </select>
+              {parcelas > 1 && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Juros de {(jurosAoMes * 100).toFixed(2).replace('.', ',')}% ao mês. O valor de cada parcela aparece no plano abaixo.
+                  O parcelado cobre {mesesDoCiclo} meses; para continuar depois, é só contratar de novo.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               CPF / CNPJ (obrigatório para cobrança)
@@ -304,6 +357,42 @@ export const Planos: React.FC = () => {
           </div>
         </div>
       </Card>
+
+      {/* Compromisso de fidelidade — vale para os três cards abaixo. */}
+      <div className="mb-6">
+        <div className="mx-auto grid max-w-sm grid-cols-2 gap-1.5 rounded-xl bg-gray-100 p-1 dark:bg-gray-800" role="tablist" aria-label="Compromisso de fidelidade">
+          {CICLOS.map(c => {
+            const ativo = ciclo === c
+            const desconto = descontoDoCiclo(c)
+            return (
+              <button
+                key={c}
+                type="button"
+                role="tab"
+                aria-selected={ativo}
+                onClick={() => setCiclo(c)}
+                className={`rounded-lg px-2 py-2 text-xs font-medium transition-all ${
+                  ativo
+                    ? 'bg-white text-primary-700 shadow-sm ring-1 ring-primary-200 dark:bg-gray-700 dark:text-primary-300 dark:ring-primary-700'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                }`}
+              >
+                {ROTULO_CICLO[c]}
+                {desconto > 0 && (
+                  <span className={`ml-1 rounded px-1 py-0.5 text-[10px] font-semibold ${
+                    ativo ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                  }`}>
+                    −{desconto}%
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <p className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+          {COMPROMISSO_CICLO[ciclo]}. Usuário adicional segue a R$ 100/mês em qualquer compromisso.
+        </p>
+      </div>
 
       {/* Cards de planos */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -338,12 +427,94 @@ export const Planos: React.FC = () => {
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">{plano.nome}</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">{plano.descricao}</p>
 
-                <div className="mb-6">
+                <div className="mb-4">
+                  {/* Riscado só contra um compromisso que ainda se contrata. */}
+                  {economiaAnual(plano, cicloDe(plano, ciclo)) > 0 && (
+                    <div className="text-sm text-gray-400 line-through dark:text-gray-500">
+                      R$ {calcularCobranca(plano, cicloReferencia(plano), qtdDe(plano)).mensal.toFixed(2).replace('.', ',')}
+                    </div>
+                  )}
                   <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                    R$ {Number(plano.preco_mensal).toFixed(2).replace('.', ',')}
+                    R$ {calcularCobranca(plano, cicloDe(plano, ciclo), qtdDe(plano)).mensal.toFixed(2).replace('.', ',')}
                   </span>
                   <span className="text-sm text-gray-500 dark:text-gray-400">/mês</span>
+                  {cicloDe(plano, ciclo).meses > 1 && (
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      R$ {calcularCobranca(plano, cicloDe(plano, ciclo), qtdDe(plano)).total.toFixed(2).replace('.', ',')}
+                      {' '}a cada {cicloDe(plano, ciclo).meses} meses
+                      {economiaAnual(plano, cicloDe(plano, ciclo)) > 0 && (
+                        <span className="ml-1 font-medium text-green-600 dark:text-green-400">
+                          · economia de R$ {economiaAnual(plano, cicloDe(plano, ciclo)).toFixed(2).replace('.', ',')}/ano
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {parcelas > 1 && (() => {
+                    const p = calcularParcelamento(calcularCobranca(plano, cicloDe(plano, ciclo), qtdDe(plano)).total, parcelas, jurosAoMes)
+                    return (
+                      <div className="mt-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                        No cartão: {p.parcelas}x de R$ {p.valorParcela.toFixed(2).replace('.', ',')}
+                        <span className="font-normal text-gray-500 dark:text-gray-400"> (total R$ {p.total.toFixed(2).replace('.', ',')})</span>
+                      </div>
+                    )
+                  })()}
+                  {plano.customizavel && qtdDe(plano) > (plano.usuarios_base ?? 0) && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      R$ {Number(cicloDe(plano, ciclo).preco_mensal).toFixed(2).replace('.', ',')} do plano
+                      {' + '}
+                      {qtdDe(plano) - (plano.usuarios_base ?? 0)} usuário
+                      {qtdDe(plano) - (plano.usuarios_base ?? 0) > 1 ? 's' : ''} adicional
+                      {qtdDe(plano) - (plano.usuarios_base ?? 0) > 1 ? 'is' : ''}
+                    </p>
+                  )}
                 </div>
+
+                {/* Seletor de usuários — só nos planos que aceitam adicionais */}
+                {plano.customizavel && (
+                  <div className="mb-6 rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Usuários</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {plano.usuarios_base} inclusos · até {plano.usuarios_max}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          aria-label="Remover usuário"
+                          onClick={() => setUsuariosPorPlano(m => ({
+                            ...m,
+                            [plano.id]: Math.max(plano.usuarios_base ?? 1, qtdDe(plano) - 1),
+                          }))}
+                          disabled={qtdDe(plano) <= (plano.usuarios_base ?? 1)}
+                          className="h-8 w-8 rounded-lg border border-gray-300 text-lg leading-none text-gray-700 disabled:opacity-40 dark:border-gray-600 dark:text-gray-200"
+                        >
+                          −
+                        </button>
+                        <span className="w-8 text-center text-base font-semibold text-gray-900 dark:text-white">
+                          {qtdDe(plano)}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Adicionar usuário"
+                          onClick={() => setUsuariosPorPlano(m => ({
+                            ...m,
+                            [plano.id]: Math.min(plano.usuarios_max ?? 1, qtdDe(plano) + 1),
+                          }))}
+                          disabled={qtdDe(plano) >= (plano.usuarios_max ?? 1)}
+                          className="h-8 w-8 rounded-lg border border-gray-300 text-lg leading-none text-gray-700 disabled:opacity-40 dark:border-gray-600 dark:text-gray-200"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Cada usuário adicional custa R$ {Number(plano.preco_usuario_adicional).toFixed(2).replace('.', ',')}/mês
+                      e ganha o próprio número de WhatsApp.
+                    </p>
+                  </div>
+                )}
 
                 <ul className="space-y-2 mb-6 flex-1">
                   {(plano.features as string[]).map((feat, i) => (
@@ -379,11 +550,11 @@ export const Planos: React.FC = () => {
       {/* Banner sob medida */}
       <div className="border border-gray-200 dark:border-gray-700 rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4 bg-gray-50 dark:bg-gray-800/50">
         <div>
-          <p className="font-semibold text-gray-900 dark:text-white">Precisa de mais de 8 usuários?</p>
+          <p className="font-semibold text-gray-900 dark:text-white">Precisa de mais de 30 usuários?</p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Criamos um plano sob medida para o seu negócio.</p>
         </div>
         <a
-          href="https://wa.me/5524981213371?text=Olá! Tenho interesse em um plano personalizado para mais de 8 usuários."
+          href="https://wa.me/5511940524435?text=Olá! Tenho interesse em um plano personalizado para mais de 30 usuários."
           target="_blank"
           rel="noopener noreferrer"
           className="shrink-0 px-5 py-2.5 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-medium hover:opacity-90 transition-opacity"
@@ -449,7 +620,7 @@ export const Planos: React.FC = () => {
                 </a>
               )}
               <button
-                onClick={() => { setPixModal(null); navigate('/minha-conta') }}
+                onClick={() => { setPixModal(null); irParaMinhaConta() }}
                 className="flex-1 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium transition-colors"
               >
                 Já paguei

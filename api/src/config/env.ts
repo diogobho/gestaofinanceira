@@ -19,4 +19,11 @@ export const env = {
   PLUGGY_CLIENT_SECRET: process.env.PLUGGY_CLIENT_SECRET || '',
   PLUGGY_WEBHOOK_SECRET: process.env.PLUGGY_WEBHOOK_SECRET || '',
   PLUGGY_SANDBOX: process.env.PLUGGY_SANDBOX === 'true',
+  // Legado: desde a migration 066 o client_id/secret é POR CONEXÃO, na tabela
+  // contaazul_conexoes — a empresa pode ter mais de uma conta do Conta Azul.
+  // Ficam aqui só para semear conexão nova com scripts/seed_contaazul_conexoes.js.
+  CONTAAZUL_CLIENT_ID: process.env.CONTAAZUL_CLIENT_ID || '',
+  CONTAAZUL_CLIENT_SECRET: process.env.CONTAAZUL_CLIENT_SECRET || '',
+  CONTAAZUL_REDIRECT_URI: process.env.CONTAAZUL_REDIRECT_URI || '',
+  CONTAAZUL_SETUP_SECRET: process.env.CONTAAZUL_SETUP_SECRET || '',
 };
